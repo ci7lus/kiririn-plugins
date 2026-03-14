@@ -1,28 +1,34 @@
-import type { DisplayArea, KiririnBridge, Playable } from "./Plugin.d.ts";
+import type {
+	DisplayArea,
+	KiririnBridge,
+	Playable,
+	PlayerPlaybackState,
+} from "./Plugin.d.ts";
 
 const mockPlayable: Playable = {
 	id: "mock-id",
 	title: "サンプル番組タイトル",
+	isSeekable: false, // デフォルトは生放送
 	program: {
 		name: "サンプル番組名",
 		description:
 			"これはサンプルの番組説明です。KiririnBridgeのデバッグ用データです。",
-		startAt: Math.floor(Date.now() / 1000),
-		endAt: Math.floor(Date.now() / 1000) + 3600,
+		startAt: Math.floor(new Date("2026-03-14T17:00:00+09:00").getTime() / 1000),
+		endAt: Math.floor(new Date("2026-03-14T18:00:00+09:00").getTime() / 1000),
 		duration: 3600,
 		genres: [{ lv1: 1, name: "趣味・教育" }],
 		extended: [["出演者", "山田太郎, 佐藤花子"]],
 	},
 	service: {
 		name: "サンプルチャンネル",
-		serviceId: 101,
-		networkId: 4,
+		serviceId: 1024,
+		networkId: 32736,
 		type: { value: 1, description: "デジタルTV" },
 	},
 };
 
 const AREA_PATTERNS: DisplayArea[] = [
-	{ type: "playerOverlay", width: 400, height: 200 },
+	{ type: "playerOverlay", width: 1280, height: 720 },
 	{ type: "pluginSettings", width: 600, height: 400 },
 	{
 		type: "pluginScreen",
@@ -34,7 +40,9 @@ const AREA_PATTERNS: DisplayArea[] = [
 class MockBridge implements KiririnBridge {
 	private playableCallbacks: ((p: Playable) => void)[] = [];
 	private areaCallbacks: ((a: DisplayArea) => void)[] = [];
+	private playerStateCallbacks: ((s: PlayerPlaybackState) => void)[] = [];
 	private currentAreaIndex = 0;
+	private startTime = Date.now();
 
 	constructor() {
 		window.addEventListener("resize", () => {
@@ -43,15 +51,26 @@ class MockBridge implements KiririnBridge {
 				this.notifyAreaUpdate(newArea);
 			}
 		});
+
+		// Simulate playback
+		setInterval(() => {
+			const state = this.getPlayerState();
+			for (const cb of this.playerStateCallbacks) cb(state);
+		}, 1000);
 	}
 
 	getPlayable(): Playable | null {
 		return mockPlayable;
 	}
 
-	onPlayableUpdate(callback: (playable: Playable) => void): void {
+	onPlayableUpdate(callback: (playable: Playable) => void): () => void {
 		this.playableCallbacks.push(callback);
 		setTimeout(() => callback(mockPlayable), 0);
+		return () => {
+			this.playableCallbacks = this.playableCallbacks.filter(
+				(cb) => cb !== callback,
+			);
+		};
 	}
 
 	getDisplayArea(): DisplayArea {
@@ -62,9 +81,33 @@ class MockBridge implements KiririnBridge {
 		return area;
 	}
 
-	onDisplayAreaUpdate(callback: (area: DisplayArea) => void): void {
+	onDisplayAreaUpdate(callback: (area: DisplayArea) => void): () => void {
 		this.areaCallbacks.push(callback);
 		setTimeout(() => callback(this.getDisplayArea()), 0);
+		return () => {
+			this.areaCallbacks = this.areaCallbacks.filter((cb) => cb !== callback);
+		};
+	}
+
+	getPlayerState(): PlayerPlaybackState {
+		const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+		return {
+			isPlaying: true,
+			time: elapsed,
+			position: elapsed / 3600,
+		};
+	}
+
+	onPlayerStateUpdate(
+		callback: (state: PlayerPlaybackState) => void,
+	): () => void {
+		this.playerStateCallbacks.push(callback);
+		setTimeout(() => callback(this.getPlayerState()), 0);
+		return () => {
+			this.playerStateCallbacks = this.playerStateCallbacks.filter(
+				(cb) => cb !== callback,
+			);
+		};
 	}
 
 	sendMessage(type: string, data: any): void {
@@ -76,6 +119,15 @@ class MockBridge implements KiririnBridge {
 		const newArea = this.getDisplayArea();
 		this.notifyAreaUpdate(newArea);
 		return newArea;
+	}
+
+	public toggleSeekable(): void {
+		mockPlayable.isSeekable = !mockPlayable.isSeekable;
+		this.notifyPlayableUpdate(mockPlayable);
+	}
+
+	private notifyPlayableUpdate(playable: Playable) {
+		for (const cb of this.playableCallbacks) cb(playable);
 	}
 
 	private notifyAreaUpdate(area: DisplayArea) {

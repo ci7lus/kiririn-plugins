@@ -7,6 +7,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 
 const plugins = [
 	{ name: "example", input: resolve(process.cwd(), "example.html") },
+	{ name: "nicojk", input: resolve(process.cwd(), "nicojk.html") },
 ];
 
 async function buildAll() {
@@ -24,7 +25,7 @@ async function buildAll() {
 				rollupOptions: {
 					input: plugin.input,
 				},
-				emptyOutDir: false,
+				emptyOutDir: false, // 前のプラグインの出力を消さないようにする
 				outDir: "dist",
 			},
 		});

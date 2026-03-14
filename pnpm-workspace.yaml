@@ -1,2 +1,5 @@
 onlyBuiltDependencies:
   - esbuild
+
+patchedDependencies:
+  '@xpadev-net/niconicomments': patches/@xpadev-net__niconicomments.patch

@@ -11,8 +11,12 @@
 		"build-orig": "tsc -b && vite build"
 	},
 	"dependencies": {
+		"@xpadev-net/niconicomments": "^0.2.76",
+		"axios": "^1.13.6",
+		"lucide-react": "^0.577.0",
 		"react": "^19.2.4",
-		"react-dom": "^19.2.4"
+		"react-dom": "^19.2.4",
+		"reconnecting-websocket": "^4.4.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.7",

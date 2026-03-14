@@ -7,8 +7,11 @@
 body {
 	margin: 0;
 	background-color: transparent !important; /* 背景透過を強制 */
+	height: 100%;
 }
 
+html,
 #root {
+	height: 100%;
 	background-color: transparent !important;
 }
