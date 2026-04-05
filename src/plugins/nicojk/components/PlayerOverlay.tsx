@@ -2,6 +2,7 @@ import NiconiComments from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
+import type { NicoJKContext } from "../context";
 import { getSettings, isNG } from "../ng-settings";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 	height: number;
 	isLive: boolean;
 	playbackState: PlayerPlaybackState | null;
+	jkContext: NicoJKContext | null;
 }
 
 export default function PlayerOverlay({
@@ -18,20 +20,32 @@ export default function PlayerOverlay({
 	height,
 	isLive,
 	playbackState,
+	jkContext,
 }: Props) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const rendererRef = useRef<NiconiComments | null>(null);
 	const lastCommentIdRef = useRef<number>(0);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
+	const [showDebugInfo, setShowDebugInfo] = useState(
+		getSettings().showDebugInfo,
+	);
+	const [rendererInitialized, setRendererInitialized] = useState(false);
 
 	// Settings update listener
 	useEffect(() => {
 		const handleUpdate = () => {
-			setOpacity(getSettings().opacity);
+			const s = getSettings();
+			setOpacity(s.opacity);
+			setShowDebugInfo(s.showDebugInfo);
 		};
 		window.addEventListener("nicojk_settings_updated", handleUpdate);
-		return () =>
+		window.addEventListener("storage", (e) => {
+			if (e.key === "nicojk_settings_v3") handleUpdate();
+		});
+		return () => {
 			window.removeEventListener("nicojk_settings_updated", handleUpdate);
+			window.removeEventListener("storage", handleUpdate);
+		};
 	}, []);
 
 	const syncRef = useRef<{
@@ -59,6 +73,8 @@ export default function PlayerOverlay({
 			format: "empty",
 		});
 		rendererRef.current = renderer;
+		lastCommentIdRef.current = 0;
+		setRendererInitialized(true);
 
 		// Animation loop
 		let animationFrameId: number;
@@ -92,7 +108,7 @@ export default function PlayerOverlay({
 
 	// Handle new comments
 	useEffect(() => {
-		if (!rendererRef.current) return;
+		if (!rendererInitialized || !rendererRef.current) return;
 
 		if (comments.length === 0) {
 			lastCommentIdRef.current = 0;
@@ -125,7 +141,7 @@ export default function PlayerOverlay({
 		if (lastComment) {
 			lastCommentIdRef.current = lastComment.id;
 		}
-	}, [comments]);
+	}, [comments, rendererInitialized]);
 
 	// 16:9 calculation
 	let targetW = width;
@@ -135,6 +151,14 @@ export default function PlayerOverlay({
 		targetH = height;
 		targetW = height * (16 / 9);
 	}
+
+	const formatTime = (unix: number) => {
+		if (!unix) return "--:--";
+		return new Date(unix * 1000).toLocaleString("ja-JP", {
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	};
 
 	return (
 		<div className="w-full h-full min-h-full flex flex-col items-center justify-center pointer-events-none bg-transparent overflow-hidden">
@@ -149,6 +173,17 @@ export default function PlayerOverlay({
 					transition: "opacity 0.2s ease-in-out",
 				}}
 			/>
+
+			{showDebugInfo && jkContext && (
+				<div className="absolute top-4 left-4 flex flex-col gap-1 p-2 bg-black/40 text-white rounded text-[10px] tabular-nums font-mono border border-white/20">
+					<div>
+						{jkContext.channelName} ({jkContext.jkId})
+					</div>
+					<div>
+						{formatTime(jkContext.startAt)} - {formatTime(jkContext.endAt)}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

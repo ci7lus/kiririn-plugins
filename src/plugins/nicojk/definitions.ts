@@ -18,10 +18,10 @@ interface DefinitionsCache {
 	channels: ChannelDefinition[];
 }
 
-export async function getJkId(
+export async function getJkInfo(
 	serviceId: number,
 	networkId: number,
-): Promise<string | null> {
+): Promise<{ jkId: string; name: string } | null> {
 	let channels: ChannelDefinition[] = [];
 
 	const cached = localStorage.getItem(CACHE_KEY);
@@ -59,7 +59,7 @@ export async function getJkId(
 			channel.networkId === (networkId > 31744 ? networkId >> 11 : networkId),
 	);
 	if (matched?.nicojkId) {
-		return `jk${matched.nicojkId}`;
+		return { jkId: `jk${matched.nicojkId}`, name: matched.name };
 	}
 
 	return null;

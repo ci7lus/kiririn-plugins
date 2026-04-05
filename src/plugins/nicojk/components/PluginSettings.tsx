@@ -83,6 +83,30 @@ export default function PluginSettings() {
 								className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
 							/>
 						</div>
+
+						<div className="flex items-center justify-between py-2 border-t border-gray-700/50 mt-2">
+							<span className="text-sm text-gray-300">デバッグ情報を表示</span>
+							<button
+								type="button"
+								onClick={() => {
+									const newSettings = {
+										...settings,
+										showDebugInfo: !settings.showDebugInfo,
+									};
+									setSettings(newSettings);
+									saveSettings(newSettings);
+								}}
+								className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${
+									settings.showDebugInfo ? "bg-indigo-600" : "bg-gray-700"
+								}`}
+							>
+								<span
+									className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+										settings.showDebugInfo ? "translate-x-6" : "translate-x-1"
+									}`}
+								/>
+							</button>
+						</div>
 					</div>
 				</div>
 

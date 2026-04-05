@@ -3,12 +3,15 @@ import {
 	ArrowDown,
 	ArrowUp,
 	Ban,
+	Info,
 	MessageSquare,
 	UserX,
+	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
+import type { NicoJKContext } from "../context";
 import { addNGId, isNG } from "../ng-settings";
 
 interface Props {
@@ -16,6 +19,7 @@ interface Props {
 	isLive: boolean;
 	playbackState: PlayerPlaybackState | null;
 	wsStatus?: string;
+	jkContext: NicoJKContext | null;
 }
 
 export default function PluginScreen({
@@ -23,11 +27,13 @@ export default function PluginScreen({
 	isLive,
 	playbackState,
 	wsStatus,
+	jkContext,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
+	const [showInfo, setShowInfo] = useState(false);
 
 	const filteredComments = filterNG
 		? comments.filter((c) => !isNG(c.content, c.user_id))
@@ -71,7 +77,7 @@ export default function PluginScreen({
 			}
 			if (targetElement) {
 				// 追従時は instant
-				targetElement.scrollIntoView({ behavior: "auto", block: "start" });
+				targetElement.scrollIntoView({ behavior: "auto", block: "end" });
 			}
 		}
 	}, [autoScroll, isLive, playbackState]);
@@ -126,10 +132,29 @@ export default function PluginScreen({
 		}
 	};
 
+	const formatTime = (unix: number) => {
+		if (!unix) return "--:--";
+		return new Date(unix * 1000).toLocaleString("ja-JP", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	};
+
 	return (
-		<div className="flex flex-col h-full bg-[#1a1a1a] text-white">
-			<div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525]">
+		<div className="flex flex-col h-full bg-[#1a1a1a] text-white overflow-hidden relative">
+			<div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525] shrink-0">
 				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={() => setShowInfo(!showInfo)}
+						className="p-1 hover:bg-gray-700 rounded transition-colors text-blue-400"
+						title="情報"
+					>
+						<Info size={18} />
+					</button>
 					<MessageSquare size={16} className="text-gray-400" />
 					<span className="font-bold text-sm">コメント</span>
 					{isLive && (
@@ -156,7 +181,7 @@ export default function PluginScreen({
 						title="自動スクロール"
 					>
 						<ArrowDown size={16} />{" "}
-						<span className="text-sm">自動スクロール</span>
+						<span className="text-sm">自動ｽｸﾛｰﾙ</span>
 					</button>
 					<button
 						type="button"
@@ -164,7 +189,7 @@ export default function PluginScreen({
 						className={`p-1 rounded flex justify-center items-center gap-1 ${filterNG ? "bg-red-600" : "bg-gray-700"}`}
 						title="NGフィルター"
 					>
-						<Ban size={16} /> <span className="text-sm">NGフィルター</span>
+						<Ban size={16} /> <span className="text-sm">NGﾌｨﾙﾀｰ</span>
 					</button>
 				</div>
 			</div>
@@ -210,6 +235,45 @@ export default function PluginScreen({
 				>
 					<ArrowUp size={20} className="rotate-180" />
 				</button>
+			)}
+			{/* Info Popover */}
+			{showInfo && (
+				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+					<div className="flex justify-between items-start mb-2">
+						<h4 className="font-bold text-blue-400 flex items-center gap-1">
+							<Info size={14} /> チャンネル情報
+						</h4>
+						<button
+							type="button"
+							onClick={() => setShowInfo(false)}
+							className="text-gray-400 hover:text-white"
+						>
+							<X size={16} />
+						</button>
+					</div>
+					{jkContext ? (
+						<div className="space-y-2 text-sm">
+							<div className="flex justify-between border-b border-gray-700 pb-1">
+								<span className="text-gray-400">チャンネル</span>
+								<span>
+									{jkContext.channelName} ({jkContext.jkId})
+								</span>
+							</div>
+							<div className="flex justify-between border-b border-gray-700 pb-1">
+								<span className="text-gray-400">開始時間</span>
+								<span>{formatTime(jkContext.startAt + 10)}</span>
+							</div>
+							<div className="flex justify-between">
+								<span className="text-gray-400">終了時間</span>
+								<span>{formatTime(jkContext.endAt + 10)}</span>
+							</div>
+						</div>
+					) : (
+						<p className="text-sm text-gray-500 italic">
+							情報が取得できませんでした
+						</p>
+					)}
+				</div>
 			)}
 		</div>
 	);

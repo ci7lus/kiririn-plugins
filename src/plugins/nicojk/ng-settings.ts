@@ -2,9 +2,10 @@ export interface NicoJKSettings {
 	ngWords: string[];
 	ngIds: string[];
 	opacity: number;
+	showDebugInfo: boolean;
 }
 
-const STORAGE_KEY = "nicojk_settings_v2";
+const STORAGE_KEY = "nicojk_settings_v3"; // Bump version because of new property
 
 export function getSettings(): NicoJKSettings {
 	const stored = localStorage.getItem(STORAGE_KEY);
@@ -15,7 +16,7 @@ export function getSettings(): NicoJKSettings {
 			console.error("Failed to parse settings", e);
 		}
 	}
-	return { ngWords: [], ngIds: [], opacity: 0.8 };
+	return { ngWords: [], ngIds: [], opacity: 0.8, showDebugInfo: false };
 }
 
 export function saveSettings(settings: NicoJKSettings) {

@@ -9,7 +9,8 @@ import { CommentClient, type NiconicoComment } from "./comment-client";
 import PlayerOverlay from "./components/PlayerOverlay";
 import PluginScreen from "./components/PluginScreen";
 import PluginSettings from "./components/PluginSettings";
-import { getJkId } from "./definitions";
+import type { NicoJKContext } from "./context";
+import { getJkInfo } from "./definitions";
 import { KakologManager } from "./kakolog-manager";
 
 const MAX_COMMENTS = 500;
@@ -19,6 +20,7 @@ export default function App() {
 	const [area, setArea] = useState<DisplayArea | null>(null);
 	const [comments, setComments] = useState<NiconicoComment[]>([]);
 	const [jkId, setJkId] = useState<string | null>(null);
+	const [jkContext, setJkContext] = useState<NicoJKContext | null>(null);
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
 	const [wsStatus, setWsStatus] = useState<string>("disconnected");
@@ -32,16 +34,30 @@ export default function App() {
 	useEffect(() => {
 		const bridge = initBridge();
 
-		const unsubPlayable = bridge.onPlayableUpdate((p) => {
+		const unsubPlayable = bridge.onPlayableUpdate(async (p) => {
 			setPlayable(p);
 			const serviceId = p.service?.serviceId;
 			const networkId = p.service?.networkId;
 			if (serviceId && networkId) {
-				getJkId(serviceId, networkId).then((id) => {
-					setJkId(id);
-				});
+				const info = await getJkInfo(serviceId, networkId);
+				if (info) {
+					setJkId(info.jkId);
+					const startAt =
+						(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
+					const duration = p.program?.duration || p.length || 0;
+					setJkContext({
+						jkId: info.jkId,
+						channelName: info.name,
+						startAt,
+						endAt: startAt + duration,
+					});
+				} else {
+					setJkId(null);
+					setJkContext(null);
+				}
 			} else {
 				setJkId(null);
+				setJkContext(null);
 			}
 		});
 
@@ -178,6 +194,7 @@ export default function App() {
 					height={area.height}
 					isLive={!playable?.isSeekable}
 					playbackState={playbackState}
+					jkContext={jkContext}
 				/>
 			)}
 
@@ -187,6 +204,7 @@ export default function App() {
 					isLive={!playable?.isSeekable}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
+					jkContext={jkContext}
 				/>
 			)}
 
