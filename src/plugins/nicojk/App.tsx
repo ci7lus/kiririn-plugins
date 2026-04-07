@@ -5,7 +5,11 @@ import type {
 	Playable,
 	PlayerPlaybackState,
 } from "../../Plugin.d.ts";
-import { CommentClient, type NiconicoComment } from "./comment-client";
+import {
+	CommentClient,
+	type ConnectionStatus,
+	type NiconicoComment,
+} from "./comment-client";
 import PlayerOverlay from "./components/PlayerOverlay";
 import PluginScreen from "./components/PluginScreen";
 import PluginSettings from "./components/PluginSettings";
@@ -13,175 +17,312 @@ import type { NicoJKContext } from "./context";
 import { getJkInfo } from "./definitions";
 import { KakologManager } from "./kakolog-manager";
 
-const MAX_COMMENTS = 500;
+const MAX_COMMENTS = 1000;
 
 export default function App() {
-	const [playable, setPlayable] = useState<Playable | null>(null);
+	const [instanceId] = useState(() => Math.random().toString(36).substring(7));
+	const [targetPlayable, setTargetPlayable] = useState<Playable | null>(null);
 	const [area, setArea] = useState<DisplayArea | null>(null);
 	const [comments, setComments] = useState<NiconicoComment[]>([]);
-	const [jkId, setJkId] = useState<string | null>(null);
 	const [jkContext, setJkContext] = useState<NicoJKContext | null>(null);
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
-	const [wsStatus, setWsStatus] = useState<string>("disconnected");
-	const lastVideoIdRef = useRef<string | null>(null);
+	const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
 
-	const clientRef = useRef<CommentClient>(new CommentClient());
-	const kakologRef = useRef<KakologManager>(new KakologManager());
-	const lastModeRef = useRef<"live" | "kakolog" | null>(null);
+	const areaRef = useRef<DisplayArea | null>(null);
+	const targetPlayableRef = useRef<Playable | null>(null);
+	const playersDataRef = useRef<
+		Map<
+			string,
+			{
+				playableId: string | null;
+				comments: NiconicoComment[];
+				jkId: string | null;
+				jkContext: NicoJKContext | null;
+			}
+		>
+	>(new Map());
 
-	// Bridge Init & Event Subscription (once on mount)
+	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
+	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
+
+	// Bridge & Background Resources Lifecycle
 	useEffect(() => {
+		console.log(`[NicoJK][#${instanceId}] App lifecycle start.`);
 		const bridge = initBridge();
-
-		const unsubPlayable = bridge.onPlayableUpdate(async (p) => {
-			setPlayable(p);
-			const serviceId = p.service?.serviceId;
-			const networkId = p.service?.networkId;
-			if (serviceId && networkId) {
-				const info = await getJkInfo(serviceId, networkId);
-				if (info) {
-					setJkId(info.jkId);
-					const startAt =
-						(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
-					const duration = p.program?.duration || p.length || 0;
-					setJkContext({
-						jkId: info.jkId,
-						channelName: info.name,
-						startAt,
-						endAt: startAt + duration,
-					});
-				} else {
-					setJkId(null);
-					setJkContext(null);
-				}
-			} else {
-				setJkId(null);
-				setJkContext(null);
-			}
-		});
-
-		const unsubArea = bridge.onDisplayAreaUpdate(setArea);
-		const unsubStatus = clientRef.current.onStatusUpdate(setWsStatus);
-
-		const unsubComment = clientRef.current.onComment((c) => {
-			const currentPlayable = window.kiririn.getPlayable();
-			setComments((prev) => {
-				const next = [...prev, c];
-				// Liveモードのみ500件制限。過去ログ時は制限なし
-				if (!currentPlayable?.isSeekable && next.length > MAX_COMMENTS) {
-					return next.slice(next.length - MAX_COMMENTS);
-				}
-				return next;
-			});
-		});
-
-		const unsubHistory = clientRef.current.onHistoryUpdate((history) => {
-			setComments(history);
-		});
-
-		return () => {
-			unsubPlayable?.();
-			unsubArea?.();
-			unsubStatus?.();
-			unsubComment?.();
-			unsubHistory?.();
-			clientRef.current.disconnect();
-		};
-	}, []);
-
-	// Connection & Mode Management (Triggered by jkId / isSeekable change)
-	useEffect(() => {
-		const bridge = window.kiririn;
-		if (!bridge || !playable) return;
-
-		const targetMode = playable.isSeekable ? "kakolog" : "live";
-		const isModeChanged = lastModeRef.current !== targetMode;
-		const isVideoChanged = lastVideoIdRef.current !== playable.id;
-
-		if (isVideoChanged) {
-			console.log(
-				`[NicoJK] Video changed to ${playable.id}. Clearing comments.`,
-			);
-			setComments([]);
-			lastVideoIdRef.current = playable.id;
+		if (!bridge) {
+			console.error(`[NicoJK][#${instanceId}] Bridge init failed!`);
+			return;
 		}
 
-		if (targetMode === "live") {
-			// Live Mode
-			if (isModeChanged || isVideoChanged) {
-				console.log(`[NicoJK] Entering Live mode for ${jkId}`);
-				lastModeRef.current = "live";
-				setComments([]); // Clear kakolog comments when entering live
-			}
-			if (jkId) {
-				clientRef.current.connect(jkId);
+		console.log(
+			`[NicoJK][#${instanceId}] Initial area:`,
+			bridge.getDisplayArea(),
+		);
+		const initialArea = bridge.getDisplayArea();
+		setArea(initialArea);
+		areaRef.current = initialArea;
+
+		const updateTarget = () => {
+			const currentArea = areaRef.current;
+			if (!currentArea) return;
+
+			const tag = currentArea.playerID
+				? `[Overlay:${currentArea.playerID}]`
+				: "[Screen]";
+
+			let targetP: Playable | null = null;
+			let targetS: PlayerPlaybackState | null = null;
+
+			if (currentArea.playerID) {
+				targetP = bridge.getPlayable(currentArea.playerID);
+				targetS = bridge.getPlayerStatus(currentArea.playerID);
 			} else {
-				clientRef.current.disconnect();
+				const activeId = bridge.getFocusedPlayerID();
+				targetP = activeId ? bridge.getPlayable(activeId) : null;
+				targetS = activeId ? bridge.getPlayerStatus(activeId) : null;
 			}
-			kakologRef.current.clear();
-		} else {
-			// Kakolog Mode
-			if (isModeChanged || isVideoChanged) {
-				console.log(`[NicoJK] Entering Kakolog mode for ${jkId}`);
-				lastModeRef.current = "kakolog";
-				clientRef.current.disconnect();
+
+			setTargetPlayable(targetP);
+			targetPlayableRef.current = targetP;
+			setPlaybackState(targetS);
+
+			if (targetP) {
+				const data = playersDataRef.current.get(targetP.playerID);
+				setComments(data?.comments || []);
+				setJkContext(data?.jkContext || null);
+				if (data?.jkId) {
+					const client = clientsRef.current.get(data.jkId);
+					if (client) {
+						const currentStatus = client.getStatus();
+						console.log(
+							`[NicoJK][#${instanceId}]${tag} Sync status with client: ${currentStatus}`,
+						);
+						setWsStatus(currentStatus);
+					}
+				}
+			} else {
 				setComments([]);
-				if (jkId) {
-					kakologRef.current.setJkId(jkId);
-				}
+				setJkContext(null);
+				setWsStatus("disconnected");
 			}
-		}
-	}, [jkId, playable?.isSeekable, playable?.id, playable]);
+		};
 
-	// Kakolog Fetcher Logic
-	useEffect(() => {
-		const bridge = window.kiririn;
-		if (!bridge) return;
+		// Subscriptions
+		bridge.onFocusedPlayerIDChange((id) => {
+			console.log(`[NicoJK][#${instanceId}] Focus event:`, id);
+			updateTarget();
+		});
 
-		let lastFetchTime = 0;
-		let lastTime = -1;
+		bridge.onPlayablesChange(() => {
+			console.log(`[NicoJK][#${instanceId}] Playables change event`);
+			updateTarget();
+		});
 
-		const unsubState = bridge.onPlayerStateUpdate((state) => {
-			setPlaybackState(state);
-			const currentPlayable = window.kiririn.getPlayable();
-			if (currentPlayable?.isSeekable && jkId) {
-				// シーク戻り検知
-				if (state.time < lastTime) {
-					setComments([]);
+		bridge.onPlayerStatusesChange((statuses) => {
+			const currentArea = areaRef.current;
+			if (!currentArea) return;
+			let s: PlayerPlaybackState | null = null;
+			if (currentArea.playerID) {
+				s = statuses.find((it) => it.playerID === currentArea.playerID) || null;
+			} else {
+				const activeId = bridge.getFocusedPlayerID();
+				s = activeId
+					? statuses.find((it) => it.playerID === activeId) || null
+					: null;
+			}
+			setPlaybackState(s);
+		});
+
+		bridge.onDisplayAreaChange((newArea) => {
+			console.log(`[NicoJK][#${instanceId}] Area change event:`, newArea.type);
+			setArea(newArea);
+			areaRef.current = newArea;
+			updateTarget();
+		});
+
+		bridge.onPlayerClosed((pid) => {
+			console.log(`[NicoJK][#${instanceId}] Player closed: ${pid}`);
+			playersDataRef.current.delete(pid);
+			updateTarget();
+		});
+
+		// Initial Target Update
+		updateTarget();
+
+		// Background Interval Loop
+		const interval = setInterval(() => {
+			const playables = bridge.getPlayables();
+			const currentArea = areaRef.current;
+			if (!currentArea) return;
+
+			// Manage playables based on instance role
+			// Overlay instance: Only manage its own target
+			// Screen instance: Manage ALL for smooth background switching
+			const targetPids = new Set<string>();
+			if (currentArea.playerID) {
+				targetPids.add(currentArea.playerID);
+			} else {
+				for (const p of playables) targetPids.add(p.playerID);
+			}
+
+			const playablesToManage = playables.filter((p) =>
+				targetPids.has(p.playerID),
+			);
+
+			for (const p of playablesToManage) {
+				if (!playersDataRef.current.has(p.playerID)) {
+					playersDataRef.current.set(p.playerID, {
+						playableId: p.id,
+						comments: [],
+						jkId: null,
+						jkContext: null,
+					});
 				}
-				lastTime = state.time;
+				const data = playersDataRef.current.get(p.playerID)!;
+				const isPassive = !currentArea.playerID;
 
-				const startAt =
-					(currentPlayable?.firstNetworkTime || 0) - 4 ||
-					currentPlayable?.program?.startAt ||
-					0;
-				const duration =
-					currentPlayable?.program?.duration || currentPlayable?.length || 0;
+				// Playable switch detection (same playerID, different content)
+				if (data.playableId !== p.id) {
+					console.log(
+						`[NicoJK][#${instanceId}] Playable switch detected for ${p.playerID}: ${data.playableId} -> ${p.id}`,
+					);
+					data.playableId = p.id;
+					data.comments = [];
+					data.jkId = null;
+					data.jkContext = null;
+					kakologManagersRef.current.delete(p.playerID);
+					if (targetPlayableRef.current?.playerID === p.playerID) {
+						setComments([]);
+						setJkContext(null);
+						setWsStatus("disconnected");
+					}
+				}
 
-				// 5秒おきにフェッチ確認
-				if (Date.now() - lastFetchTime > 5000) {
-					kakologRef.current
-						.fetchIfNeeded(startAt, state.time, duration)
-						.then((newOnes) => {
-							if (newOnes.length > 0) {
-								setComments((prev) => {
-									const existingIds = new Set(prev.map((p) => p.id));
-									const toAdd = newOnes.filter((o) => !existingIds.has(o.id));
-									if (toAdd.length === 0) return prev;
-									return [...prev, ...toAdd];
-								});
+				// JkInfo fetch
+				if (!data.jkId && p.service?.serviceId) {
+					getJkInfo(p.service.serviceId, p.service.networkId!).then((info) => {
+						if (info) {
+							console.log(
+								`[NicoJK][#${instanceId}] JkInfo resolved for ${p.playerID}: ${info.jkId}`,
+							);
+							data.jkId = info.jkId;
+							const startAt =
+								(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
+							const duration = p.program?.duration || p.length || 0;
+							data.jkContext = {
+								jkId: info.jkId,
+								channelName: info.name,
+								startAt,
+								endAt: startAt + duration,
+							};
+
+							if (targetPlayableRef.current?.playerID === p.playerID) {
+								setJkContext(data.jkContext);
+							}
+						}
+					});
+				}
+
+				// Connection management
+				if (data.jkId && !p.isSeekable) {
+					if (!clientsRef.current.has(data.jkId)) {
+						console.log(
+							`[NicoJK][#${instanceId}] Starting client for ${data.jkId}`,
+						);
+						const client = new CommentClient();
+						client.onComment((c) => {
+							for (const [pid, pData] of playersDataRef.current.entries()) {
+								if (pData.jkId === data.jkId) {
+									pData.comments = [...pData.comments, c].slice(-MAX_COMMENTS);
+									if (targetPlayableRef.current?.playerID === pid) {
+										setComments(pData.comments);
+									}
+								}
 							}
 						});
-					lastFetchTime = Date.now();
+						client.onStatusUpdate((s) => {
+							const currentTarget = targetPlayableRef.current;
+							if (currentTarget) {
+								const currentData = playersDataRef.current.get(
+									currentTarget.playerID,
+								);
+								if (currentData?.jkId === data.jkId) {
+									console.log(
+										`[NicoJK][#${instanceId}] WS status update: ${s}`,
+									);
+									setWsStatus(s);
+								}
+							}
+						});
+						client.connect(data.jkId, { passive: isPassive });
+						clientsRef.current.set(data.jkId, client);
+					}
+				}
+
+				// Kakolog fetch
+				if (data.jkId && p.isSeekable) {
+					if (!kakologManagersRef.current.has(p.playerID)) {
+						const mgr = new KakologManager();
+						mgr.setJkId(data.jkId);
+						kakologManagersRef.current.set(p.playerID, mgr);
+					}
+					const mgr = kakologManagersRef.current.get(p.playerID)!;
+					const status = bridge.getPlayerStatus(p.playerID);
+					if (status) {
+						const startAt =
+							(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
+						const duration = p.program?.duration || p.length || 0;
+						mgr
+							.fetchIfNeeded(startAt, status.time, duration)
+							.then((newOnes) => {
+								if (newOnes && newOnes.length > 0) {
+									const existingIds = new Set(data.comments.map((c) => c.id));
+									const toAdd = newOnes.filter((o) => !existingIds.has(o.id));
+									if (toAdd.length > 0) {
+										data.comments = [...data.comments, ...toAdd];
+
+										// Broadcast past comments to passive instances
+										const client = clientsRef.current.get(data.jkId!);
+										if (client && !isPassive) {
+											client.broadcastHistory(toAdd);
+										}
+
+										if (targetPlayableRef.current?.playerID === p.playerID) {
+											setComments(data.comments);
+										}
+									}
+								}
+							});
+					}
 				}
 			}
-		});
+
+			// Garbage collection
+			const activeJkIds = new Set(
+				playables
+					.map((p) => playersDataRef.current.get(p.playerID)?.jkId)
+					.filter(Boolean),
+			);
+			for (const [jkId, client] of clientsRef.current.entries()) {
+				if (!activeJkIds.has(jkId)) {
+					client.disconnect();
+					clientsRef.current.delete(jkId);
+				}
+			}
+			const activePids = new Set(playables.map((p) => p.playerID));
+			for (const pid of kakologManagersRef.current.keys()) {
+				if (!activePids.has(pid)) kakologManagersRef.current.delete(pid);
+			}
+		}, 2000);
 
 		return () => {
-			unsubState?.();
+			console.log(`[NicoJK][#${instanceId}] App lifecycle cleanup.`);
+			clearInterval(interval);
+			for (const client of clientsRef.current.values()) client.disconnect();
+			clientsRef.current.clear();
 		};
-	}, [jkId]);
+	}, [instanceId]);
 
 	if (!area) return null;
 
@@ -192,7 +333,7 @@ export default function App() {
 					comments={comments}
 					width={area.width}
 					height={area.height}
-					isLive={!playable?.isSeekable}
+					isLive={!targetPlayable?.isSeekable}
 					playbackState={playbackState}
 					jkContext={jkContext}
 				/>
@@ -201,10 +342,11 @@ export default function App() {
 			{area.type === "pluginScreen" && (
 				<PluginScreen
 					comments={comments}
-					isLive={!playable?.isSeekable}
+					isLive={!!targetPlayable && !targetPlayable.isSeekable}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
 					jkContext={jkContext}
+					hasActivePlayer={!!targetPlayable}
 				/>
 			)}
 
@@ -213,28 +355,59 @@ export default function App() {
 			{/* Debug UI for MockBridge */}
 			{typeof window !== "undefined" &&
 				(window.kiririn as any)?.toggleSeekable && (
-					<div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm">
-						<div className="absolute top-0 right-0 bg-black/50 text-[10px] p-1 pointer-events-none">
-							{jkId} {wsStatus}
-						</div>
-						<div className="text-[10px] font-bold text-gray-400 px-1">
-							DEBUG CONTROLS
+					<div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm max-w-sm">
+						<div className="text-[10px] text-gray-400 font-mono flex justify-between">
+							<span>MockBridge Controls</span>
+							<span className="text-blue-400 text-[8px] opacity-70">
+								instanceId: {instanceId}
+							</span>
 						</div>
 						<div className="flex gap-2">
 							<button
 								type="button"
-								onClick={() => (window.kiririn as any).nextAreaPattern()}
-								className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+								onClick={() => (window.kiririn as any).toggleSeekable()}
+								className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] rounded"
 							>
-								Area Switch
+								Toggle Seekable
 							</button>
 							<button
 								type="button"
-								onClick={() => (window.kiririn as any).toggleSeekable()}
-								className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+								onClick={() => (window.kiririn as any).nextAreaPattern()}
+								className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[10px] rounded"
 							>
-								{playable?.isSeekable ? "Live" : "Kakolog"} Mode
+								Next Area
 							</button>
+						</div>
+						<div className="flex flex-col gap-1 b border-t border-gray-700 pt-1">
+							<div className="text-[8px] text-gray-500">Active Players:</div>
+							<div className="flex gap-1 overflow-x-auto">
+								{(window.kiririn as any).getPlayables().map((p: any) => (
+									<div key={p.playerID} className="flex flex-col gap-1">
+										<button
+											type="button"
+											onClick={() =>
+												(window.kiririn as any).focusPlayable(p.playerID)
+											}
+											className={`px-2 py-1 text-[8px] rounded truncate max-w-[80px] ${
+												targetPlayable?.playerID === p.playerID
+													? "bg-green-600 text-white"
+													: "bg-gray-700 text-gray-300"
+											}`}
+										>
+											Focus {p.playerID.substring(0, 4)}
+										</button>
+										<button
+											type="button"
+											onClick={() =>
+												(window.kiririn as any).closePlayer(p.playerID)
+											}
+											className="px-2 py-0.5 bg-red-900/50 hover:bg-red-800 text-red-200 text-[8px] rounded"
+										>
+											Close
+										</button>
+									</div>
+								))}
+							</div>
 						</div>
 					</div>
 				)}

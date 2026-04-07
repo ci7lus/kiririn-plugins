@@ -6,6 +6,7 @@ import type {
 } from "./Plugin.d.ts";
 
 const mockPlayable: Playable = {
+	playerID: "mock-player",
 	id: "mock-id",
 	title: "サンプル番組タイトル",
 	isSeekable: false, // デフォルトは生放送
@@ -28,7 +29,7 @@ const mockPlayable: Playable = {
 };
 
 const AREA_PATTERNS: DisplayArea[] = [
-	{ type: "playerOverlay", width: 1280, height: 720 },
+	{ type: "playerOverlay", playerID: "mock-player", width: 1280, height: 720 },
 	{ type: "pluginSettings", width: 600, height: 400 },
 	{
 		type: "pluginScreen",
@@ -38,9 +39,15 @@ const AREA_PATTERNS: DisplayArea[] = [
 ];
 
 class MockBridge implements KiririnBridge {
-	private playableCallbacks: ((p: Playable) => void)[] = [];
+	private playables: Playable[] = [mockPlayable];
+	private focusedPlayerId: string | null = "mock-player";
+
+	private playablesCallbacks: ((p: Playable[]) => void)[] = [];
+	private playerStatusesCallbacks: ((s: PlayerPlaybackState[]) => void)[] = [];
+	private focusedIdCallbacks: ((id: string | null) => void)[] = [];
 	private areaCallbacks: ((a: DisplayArea) => void)[] = [];
-	private playerStateCallbacks: ((s: PlayerPlaybackState) => void)[] = [];
+	private closeCallbacks: ((id: string) => void)[] = [];
+
 	private currentAreaIndex = 0;
 	private startTime = Date.now();
 
@@ -54,23 +61,63 @@ class MockBridge implements KiririnBridge {
 
 		// Simulate playback
 		setInterval(() => {
-			const state = this.getPlayerState();
-			for (const cb of this.playerStateCallbacks) cb(state);
+			for (const cb of this.playerStatusesCallbacks) {
+				cb(this.getPlayerStatuses());
+			}
 		}, 1000);
 	}
 
-	getPlayable(): Playable | null {
-		return mockPlayable;
+	getPlayables(): Playable[] {
+		return this.playables;
 	}
 
-	onPlayableUpdate(callback: (playable: Playable) => void): () => void {
-		this.playableCallbacks.push(callback);
-		setTimeout(() => callback(mockPlayable), 0);
-		return () => {
-			this.playableCallbacks = this.playableCallbacks.filter(
-				(cb) => cb !== callback,
-			);
-		};
+	onPlayablesChange(callback: (playables: Playable[]) => void): void {
+		this.playablesCallbacks.push(callback);
+		setTimeout(() => callback(this.playables), 0);
+	}
+
+	getPlayerStatuses(): PlayerPlaybackState[] {
+		const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+		return this.playables.map((p) => ({
+			playerID: p.playerID,
+			playableID: p.id,
+			isPlaying: true,
+			time: elapsed,
+			position: elapsed / 3600,
+		}));
+	}
+
+	onPlayerStatusesChange(
+		callback: (statuses: PlayerPlaybackState[]) => void,
+	): void {
+		this.playerStatusesCallbacks.push(callback);
+	}
+
+	getFocusedPlayerID(): string | null {
+		return this.focusedPlayerId;
+	}
+
+	onFocusedPlayerIDChange(callback: (id: string | null) => void): void {
+		this.focusedIdCallbacks.push(callback);
+		setTimeout(() => callback(this.focusedPlayerId), 0);
+	}
+
+	onPlayerClosed(callback: (playerID: string) => void): void {
+		this.closeCallbacks.push(callback);
+	}
+
+	getPlayable(playerID: string): Playable | null {
+		return (
+			this.playables.find((p) => p.playerID === playerID) ||
+			this.playables[0] ||
+			null
+		);
+	}
+
+	getPlayerStatus(playerID: string): PlayerPlaybackState | null {
+		const statuses = this.getPlayerStatuses();
+		const s = statuses.find((s) => s.playerID === playerID);
+		return s || statuses[0] || null;
 	}
 
 	getDisplayArea(): DisplayArea {
@@ -81,33 +128,9 @@ class MockBridge implements KiririnBridge {
 		return area;
 	}
 
-	onDisplayAreaUpdate(callback: (area: DisplayArea) => void): () => void {
+	onDisplayAreaChange(callback: (area: DisplayArea) => void): void {
 		this.areaCallbacks.push(callback);
 		setTimeout(() => callback(this.getDisplayArea()), 0);
-		return () => {
-			this.areaCallbacks = this.areaCallbacks.filter((cb) => cb !== callback);
-		};
-	}
-
-	getPlayerState(): PlayerPlaybackState {
-		const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-		return {
-			isPlaying: true,
-			time: elapsed,
-			position: elapsed / 3600,
-		};
-	}
-
-	onPlayerStateUpdate(
-		callback: (state: PlayerPlaybackState) => void,
-	): () => void {
-		this.playerStateCallbacks.push(callback);
-		setTimeout(() => callback(this.getPlayerState()), 0);
-		return () => {
-			this.playerStateCallbacks = this.playerStateCallbacks.filter(
-				(cb) => cb !== callback,
-			);
-		};
 	}
 
 	sendMessage(type: string, data: any): void {
@@ -122,12 +145,44 @@ class MockBridge implements KiririnBridge {
 	}
 
 	public toggleSeekable(): void {
-		mockPlayable.isSeekable = !mockPlayable.isSeekable;
-		this.notifyPlayableUpdate(mockPlayable);
+		for (const p of this.playables) {
+			p.isSeekable = !p.isSeekable;
+		}
+		this.notifyPlayablesUpdate();
 	}
 
-	private notifyPlayableUpdate(playable: Playable) {
-		for (const cb of this.playableCallbacks) cb(playable);
+	public addPlayable(): void {
+		const newPlayerId = `player-${this.playables.length + 1}`;
+		const newId = `id-${this.playables.length + 1}`;
+		this.playables.push({
+			...mockPlayable,
+			playerID: newPlayerId,
+			id: newId,
+			title: `Title ${this.playables.length + 1}`,
+		});
+		this.notifyPlayablesUpdate();
+	}
+
+	public focusPlayable(playerID: string | null): void {
+		this.focusedPlayerId = playerID;
+		this.notifyFocusedIdUpdate();
+	}
+
+	public closePlayer(playerID: string): void {
+		this.playables = this.playables.filter((p) => p.playerID !== playerID);
+		if (this.focusedPlayerId === playerID) {
+			this.focusedPlayerId = this.playables[0]?.playerID || null;
+		}
+		this.notifyPlayablesUpdate();
+		for (const cb of this.closeCallbacks) cb(playerID);
+	}
+
+	private notifyPlayablesUpdate() {
+		for (const cb of this.playablesCallbacks) cb([...this.playables]);
+	}
+
+	private notifyFocusedIdUpdate() {
+		for (const cb of this.focusedIdCallbacks) cb(this.focusedPlayerId);
 	}
 
 	private notifyAreaUpdate(area: DisplayArea) {

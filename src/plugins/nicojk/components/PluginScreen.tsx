@@ -1,16 +1,17 @@
 import {
-	Activity,
 	ArrowDown,
 	ArrowUp,
 	Ban,
+	Check,
 	Info,
 	MessageSquare,
+	MoreVertical,
 	UserX,
 	X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
-import type { NiconicoComment } from "../comment-client";
+import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import { addNGId, isNG } from "../ng-settings";
 
@@ -18,9 +19,17 @@ interface Props {
 	comments: NiconicoComment[];
 	isLive: boolean;
 	playbackState: PlayerPlaybackState | null;
-	wsStatus?: string;
+	wsStatus?: ConnectionStatus;
 	jkContext: NicoJKContext | null;
+	hasActivePlayer: boolean;
 }
+
+const STATUS_LABELS: Record<ConnectionStatus, string> = {
+	connected: "接続済",
+	connecting: "接続中",
+	disconnected: "切断",
+	error: "エラー",
+};
 
 export default function PluginScreen({
 	comments,
@@ -28,12 +37,14 @@ export default function PluginScreen({
 	playbackState,
 	wsStatus,
 	jkContext,
+	hasActivePlayer,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
 	const [showInfo, setShowInfo] = useState(false);
+	const [showMenu, setShowMenu] = useState(false);
 
 	const filteredComments = filterNG
 		? comments.filter((c) => !isNG(c.content, c.user_id))
@@ -45,7 +56,7 @@ export default function PluginScreen({
 
 	// Scroll management
 	useEffect(() => {
-		if (!autoScroll || !scrollContainerRef.current) return;
+		if (!hasActivePlayer || !autoScroll || !scrollContainerRef.current) return;
 
 		if (isLive) {
 			// ライブ時は常に一番下（最新）
@@ -68,7 +79,7 @@ export default function PluginScreen({
 			let targetElement: HTMLElement | null = null;
 			for (let i = 0; i < elements.length; i++) {
 				const el = elements[i] as HTMLElement;
-				const vpos = parseInt(el.dataset.vpos || "0");
+				const vpos = parseInt(el.dataset.vpos || "0", 10);
 				if (vpos <= targetVpos) {
 					targetElement = el;
 				} else {
@@ -80,7 +91,7 @@ export default function PluginScreen({
 				targetElement.scrollIntoView({ behavior: "auto", block: "end" });
 			}
 		}
-	}, [autoScroll, isLive, playbackState]);
+	}, [autoScroll, isLive, playbackState, hasActivePlayer]);
 
 	// ユーザーの意思によるスクロールを検知して自動スクロールをオフにする
 	useEffect(() => {
@@ -118,19 +129,27 @@ export default function PluginScreen({
 		setShowScrollTop(scrollHeight - scrollTop - clientHeight > 200);
 	};
 
-	const scrollToBottom = () => {
-		scrollContainerRef.current?.scrollTo({
-			top: scrollContainerRef.current.scrollHeight,
-			behavior: "smooth",
-		});
-		setAutoScroll(true);
-	};
+	const scrollTicking = useRef(false);
 
-	const handleNGId = (id: string) => {
+	const scrollToBottom = useCallback(() => {
+		if (scrollContainerRef.current && !scrollTicking.current) {
+			scrollTicking.current = true;
+			requestAnimationFrame(() => {
+				if (scrollContainerRef.current) {
+					scrollContainerRef.current.scrollTop =
+						scrollContainerRef.current.scrollHeight;
+				}
+				scrollTicking.current = false;
+			});
+		}
+		setAutoScroll(true);
+	}, []);
+
+	const handleNGId = useCallback((id: string) => {
 		if (confirm(`ID: ${id} をNGに追加しますか？`)) {
 			addNGId(id);
 		}
-	};
+	}, []);
 
 	const formatTime = (unix: number) => {
 		if (!unix) return "--:--";
@@ -145,51 +164,55 @@ export default function PluginScreen({
 
 	return (
 		<div className="flex flex-col h-full bg-[#1a1a1a] text-white overflow-hidden relative">
+			{/* Persistent Header */}
 			<div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525] shrink-0">
 				<div className="flex items-center gap-2">
 					<button
 						type="button"
-						onClick={() => setShowInfo(!showInfo)}
+						onClick={() => {
+							setShowInfo(!showInfo);
+							setShowMenu(false);
+						}}
 						className="p-1 hover:bg-gray-700 rounded transition-colors text-blue-400"
 						title="情報"
+						disabled={!hasActivePlayer}
 					>
 						<Info size={18} />
 					</button>
-					<MessageSquare size={16} className="text-gray-400" />
-					<span className="font-bold text-sm">コメント</span>
-					{isLive && (
-						<div
-							className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] uppercase font-bold transition-colors ${
-								wsStatus === "connected"
-									? "bg-green-600/20 text-green-400"
-									: wsStatus === "connecting"
-										? "bg-yellow-600/20 text-yellow-500 animate-pulse"
-										: "bg-red-600/20 text-red-500"
-							}`}
-							title={`Live Connection: ${wsStatus}`}
-						>
-							<Activity size={10} />
-							<span>{wsStatus === "connected" ? "Live" : wsStatus}</span>
-						</div>
-					)}
+					<div className="flex items-center gap-1 items-center justify-center">
+						{hasActivePlayer && isLive && (
+							<div
+								className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold transition-colors ${
+									wsStatus === "connected"
+										? "bg-green-600/20 text-green-400"
+										: wsStatus === "connecting"
+											? "bg-yellow-600/20 text-yellow-500 animate-pulse"
+											: "bg-red-600/20 text-red-500"
+								}`}
+								title={`Live Connection: ${wsStatus}`}
+							>
+								<span>{wsStatus ? STATUS_LABELS[wsStatus] : ""}</span>
+							</div>
+						)}
+						{jkContext && (
+							<div className="text-sm text-gray-200 truncate">
+								{jkContext.channelName} ({jkContext.jkId})
+							</div>
+						)}
+					</div>
 				</div>
 				<div className="flex gap-2">
 					<button
 						type="button"
-						onClick={() => setAutoScroll(!autoScroll)}
-						className={`p-1 rounded flex justify-center items-center gap-1 ${autoScroll ? "bg-blue-600" : "bg-gray-700"}`}
-						title="自動スクロール"
+						onClick={() => {
+							setShowMenu(!showMenu);
+							setShowInfo(false);
+						}}
+						disabled={!hasActivePlayer}
+						className={`p-1 hover:bg-gray-700 rounded transition-colors ${showMenu ? "text-blue-400 bg-gray-700" : "text-gray-400"}`}
+						title="メニュー"
 					>
-						<ArrowDown size={16} />{" "}
-						<span className="text-sm">自動ｽｸﾛｰﾙ</span>
-					</button>
-					<button
-						type="button"
-						onClick={() => setFilterNG(!filterNG)}
-						className={`p-1 rounded flex justify-center items-center gap-1 ${filterNG ? "bg-red-600" : "bg-gray-700"}`}
-						title="NGフィルター"
-					>
-						<Ban size={16} /> <span className="text-sm">NGﾌｨﾙﾀｰ</span>
+						<MoreVertical size={20} />
 					</button>
 				</div>
 			</div>
@@ -199,34 +222,44 @@ export default function PluginScreen({
 				className="flex-1 overflow-y-auto p-2 space-y-1 relative"
 				onScroll={handleScroll}
 			>
-				{displayComments.map((c) => (
-					<div
-						key={`${c.no}-${c.id}`}
-						data-vpos={c.vpos}
-						className="group flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed"
-					>
-						<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums">
-							{c.no}
-						</div>
-						<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
-							{c.content}
-						</div>
-						<div className="flex-shrink-0">
-							<button
-								type="button"
-								onClick={() => handleNGId(c.user_id)}
-								className="text-gray-400 hover:text-red-400 p-1"
-								title={`ID: ${c.user_id} をNGに追加`}
-							>
-								<UserX size={14} />
-							</button>
-						</div>
+				{!hasActivePlayer ? (
+					<div className="flex flex-col h-full items-center justify-center p-4">
+						<MessageSquare size={48} className="text-gray-600 mb-4" />
+						<p className="text-gray-400 text-sm">プレイヤーを待機中…</p>
+						<p className="text-gray-600 text-[10px] mt-2 text-center">
+							プレイヤーを操作するとコメントが表示されます
+						</p>
 					</div>
-				))}
+				) : (
+					displayComments.map((c) => (
+						<div
+							key={`${c.no}-${c.id}`}
+							data-vpos={c.vpos}
+							className="group flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed"
+						>
+							<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums">
+								{c.no}
+							</div>
+							<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
+								{c.content}
+							</div>
+							<div className="flex-shrink-0">
+								<button
+									type="button"
+									onClick={() => handleNGId(c.user_id)}
+									className="text-gray-400 hover:text-red-400 p-1"
+									title={`ID: ${c.user_id} をNGに追加`}
+								>
+									<UserX size={14} />
+								</button>
+							</div>
+						</div>
+					))
+				)}
 			</div>
 
 			{/* Floating Scroll to Bottom Button */}
-			{showScrollTop && (
+			{hasActivePlayer && showScrollTop && (
 				<button
 					type="button"
 					onClick={scrollToBottom}
@@ -236,8 +269,51 @@ export default function PluginScreen({
 					<ArrowUp size={20} className="rotate-180" />
 				</button>
 			)}
+
+			{/* Settings Menu Popover */}
+			{hasActivePlayer && showMenu && (
+				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+					<div className="flex justify-between items-start mb-4">
+						<h4 className="font-bold text-gray-200 flex items-center gap-1">
+							表示設定
+						</h4>
+						<button
+							type="button"
+							onClick={() => setShowMenu(false)}
+							className="text-gray-400 hover:text-white"
+						>
+							<X size={16} />
+						</button>
+					</div>
+					<div className="space-y-2">
+						<button
+							type="button"
+							onClick={() => setAutoScroll(!autoScroll)}
+							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
+						>
+							<div className="flex items-center gap-2">
+								<ArrowDown size={16} />
+								<span>自動スクロール</span>
+							</div>
+							{autoScroll && <Check size={16} className="text-blue-400" />}
+						</button>
+						<button
+							type="button"
+							onClick={() => setFilterNG(!filterNG)}
+							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
+						>
+							<div className="flex items-center gap-2">
+								<Ban size={16} />
+								<span>NGフィルター</span>
+							</div>
+							{filterNG && <Check size={16} className="text-red-400" />}
+						</button>
+					</div>
+				</div>
+			)}
+
 			{/* Info Popover */}
-			{showInfo && (
+			{hasActivePlayer && showInfo && (
 				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
 					<div className="flex justify-between items-start mb-2">
 						<h4 className="font-bold text-blue-400 flex items-center gap-1">
@@ -259,14 +335,18 @@ export default function PluginScreen({
 									{jkContext.channelName} ({jkContext.jkId})
 								</span>
 							</div>
-							<div className="flex justify-between border-b border-gray-700 pb-1">
-								<span className="text-gray-400">開始時間</span>
-								<span>{formatTime(jkContext.startAt + 10)}</span>
-							</div>
-							<div className="flex justify-between">
-								<span className="text-gray-400">終了時間</span>
-								<span>{formatTime(jkContext.endAt + 10)}</span>
-							</div>
+							{!isLive && (
+								<>
+									<div className="flex justify-between border-b border-gray-700 pb-1">
+										<span className="text-gray-400">開始時間</span>
+										<span>{formatTime(jkContext.startAt)}</span>
+									</div>
+									<div className="flex justify-between">
+										<span className="text-gray-400">終了時間</span>
+										<span>{formatTime(jkContext.endAt)}</span>
+									</div>
+								</>
+							)}
 						</div>
 					) : (
 						<p className="text-sm text-gray-500 italic">

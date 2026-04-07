@@ -34,12 +34,15 @@ export interface Service {
 }
 
 export interface PlayerPlaybackState {
+	playerID: string;
+	playableID: string;
 	isPlaying: boolean;
 	time: number; // seconds
 	position: number; // 0.0 to 1.0
 }
 
 export interface Playable {
+	playerID: string;
 	id: string;
 	title: string;
 	subtitle?: string;
@@ -52,20 +55,62 @@ export interface Playable {
 
 export interface DisplayArea {
 	type: "playerOverlay" | "pluginSettings" | "pluginScreen";
+	playerID?: string;
 	width: number;
 	height: number;
 }
 
 export interface KiririnBridge {
 	/**
-	 * 現在再生中の情報を取得します。
+	 * 現在再生中のすべての Playable 情報を取得します。
+	 * メタデータ（タイトル、画像、バックエンド情報など）の配列を返します。
 	 */
-	getPlayable(): Playable | null;
+	getPlayables(): Playable[];
 
 	/**
-	 * 再生情報の更新を購読します。
+	 * 再生中の Playable 一覧（メタデータ）の更新を購読します。
+	 * 内容に変更があった場合のみ呼び出されます。
 	 */
-	onPlayableUpdate(callback: (playable: Playable) => void): () => void;
+	onPlayablesChange(callback: (playables: Playable[]) => void): void;
+
+	/**
+	 * 現在再生中のすべてのプレイヤーの状態（再生中か、再生位置など）を取得します。
+	 */
+	getPlayerStatuses(): PlayerPlaybackState[];
+
+	/**
+	 * 再生状態の更新（1秒ごとの時間更新など）を購読します。
+	 */
+	onPlayerStatusesChange(
+		callback: (statuses: PlayerPlaybackState[]) => void,
+	): void;
+
+	/**
+	 * 現在フォーカスされている（操作対象の）プレイヤー（ウィンドウ）の ID を取得します。
+	 */
+	getFocusedPlayerID(): string | null;
+
+	/**
+	 * フォーカスされているプレイヤーの ID の更新を購読します。
+	 */
+	onFocusedPlayerIDChange(callback: (id: string | null) => void): void;
+
+	/**
+	 * プレイヤー（ウィンドウ）が閉じられたイベントを購読します。
+	 */
+	onPlayerClosed(callback: (playerID: string) => void): void;
+
+	/**
+	 * 指定したプレイヤーの Playable 情報を取得します。
+	 * @param playerID getPlayables() などから取得できるプレイヤー ID
+	 */
+	getPlayable(playerID: string): Playable | null;
+
+	/**
+	 * 指定したプレイヤーの状態を取得します。
+	 * @param playerID getPlayerStatuses() などから取得できるプレイヤー ID
+	 */
+	getPlayerStatus(playerID: string): PlayerPlaybackState | null;
 
 	/**
 	 * 現在の表示領域情報を取得します。
@@ -75,19 +120,7 @@ export interface KiririnBridge {
 	/**
 	 * 表示領域の更新（リサイズなど）を購読します。
 	 */
-	onDisplayAreaUpdate(callback: (area: DisplayArea) => void): () => void;
-
-	/**
-	 * 現在の再生状態（再生中か、再生位置など）を取得します。
-	 */
-	getPlayerState(): PlayerPlaybackState;
-
-	/**
-	 * 再生状態の更新（1秒ごとなど）を購読します。
-	 */
-	onPlayerStateUpdate(
-		callback: (state: PlayerPlaybackState) => void,
-	): () => void;
+	onDisplayAreaChange(callback: (area: DisplayArea) => void): void;
 
 	/**
 	 * ホスト（Swift）側にメッセージを送信します。

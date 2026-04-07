@@ -104,7 +104,7 @@ export default function PlayerOverlay({
 			cancelAnimationFrame(animationFrameId);
 			rendererRef.current?.clear();
 		};
-	}, [isLive]);
+	}, [isLive, jkContext?.jkId]);
 
 	// Handle new comments
 	useEffect(() => {
@@ -116,7 +116,8 @@ export default function PlayerOverlay({
 		}
 
 		const lastCommentId = lastCommentIdRef.current;
-		const parsedComments = comments
+		const parsedComments = [...comments]
+			.sort((a, b) => a.vpos - b.vpos)
 			.filter(
 				(comment) =>
 					comment.id > lastCommentId && !isNG(comment.content, comment.user_id),
@@ -137,10 +138,9 @@ export default function PlayerOverlay({
 				};
 			});
 		rendererRef.current.addComments(...parsedComments);
-		const lastComment = parsedComments[parsedComments.length - 1];
-		if (lastComment) {
-			lastCommentIdRef.current = lastComment.id;
-		}
+		// Update with the maximum id encountered in this batch to avoid blocking
+		const maxId = parsedComments.reduce((max, c) => Math.max(max, c.id), lastCommentId);
+		lastCommentIdRef.current = maxId;
 	}, [comments, rendererInitialized]);
 
 	// 16:9 calculation

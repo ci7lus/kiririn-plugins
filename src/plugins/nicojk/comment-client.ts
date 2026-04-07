@@ -23,8 +23,6 @@ export type ConnectionStatus =
 	| "error";
 type StatusCallback = (status: ConnectionStatus) => void;
 
-const BC_NAME = "nicojk_channel";
-
 interface RoomData {
 	messageServer: {
 		uri: string;
@@ -37,7 +35,7 @@ interface RoomData {
 export class CommentClient {
 	private watchWs: ReconnectingWebSocket | null = null;
 	private commentWs: ReconnectingWebSocket | null = null;
-	private bc: BroadcastChannel;
+	private bc: BroadcastChannel | null = null;
 	private listeners: CommentCallback[] = [];
 	private historyListeners: HistoryCallback[] = [];
 	private statusListeners: StatusCallback[] = [];
@@ -46,19 +44,17 @@ export class CommentClient {
 	private abortController: AbortController | null = null;
 	private keepSeatInterval: number | null = null;
 	private status: ConnectionStatus = "disconnected";
+	private commentCounter = 0;
 
 	public getMode(): "live" | "disconnected" {
 		return this.jkId ? "live" : "disconnected";
 	}
 
-	constructor() {
-		this.bc = new BroadcastChannel(BC_NAME);
-		this.bc.onmessage = (ev) => {
-			if (ev.data.type === "comment") {
-				this.notifyListeners({ ...ev.data.payload, origin: "broadcast" });
-			}
-		};
+	public getStatus(): ConnectionStatus {
+		return this.status;
+	}
 
+	constructor() {
 		// sessionStorage の他タブからの更新を監視
 		window.addEventListener("storage", (ev) => {
 			if (this.jkId && ev.key === this.getStorageKey(this.jkId)) {
@@ -68,7 +64,24 @@ export class CommentClient {
 		});
 	}
 
-	public async connect(jkId: string) {
+	private setupBC(jkId: string) {
+		if (this.bc) {
+			this.bc.close();
+		}
+		this.bc = new BroadcastChannel(`nicojk_comments_${jkId}`);
+		this.bc.onmessage = (ev) => {
+			if (ev.data.type === "comment") {
+				this.notifyListeners({ ...ev.data.payload, origin: "broadcast" });
+			} else if (ev.data.type === "history") {
+				const history = ev.data.payload as NiconicoComment[];
+				for (const c of history) {
+					this.notifyListeners({ ...c, origin: "broadcast" });
+				}
+			}
+		};
+	}
+
+	public async connect(jkId: string, options?: { passive?: boolean }) {
 		if (this.jkId === jkId) return;
 		this.disconnect();
 		this.jkId = jkId;
@@ -77,6 +90,14 @@ export class CommentClient {
 		// 接続時に sessionStorage から即座に履歴を読み込んで通知する
 		const history = this.loadHistory(jkId);
 		this.notifyHistoryListeners(history);
+
+		this.setupBC(jkId);
+
+		if (options?.passive) {
+			console.log(`[NicoJK] Passive mode for ${jkId}. Monitoring BC only.`);
+			this.updateStatus("connected");
+			return;
+		}
 
 		this.abortController = new AbortController();
 		const signal = this.abortController.signal;
@@ -88,23 +109,29 @@ export class CommentClient {
 				async (lock) => {
 					if (lock) {
 						this.isLeader = true;
-						console.log(
-							`[NicoJK] Acquired lock for ${jkId}. Connecting to Watch WS.`,
-						);
+						console.log(`[NicoJK] Acquired lock for ${jkId} as Leader.`);
 						this.setupWatchSession(jkId);
-
 						return new Promise<void>((resolve) => {
-							signal.addEventListener("abort", () => {
-								this.updateStatus("disconnected");
-								resolve();
-							});
+							signal.addEventListener("abort", () => resolve());
 						});
 					} else {
 						this.isLeader = false;
 						console.log(
-							`[NicoJK] Follower for ${jkId}. Listening to BroadcastChannel.`,
+							`[NicoJK] Follower for ${jkId}. Waiting for promotion...`,
 						);
 						this.updateStatus("connected");
+
+						// Background wait for promotion
+						navigator.locks.request(`nicojk_lock_${jkId}`, async (lock) => {
+							if (!signal.aborted && lock) {
+								this.isLeader = true;
+								console.log(`[NicoJK] Promoted to Leader for ${jkId}.`);
+								this.setupWatchSession(jkId);
+								return new Promise<void>((resolve) => {
+									signal.addEventListener("abort", () => resolve());
+								});
+							}
+						});
 					}
 				},
 			);
@@ -223,7 +250,7 @@ export class CommentClient {
 					const vpos = baseVpos + 200 + jitter;
 
 					const comment: NiconicoComment = {
-						id: c.no || Date.now(),
+						id: c.no || Date.now() * 1000 + (this.commentCounter++ % 1000),
 						no: c.no,
 						vpos,
 						content: c.content || "",
@@ -270,6 +297,10 @@ export class CommentClient {
 		if (this.commentWs) {
 			this.commentWs.close();
 			this.commentWs = null;
+		}
+		if (this.bc) {
+			this.bc.close();
+			this.bc = null;
 		}
 		this.jkId = null;
 		this.isLeader = false;
@@ -342,8 +373,12 @@ export class CommentClient {
 		);
 	}
 
+	public broadcastHistory(comments: NiconicoComment[]) {
+		this.bc?.postMessage({ type: "history", payload: comments });
+	}
+
 	private broadcast(comment: NiconicoComment) {
-		this.bc.postMessage({ type: "comment", payload: comment });
+		this.bc?.postMessage({ type: "comment", payload: comment });
 
 		if (this.jkId) {
 			const history = this.loadHistory(this.jkId);
