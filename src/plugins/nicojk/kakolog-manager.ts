@@ -31,6 +31,11 @@ export class KakologManager {
 		}
 	}
 
+	public clearCache() {
+		this.comments = [];
+		this.fetchedChunks.clear();
+	}
+
 	public async fetchIfNeeded(
 		startTimeUnix: number,
 		playerTime: number,
@@ -92,8 +97,9 @@ export class KakologManager {
 				const no = parseInt(c.no);
 
 				// Niconico's official vpos is often "ms from start / 10".
-				const vpos =
-					(date - startTimeUnix) * 100 + Math.floor(date_usec / 10000);
+				const vpos = Math.floor(
+					(date - startTimeUnix) * 100 + date_usec / 10000,
+				);
 
 				return {
 					id: no || date * 1000 + date_usec / 1000,
@@ -120,10 +126,5 @@ export class KakologManager {
 			this.fetchedChunks.delete(offset);
 			return [];
 		}
-	}
-
-	public clear() {
-		this.comments = [];
-		this.fetchedChunks.clear();
 	}
 }

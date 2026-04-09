@@ -45,6 +45,7 @@ export default function App() {
 
 	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
+	const lastPlayableTimesRef = useRef<Map<string, number>>(new Map());
 
 	// Bridge & Background Resources Lifecycle
 	useEffect(() => {
@@ -165,7 +166,6 @@ export default function App() {
 			} else {
 				for (const p of playables) targetPids.add(p.playerID);
 			}
-
 			const playablesToManage = playables.filter((p) =>
 				targetPids.has(p.playerID),
 			);
@@ -179,7 +179,9 @@ export default function App() {
 						jkContext: null,
 					});
 				}
-				const data = playersDataRef.current.get(p.playerID)!;
+				const dataObject = playersDataRef.current.get(p.playerID);
+				if (!dataObject) continue;
+				const data = dataObject;
 				const isPassive = !currentArea.playerID;
 
 				// Playable switch detection (same playerID, different content)
@@ -201,15 +203,14 @@ export default function App() {
 
 				// JkInfo fetch
 				if (!data.jkId && p.service?.serviceId) {
-					getJkInfo(p.service.serviceId, p.service.networkId!).then((info) => {
+					const service = p.service;
+					const networkId = service.networkId || 0;
+					getJkInfo(service.serviceId, networkId).then((info) => {
 						if (info) {
-							console.log(
-								`[NicoJK][#${instanceId}] JkInfo resolved for ${p.playerID}: ${info.jkId}`,
-							);
 							data.jkId = info.jkId;
 							const startAt =
-								(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
-							const duration = p.program?.duration || p.length || 0;
+								p.initialNetworkTime || p.program?.startAt || 0;
+							const duration = p.length || p.program?.duration || 0;
 							data.jkContext = {
 								jkId: info.jkId,
 								channelName: info.name,
@@ -227,16 +228,31 @@ export default function App() {
 				// Connection management
 				if (data.jkId && !p.isSeekable) {
 					if (!clientsRef.current.has(data.jkId)) {
-						console.log(
-							`[NicoJK][#${instanceId}] Starting client for ${data.jkId}`,
-						);
 						const client = new CommentClient();
 						client.onComment((c) => {
 							for (const [pid, pData] of playersDataRef.current.entries()) {
 								if (pData.jkId === data.jkId) {
-									pData.comments = [...pData.comments, c].slice(-MAX_COMMENTS);
+									pData.comments = [...pData.comments, c]
+										.sort((a, b) => a.vpos - b.vpos)
+										.slice(-MAX_COMMENTS);
 									if (targetPlayableRef.current?.playerID === pid) {
 										setComments(pData.comments);
+									}
+								}
+							}
+						});
+						client.onHistoryUpdate((history) => {
+							for (const [pid, pData] of playersDataRef.current.entries()) {
+								if (pData.jkId === data.jkId) {
+									const existingIds = new Set(pData.comments.map((c) => c.id));
+									const toAdd = history.filter((o) => !existingIds.has(o.id));
+									if (toAdd.length > 0) {
+										pData.comments = [...pData.comments, ...toAdd]
+											.sort((a, b) => a.vpos - b.vpos)
+											.slice(-MAX_COMMENTS);
+										if (targetPlayableRef.current?.playerID === pid) {
+											setComments(pData.comments);
+										}
 									}
 								}
 							}
@@ -248,9 +264,6 @@ export default function App() {
 									currentTarget.playerID,
 								);
 								if (currentData?.jkId === data.jkId) {
-									console.log(
-										`[NicoJK][#${instanceId}] WS status update: ${s}`,
-									);
 									setWsStatus(s);
 								}
 							}
@@ -267,12 +280,13 @@ export default function App() {
 						mgr.setJkId(data.jkId);
 						kakologManagersRef.current.set(p.playerID, mgr);
 					}
-					const mgr = kakologManagersRef.current.get(p.playerID)!;
+					const mgr = kakologManagersRef.current.get(p.playerID);
 					const status = bridge.getPlayerStatus(p.playerID);
-					if (status) {
+					if (mgr && status) {
 						const startAt =
-							(p.firstNetworkTime || 0) - 4 || p.program?.startAt || 0;
-						const duration = p.program?.duration || p.length || 0;
+							p.initialNetworkTime || p.program?.startAt || 0;
+						const duration = p.length || p.program?.duration || 0;
+
 						mgr
 							.fetchIfNeeded(startAt, status.time, duration)
 							.then((newOnes) => {
@@ -280,12 +294,17 @@ export default function App() {
 									const existingIds = new Set(data.comments.map((c) => c.id));
 									const toAdd = newOnes.filter((o) => !existingIds.has(o.id));
 									if (toAdd.length > 0) {
-										data.comments = [...data.comments, ...toAdd];
+										data.comments = [...data.comments, ...toAdd].sort(
+											(a, b) => a.vpos - b.vpos,
+										);
 
 										// Broadcast past comments to passive instances
-										const client = clientsRef.current.get(data.jkId!);
-										if (client && !isPassive) {
-											client.broadcastHistory(toAdd);
+										const jkId = data.jkId;
+										if (jkId) {
+											const client = clientsRef.current.get(jkId);
+											if (client && !isPassive) {
+												client.broadcastHistory(toAdd);
+											}
 										}
 
 										if (targetPlayableRef.current?.playerID === p.playerID) {

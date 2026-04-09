@@ -84,12 +84,9 @@ export default function PlayerOverlay({
 				if (isLive) {
 					nowVpos = Math.floor(Date.now() / 10);
 				} else if (syncRef.current) {
-					// 補間（再生時間から何ミリ秒経過したかを秒に直して加算）
-					// 一時停止中 (isPlaying: false) は加算しない
 					const elapsed = syncRef.current.isPlaying
 						? (performance.now() - syncRef.current.receivedAt) / 1000
 						: 0;
-					// 1/100s 単位に変換
 					nowVpos = Math.floor((syncRef.current.time + elapsed) * 100);
 				} else {
 					nowVpos = 0;
@@ -104,25 +101,25 @@ export default function PlayerOverlay({
 			cancelAnimationFrame(animationFrameId);
 			rendererRef.current?.clear();
 		};
-	}, [isLive, jkContext?.jkId]);
+	}, [isLive]);
 
 	// Handle new comments
 	useEffect(() => {
 		if (!rendererInitialized || !rendererRef.current) return;
-
 		if (comments.length === 0) {
 			lastCommentIdRef.current = 0;
 			return;
 		}
 
 		const lastCommentId = lastCommentIdRef.current;
-		const parsedComments = [...comments]
-			.sort((a, b) => a.vpos - b.vpos)
-			.filter(
-				(comment) =>
-					comment.id > lastCommentId && !isNG(comment.content, comment.user_id),
-			)
-			.map((comment) => {
+		const sorted = [...comments].sort((a, b) => a.vpos - b.vpos);
+		const filtered = sorted.filter(
+			(comment) =>
+				comment.id > lastCommentId && !isNG(comment.content, comment.user_id),
+		);
+
+		if (filtered.length > 0) {
+			const parsedComments = filtered.map((comment) => {
 				return {
 					id: comment.id,
 					vpos: comment.vpos,
@@ -137,10 +134,15 @@ export default function PlayerOverlay({
 					is_my_post: false,
 				};
 			});
-		rendererRef.current.addComments(...parsedComments);
-		// Update with the maximum id encountered in this batch to avoid blocking
-		const maxId = parsedComments.reduce((max, c) => Math.max(max, c.id), lastCommentId);
-		lastCommentIdRef.current = maxId;
+
+			rendererRef.current?.addComments(...parsedComments);
+			// Update with the maximum id encountered in this batch to avoid blocking
+			const maxId = parsedComments.reduce(
+				(max, c) => Math.max(max, c.id),
+				lastCommentId,
+			);
+			lastCommentIdRef.current = maxId;
+		}
 	}, [comments, rendererInitialized]);
 
 	// 16:9 calculation

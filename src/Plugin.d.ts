@@ -34,7 +34,9 @@ export interface Service {
 }
 
 export interface PlayerPlaybackState {
+	/** プレイヤー（ウィンドウ）の一意な ID */
 	playerID: string;
+	/** コンテンツの一意な ID */
 	playableID: string;
 	isPlaying: boolean;
 	time: number; // seconds
@@ -42,21 +44,30 @@ export interface PlayerPlaybackState {
 }
 
 export interface Playable {
+	/** プレイヤー（ウィンドウ）の一意な ID */
 	playerID: string;
+	/** コンテンツの一意な ID */
 	id: string;
 	title: string;
 	subtitle?: string;
-	firstNetworkTime?: number;
+	initialNetworkTime?: number;
 	isSeekable: boolean;
 	length?: number;
 	program?: Program;
 	service?: Service;
 }
 
+/**
+ * プラグインが表示されている領域の情報を表します。
+ */
 export interface DisplayArea {
+	/** 表示されている場所の種類 */
 	type: "playerOverlay" | "pluginSettings" | "pluginScreen";
+	/** 紐付いているプレイヤー（ウィンドウ）の一意な ID */
 	playerID?: string;
+	/** 表示領域の幅 (px) */
 	width: number;
+	/** 表示領域の高さ (px) */
 	height: number;
 }
 

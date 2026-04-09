@@ -74,9 +74,9 @@ export class CommentClient {
 				this.notifyListeners({ ...ev.data.payload, origin: "broadcast" });
 			} else if (ev.data.type === "history") {
 				const history = ev.data.payload as NiconicoComment[];
-				for (const c of history) {
-					this.notifyListeners({ ...c, origin: "broadcast" });
-				}
+				this.notifyHistoryListeners(
+					history.map((c) => ({ ...c, origin: "broadcast" })),
+				);
 			}
 		};
 	}
