@@ -283,9 +283,16 @@ export default function App() {
 					const mgr = kakologManagersRef.current.get(p.playerID);
 					const status = bridge.getPlayerStatus(p.playerID);
 					if (mgr && status) {
-						const startAt =
-							p.initialNetworkTime || p.program?.startAt || 0;
+						const startAt = p.initialNetworkTime || p.program?.startAt || 0;
 						const duration = p.length || p.program?.duration || 0;
+
+						if (data.jkContext) {
+							data.jkContext = {
+								...data.jkContext,
+								startAt,
+								endAt: startAt + duration,
+							};
+						}
 
 						mgr
 							.fetchIfNeeded(startAt, status.time, duration)

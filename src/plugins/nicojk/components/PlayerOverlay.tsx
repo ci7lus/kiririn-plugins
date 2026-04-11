@@ -64,6 +64,11 @@ export default function PlayerOverlay({
 		}
 	}, [playbackState]);
 
+	const jkContextRef = useRef(jkContext);
+	useEffect(() => {
+		jkContextRef.current = jkContext;
+	}, [jkContext]);
+
 	// Initial setup
 	useEffect(() => {
 		if (!canvasRef.current) return;
@@ -83,11 +88,13 @@ export default function PlayerOverlay({
 				let nowVpos: number;
 				if (isLive) {
 					nowVpos = Math.floor(Date.now() / 10);
-				} else if (syncRef.current) {
+				} else if (syncRef.current && jkContextRef.current) {
 					const elapsed = syncRef.current.isPlaying
 						? (performance.now() - syncRef.current.receivedAt) / 1000
 						: 0;
-					nowVpos = Math.floor((syncRef.current.time + elapsed) * 100);
+					nowVpos = Math.floor(
+						(Math.floor(syncRef.current.time) + elapsed + jkContextRef.current.startAt) * 100,
+					);
 				} else {
 					nowVpos = 0;
 				}
@@ -128,7 +135,7 @@ export default function PlayerOverlay({
 					date_usec: comment.date_usec,
 					owner: false,
 					premium: comment.premium === 1,
-					mail: [comment.mail],
+					mail: comment.mail,
 					user_id: -1,
 					layer: 0,
 					is_my_post: false,

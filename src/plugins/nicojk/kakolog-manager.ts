@@ -92,14 +92,12 @@ export class KakologManager {
 
 			const newComments: NiconicoComment[] = data.packet.map((p) => {
 				const c = p.chat;
-				const date = parseInt(c.date);
-				const date_usec = parseInt(c.date_usec || "0");
-				const no = parseInt(c.no);
+				const date = parseInt(c.date, 10);
+				const date_usec = parseInt(c.date_usec || "0", 10);
+				const no = parseInt(c.no, 10);
 
 				// Niconico's official vpos is often "ms from start / 10".
-				const vpos = Math.floor(
-					(date - startTimeUnix) * 100 + date_usec / 10000,
-				);
+				const vpos = Math.floor(date * 100 + date_usec / 10000);
 
 				return {
 					id: no || date * 1000 + date_usec / 1000,
@@ -108,10 +106,10 @@ export class KakologManager {
 					content: c.content,
 					date: date,
 					date_usec: date_usec,
-					mail: c.mail || "",
+					mail: c.mail?.split(" ") || [],
 					user_id: c.user_id,
-					premium: parseInt(c.premium || "0"),
-					anonymity: parseInt(c.anonymity || "0"),
+					premium: parseInt(c.premium || "0", 10),
+					anonymity: parseInt(c.anonymity || "0", 10),
 					origin: "ws", // reusing display logic
 				};
 			});

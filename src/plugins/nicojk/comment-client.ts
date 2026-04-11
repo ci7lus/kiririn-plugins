@@ -7,7 +7,7 @@ export interface NiconicoComment {
 	content: string;
 	date: number;
 	date_usec: number;
-	mail: string;
+	mail: string[];
 	user_id: string;
 	premium: number;
 	anonymity: number;
@@ -256,7 +256,7 @@ export class CommentClient {
 						content: c.content || "",
 						date: c.date,
 						date_usec: c.date_usec || 0,
-						mail: c.mail || "",
+						mail: c.mail?.split(" ") || [],
 						user_id: c.user_id,
 						premium: c.premium || 0,
 						anonymity: c.anonymity || 0,

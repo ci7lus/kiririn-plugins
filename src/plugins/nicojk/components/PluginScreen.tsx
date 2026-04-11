@@ -67,7 +67,8 @@ export default function PluginScreen({
 			});
 		} else if (playbackState) {
 			// 過去ログ時は再生時間に一番近いコメントを探す
-			const targetVpos = playbackState.time * 100;
+			const baseStartAt = jkContext?.startAt || 0;
+			const targetVpos = (playbackState.time + baseStartAt) * 100;
 
 			// 0.5秒に1回程度の更新に抑える（パフォーマンスのため）
 			if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.5)
@@ -91,7 +92,7 @@ export default function PluginScreen({
 				targetElement.scrollIntoView({ behavior: "auto", block: "end" });
 			}
 		}
-	}, [autoScroll, isLive, playbackState, hasActivePlayer]);
+	}, [autoScroll, isLive, playbackState, hasActivePlayer, jkContext?.startAt]);
 
 	// ユーザーの意思によるスクロールを検知して自動スクロールをオフにする
 	useEffect(() => {
@@ -160,6 +161,15 @@ export default function PluginScreen({
 			hour: "2-digit",
 			minute: "2-digit",
 		});
+	};
+
+	const formatPlaybackTime = (vpos: number) => {
+		const baseStartAt = jkContext?.startAt || 0;
+		const relativeSec = vpos / 100 - baseStartAt;
+		if (relativeSec < 0) return "--:--";
+		const m = Math.floor(relativeSec / 60);
+		const s = Math.floor(relativeSec % 60);
+		return `${m}:${s.toString().padStart(2, "0")}`;
 	};
 
 	return (
@@ -237,8 +247,13 @@ export default function PluginScreen({
 							data-vpos={c.vpos}
 							className="group flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed"
 						>
-							<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums">
-								{c.no}
+							<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
+								<span>{c.no}</span>
+								{!isLive && (
+									<span className="text-[8px] text-gray-600 mt-0.5">
+										{formatPlaybackTime(c.vpos)}
+									</span>
+								)}
 							</div>
 							<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
 								{c.content}
