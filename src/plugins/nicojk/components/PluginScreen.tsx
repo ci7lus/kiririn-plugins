@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
-import { addNGId, isNG } from "../ng-settings";
+import { addNGId, getSettings, isNG, saveSettings } from "../ng-settings";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -45,6 +45,21 @@ export default function PluginScreen({
 	const [filterNG, setFilterNG] = useState(true);
 	const [showInfo, setShowInfo] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
+	const [settings, setSettings] = useState(getSettings());
+
+	useEffect(() => {
+		const handleUpdate = () => setSettings(getSettings());
+		window.addEventListener("nicojk_settings_updated", handleUpdate);
+		return () =>
+			window.removeEventListener("nicojk_settings_updated", handleUpdate);
+	}, []);
+
+	const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const val = parseFloat(e.target.value);
+		const newSettings = { ...settings, opacity: val };
+		setSettings(newSettings);
+		saveSettings(newSettings);
+	};
 
 	const filteredComments = filterNG
 		? comments.filter((c) => !isNG(c.content, c.user_id))
@@ -323,6 +338,24 @@ export default function PluginScreen({
 							</div>
 							{filterNG && <Check size={16} className="text-red-400" />}
 						</button>
+
+						<div className="pt-3 mt-1 border-t border-gray-700 mx-1">
+							<div className="flex justify-between text-xs mb-2">
+								<span className="text-gray-400 font-medium">コメントの濃度</span>
+								<span className="text-blue-400 font-mono">
+									{Math.round(settings.opacity * 100)}%
+								</span>
+							</div>
+							<input
+								type="range"
+								min="0.0"
+								max="1.0"
+								step="0.05"
+								value={settings.opacity}
+								onChange={handleOpacityChange}
+								className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-1"
+							/>
+						</div>
 					</div>
 				</div>
 			)}

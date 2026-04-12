@@ -353,7 +353,9 @@ export default function App() {
 	if (!area) return null;
 
 	return (
-		<div className="w-full h-full relative overflow-hidden font-sans">
+		<div
+			className={`w-full h-full relative font-sans ${area.type === "playerOverlay" ? "overflow-hidden" : ""}`}
+		>
 			{area.type === "playerOverlay" && (
 				<PlayerOverlay
 					comments={comments}

@@ -45,12 +45,6 @@ export default function PluginSettings() {
 		refresh();
 	};
 
-	const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const val = parseFloat(e.target.value);
-		const newSettings = { ...settings, opacity: val };
-		setSettings(newSettings);
-		saveSettings(newSettings);
-	};
 
 	return (
 		<div className="p-6 bg-[#1a1a1a] text-white min-h-full max-w-2xl mx-auto">
@@ -66,25 +60,7 @@ export default function PluginSettings() {
 						<h3 className="font-bold">表示設定</h3>
 					</div>
 					<div className="space-y-4">
-						<div className="flex flex-col gap-2">
-							<div className="flex justify-between text-sm">
-								<p className="text-gray-300">コメントの濃度 (不透明度)</p>
-								<span className="text-indigo-400 font-mono">
-									{Math.round(settings.opacity * 100)}%
-								</span>
-							</div>
-							<input
-								type="range"
-								min="0.1"
-								max="1.0"
-								step="0.05"
-								value={settings.opacity}
-								onChange={handleOpacityChange}
-								className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-							/>
-						</div>
-
-						<div className="flex items-center justify-between py-2 border-t border-gray-700/50 mt-2">
+						<div className="flex items-center justify-between py-2">
 							<span className="text-sm text-gray-300">デバッグ情報を表示</span>
 							<button
 								type="button"
@@ -123,7 +99,7 @@ export default function PluginSettings() {
 							value={newWord}
 							onChange={(e) => setNewWord(e.target.value)}
 							placeholder="単語を追加..."
-							className="flex-1 bg-[#333] border border-gray-600 rounded px-3 py-1 text-sm focus:outline-none focus:border-red-500"
+							className="flex-1 bg-[#333] border border-gray-600 rounded px-3 py-1 text-base focus:outline-none focus:border-red-500"
 						/>
 						<button
 							type="submit"
@@ -168,7 +144,7 @@ export default function PluginSettings() {
 							value={newId}
 							onChange={(e) => setNewId(e.target.value)}
 							placeholder="IDを追加..."
-							className="flex-1 bg-[#333] border border-gray-600 rounded px-3 py-1 text-sm focus:outline-none focus:border-red-500"
+							className="flex-1 bg-[#333] border border-gray-600 rounded px-3 py-1 text-base focus:outline-none focus:border-red-500"
 						/>
 						<button
 							type="submit"
