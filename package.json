@@ -8,7 +8,8 @@
 		"build": "tsx build-plugins.ts",
 		"lint": "biome lint",
 		"preview": "vite preview",
-		"build-orig": "tsc -b && vite build"
+		"build-orig": "tsc -b && vite build",
+		"type": "tsc -b"
 	},
 	"dependencies": {
 		"@xpadev-net/niconicomments": "0.2.76",

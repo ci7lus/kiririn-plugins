@@ -8,10 +8,24 @@ function App() {
 
 	useEffect(() => {
 		const bridge = initBridge();
-		setPlayable(bridge.getPlayable());
-		setArea(bridge.getDisplayArea());
-		bridge.onPlayableUpdate(setPlayable);
-		bridge.onDisplayAreaUpdate(setArea);
+
+		const update = () => {
+			const area = bridge.getDisplayArea();
+			setArea(area);
+
+			const playerID = area.playerID || bridge.getFocusedPlayerID();
+			if (playerID) {
+				setPlayable(bridge.getPlayable(playerID));
+			} else {
+				const playables = bridge.getPlayables();
+				setPlayable(playables.length > 0 ? playables[0] : null);
+			}
+		};
+
+		update();
+		bridge.onDisplayAreaChange(update);
+		bridge.onPlayablesChange(update);
+		bridge.onFocusedPlayerIDChange(update);
 	}, []);
 
 	if (!playable || !area)

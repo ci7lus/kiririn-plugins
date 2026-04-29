@@ -45,7 +45,6 @@ export default function App() {
 
 	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
-	const lastPlayableTimesRef = useRef<Map<string, number>>(new Map());
 
 	// Bridge & Background Resources Lifecycle
 	useEffect(() => {

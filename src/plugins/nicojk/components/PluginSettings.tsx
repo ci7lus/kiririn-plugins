@@ -1,10 +1,12 @@
-import { Ban, Plus, Sliders, Trash2, Type } from "lucide-react";
+import { Ban, Command, Plus, Sliders, Trash2, Type } from "lucide-react";
 import { useState } from "react";
 import {
+	addNGCommand,
 	addNGId,
 	addNGWord,
 	getSettings,
 	type NicoJKSettings,
+	removeNGCommand,
 	removeNGId,
 	removeNGWord,
 	saveSettings,
@@ -14,6 +16,7 @@ export default function PluginSettings() {
 	const [settings, setSettings] = useState<NicoJKSettings>(getSettings());
 	const [newWord, setNewWord] = useState("");
 	const [newId, setNewId] = useState("");
+	const [newCommand, setNewCommand] = useState("");
 
 	const refresh = () => setSettings(getSettings());
 
@@ -42,6 +45,20 @@ export default function PluginSettings() {
 
 	const handleDeleteId = (id: string) => {
 		removeNGId(id);
+		refresh();
+	};
+
+	const handleAddCommand = (e: React.FormEvent) => {
+		e.preventDefault();
+		if (newCommand.trim()) {
+			addNGCommand(newCommand.trim());
+			setNewCommand("");
+			refresh();
+		}
+	};
+
+	const handleDeleteCommand = (command: string) => {
+		removeNGCommand(command);
 		refresh();
 	};
 
@@ -167,6 +184,51 @@ export default function PluginSettings() {
 								<button
 									type="button"
 									onClick={() => handleDeleteId(id)}
+									className="text-gray-400 hover:text-red-400"
+								>
+									<Trash2 size={14} />
+								</button>
+							</div>
+						))}
+					</div>
+				</div>
+
+				{/* NG Commands */}
+				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
+					<div className="flex items-center gap-2 mb-4 text-red-400">
+						<Command size={20} />
+						<h3 className="font-bold">NGコマンド</h3>
+					</div>
+
+					<form onSubmit={handleAddCommand} className="flex gap-2 mb-4">
+						<input
+							type="text"
+							value={newCommand}
+							onChange={(e) => setNewCommand(e.target.value)}
+							placeholder="コマンドを追加 (例: shita)..."
+							className="flex-1 bg-[#333] border border-gray-600 rounded px-3 py-1 text-base focus:outline-none focus:border-red-500"
+						/>
+						<button
+							type="submit"
+							className="bg-red-600 hover:bg-red-700 p-2 rounded text-white"
+						>
+							<Plus size={16} />
+						</button>
+					</form>
+
+					<div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+						{settings.ngCommands.length === 0 && (
+							<p className="text-gray-500 text-sm italic">登録なし</p>
+						)}
+						{settings.ngCommands.map((command) => (
+							<div
+								key={command}
+								className="flex justify-between items-center bg-[#333] px-3 py-2 rounded text-sm"
+							>
+								<span className="font-mono text-xs opacity-70">{command}</span>
+								<button
+									type="button"
+									onClick={() => handleDeleteCommand(command)}
 									className="text-gray-400 hover:text-red-400"
 								>
 									<Trash2 size={14} />

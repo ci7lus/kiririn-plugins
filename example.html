@@ -1,12 +1,20 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kiririn Plugin Example</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/plugins/example/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kiririn Plugin Example</title>
+  <meta name="kiririn:id" content="io.github.ci7lus.kiririn-plugins.example">
+  <meta name="kiririn:version" content="0.1.0">
+  <meta name="kiririn:author" content="ci7lus">
+  <meta name="kiririn:link" content="https://github.com/ci7lus/kiririn-plugins">
+  <meta name="kiririn:areas" content="playerOverlay,pluginScreen,pluginSettings">
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/plugins/example/main.tsx"></script>
+</body>
+
 </html>

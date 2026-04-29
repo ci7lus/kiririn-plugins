@@ -1,11 +1,12 @@
 export interface NicoJKSettings {
 	ngWords: string[];
 	ngIds: string[];
+	ngCommands: string[];
 	opacity: number;
 	showDebugInfo: boolean;
 }
 
-const STORAGE_KEY = "nicojk_settings_v3"; // Bump version because of new property
+const STORAGE_KEY = "nicojk_settings_v4"; // Bump version because of new property
 
 export function getSettings(): NicoJKSettings {
 	const stored = localStorage.getItem(STORAGE_KEY);
@@ -16,7 +17,13 @@ export function getSettings(): NicoJKSettings {
 			console.error("Failed to parse settings", e);
 		}
 	}
-	return { ngWords: [], ngIds: [], opacity: 0.8, showDebugInfo: false };
+	return {
+		ngWords: [],
+		ngIds: [],
+		ngCommands: [],
+		opacity: 0.8,
+		showDebugInfo: false,
+	};
 }
 
 export function saveSettings(settings: NicoJKSettings) {
@@ -52,9 +59,30 @@ export function removeNGId(id: string) {
 	saveSettings(s);
 }
 
-export function isNG(comment: string, userId: string): boolean {
+export function addNGCommand(command: string) {
 	const s = getSettings();
-	if (s.ngIds.includes(userId)) return true;
-	if (s.ngWords.some((word) => comment.includes(word))) return true;
+	if (!s.ngCommands.includes(command)) {
+		s.ngCommands.push(command);
+		saveSettings(s);
+	}
+}
+
+export function removeNGCommand(command: string) {
+	const s = getSettings();
+	s.ngCommands = s.ngCommands.filter((c) => c !== command);
+	saveSettings(s);
+}
+
+export function isNG(comment: string | undefined, userId: string | undefined): boolean {
+	const s = getSettings();
+	if (userId && s.ngIds.includes(userId)) return true;
+	if (comment && s.ngWords.some((word) => comment.includes(word))) return true;
 	return false;
+}
+
+export function filterMail(mail: string[] | undefined): string[] {
+	if (!mail) return [];
+	const s = getSettings();
+	if (s.ngCommands.length === 0) return mail;
+	return mail.filter((m) => m != null && !s.ngCommands.includes(m));
 }

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
-import { getSettings, isNG } from "../ng-settings";
+import { filterMail, getSettings, isNG } from "../ng-settings";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -52,15 +52,27 @@ export default function PlayerOverlay({
 		time: number;
 		receivedAt: number;
 		isPlaying: boolean;
+		playableID: string;
 	} | null>(null);
 
 	useEffect(() => {
 		if (playbackState) {
+			if (
+				syncRef.current &&
+				syncRef.current.playableID === playbackState.playableID &&
+				syncRef.current.time === playbackState.time &&
+				syncRef.current.isPlaying === playbackState.isPlaying
+			) {
+				return;
+			}
 			syncRef.current = {
 				isPlaying: playbackState.isPlaying,
 				time: playbackState.time,
+				playableID: playbackState.playableID,
 				receivedAt: performance.now(),
 			};
+		} else {
+			syncRef.current = null;
 		}
 	}, [playbackState]);
 
@@ -93,7 +105,7 @@ export default function PlayerOverlay({
 						? (performance.now() - syncRef.current.receivedAt) / 1000
 						: 0;
 					nowVpos = Math.floor(
-						(Math.floor(syncRef.current.time) + elapsed + jkContextRef.current.startAt) * 100,
+						(syncRef.current.time + elapsed + jkContextRef.current.startAt) * 100,
 					);
 				} else {
 					nowVpos = 0;
@@ -122,7 +134,9 @@ export default function PlayerOverlay({
 		const sorted = [...comments].sort((a, b) => a.vpos - b.vpos);
 		const filtered = sorted.filter(
 			(comment) =>
-				comment.id > lastCommentId && !isNG(comment.content, comment.user_id),
+				comment.id > lastCommentId &&
+				comment.content != null &&
+				!isNG(comment.content, comment.user_id),
 		);
 
 		if (filtered.length > 0) {
@@ -135,7 +149,7 @@ export default function PlayerOverlay({
 					date_usec: comment.date_usec,
 					owner: false,
 					premium: comment.premium === 1,
-					mail: comment.mail,
+					mail: filterMail(comment.mail),
 					user_id: -1,
 					layer: 0,
 					is_my_post: false,

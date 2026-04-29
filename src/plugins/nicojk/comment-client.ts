@@ -40,7 +40,6 @@ export class CommentClient {
 	private historyListeners: HistoryCallback[] = [];
 	private statusListeners: StatusCallback[] = [];
 	private jkId: string | null = null;
-	private isLeader = false;
 	private abortController: AbortController | null = null;
 	private keepSeatInterval: number | null = null;
 	private status: ConnectionStatus = "disconnected";
@@ -108,14 +107,12 @@ export class CommentClient {
 				{ ifAvailable: true },
 				async (lock) => {
 					if (lock) {
-						this.isLeader = true;
 						console.log(`[NicoJK] Acquired lock for ${jkId} as Leader.`);
 						this.setupWatchSession(jkId);
 						return new Promise<void>((resolve) => {
 							signal.addEventListener("abort", () => resolve());
 						});
 					} else {
-						this.isLeader = false;
 						console.log(
 							`[NicoJK] Follower for ${jkId}. Waiting for promotion...`,
 						);
@@ -124,7 +121,6 @@ export class CommentClient {
 						// Background wait for promotion
 						navigator.locks.request(`nicojk_lock_${jkId}`, async (lock) => {
 							if (!signal.aborted && lock) {
-								this.isLeader = true;
 								console.log(`[NicoJK] Promoted to Leader for ${jkId}.`);
 								this.setupWatchSession(jkId);
 								return new Promise<void>((resolve) => {
@@ -303,7 +299,6 @@ export class CommentClient {
 			this.bc = null;
 		}
 		this.jkId = null;
-		this.isLeader = false;
 		this.updateStatus("disconnected");
 	}
 
