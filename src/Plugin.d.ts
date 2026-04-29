@@ -50,6 +50,10 @@ export interface Playable {
 	id: string;
 	title: string;
 	subtitle?: string;
+	/**
+	 * 再生 time=0 に対応する現実時間の Unix timestamp。
+	 * 未指定の場合は program.startAt を fallback として扱えます。
+	 */
 	initialNetworkTime?: number;
 	isSeekable: boolean;
 	length?: number;

@@ -23,6 +23,8 @@ export type ConnectionStatus =
 	| "error";
 type StatusCallback = (status: ConnectionStatus) => void;
 
+const MAX_LIVE_HISTORY = 1000;
+
 interface RoomData {
 	messageServer: {
 		uri: string;
@@ -364,7 +366,7 @@ export class CommentClient {
 	private saveHistory(jkId: string, comments: NiconicoComment[]) {
 		sessionStorage.setItem(
 			this.getStorageKey(jkId),
-			JSON.stringify(comments.slice(-500)),
+			JSON.stringify(comments.slice(-MAX_LIVE_HISTORY)),
 		);
 	}
 
@@ -382,7 +384,7 @@ export class CommentClient {
 					(h) => (h.no && h.no === comment.no) || h.id === comment.id,
 				)
 			) {
-				const nextHistory = [...history, comment].slice(-500);
+				const nextHistory = [...history, comment].slice(-MAX_LIVE_HISTORY);
 				this.saveHistory(this.jkId, nextHistory);
 				this.notifyHistoryListeners(nextHistory);
 			}

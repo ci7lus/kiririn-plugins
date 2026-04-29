@@ -13,7 +13,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
-import { addNGId, getSettings, isNG, saveSettings } from "../ng-settings";
+import {
+	addNGId,
+	getSettings,
+	isNG,
+	saveSettings,
+	SETTINGS_UPDATED_EVENT,
+} from "../ng-settings";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -49,9 +55,9 @@ export default function PluginScreen({
 
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
-		window.addEventListener("nicojk_settings_updated", handleUpdate);
+		window.addEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
 		return () =>
-			window.removeEventListener("nicojk_settings_updated", handleUpdate);
+			window.removeEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
 	}, []);
 
 	const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -204,7 +210,7 @@ export default function PluginScreen({
 					>
 						<Info size={18} />
 					</button>
-					<div className="flex items-center gap-1 items-center justify-center">
+					<div className="flex items-center gap-1 justify-center">
 						{hasActivePlayer && isLive && (
 							<div
 								className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold transition-colors ${

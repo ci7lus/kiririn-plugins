@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { initBridge } from "../../kiririn-bridge";
 import type {
 	DisplayArea,
+	KiririnBridge,
 	Playable,
 	PlayerPlaybackState,
 } from "../../Plugin.d.ts";
@@ -17,7 +18,32 @@ import type { NicoJKContext } from "./context";
 import { getJkInfo } from "./definitions";
 import { KakologManager } from "./kakolog-manager";
 
-const MAX_COMMENTS = 1000;
+const MAX_LIVE_COMMENTS = 1000;
+const PLAYER_OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
+
+interface PlayerOverlaySnapshot {
+	playerID: string;
+	playableId: string | null;
+	comments: NiconicoComment[];
+	jkContext: NicoJKContext | null;
+	wsStatus: ConnectionStatus;
+	isLive: boolean;
+}
+
+type PlayerOverlayRelayMessage =
+	| { type: "requestSnapshot" }
+	| { type: "snapshot"; payload: PlayerOverlaySnapshot };
+
+function createPlayerOverlayRelayChannel(playerID: string) {
+	return new BroadcastChannel(`${PLAYER_OVERLAY_RELAY_PREFIX}${playerID}`);
+}
+
+type DebugKiririnBridge = KiririnBridge & {
+	toggleSeekable?: () => void;
+	nextAreaPattern?: () => void;
+	focusPlayable?: (playerID: string) => void;
+	closePlayer?: (playerID: string) => void;
+};
 
 export default function App() {
 	const [instanceId] = useState(() => Math.random().toString(36).substring(7));
@@ -28,9 +54,15 @@ export default function App() {
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
 	const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
+	const [screenIsLive, setScreenIsLive] = useState(false);
 
 	const areaRef = useRef<DisplayArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
+	const relayChannelRef = useRef<BroadcastChannel | null>(null);
+	const commentsRef = useRef<NiconicoComment[]>([]);
+	const jkContextRef = useRef<NicoJKContext | null>(null);
+	const wsStatusRef = useRef<ConnectionStatus>("disconnected");
+	const overlayIsLiveRef = useRef(false);
 	const playersDataRef = useRef<
 		Map<
 			string,
@@ -45,6 +77,120 @@ export default function App() {
 
 	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
+
+	useEffect(() => {
+		commentsRef.current = comments;
+	}, [comments]);
+
+	useEffect(() => {
+		jkContextRef.current = jkContext;
+	}, [jkContext]);
+
+	useEffect(() => {
+		wsStatusRef.current = wsStatus;
+	}, [wsStatus]);
+
+	useEffect(() => {
+		overlayIsLiveRef.current = !targetPlayable?.isSeekable;
+	}, [targetPlayable?.isSeekable]);
+
+	useEffect(() => {
+		if (area?.type !== "playerOverlay" || !area.playerID) return;
+		const playerID = area.playerID;
+
+		const channel = createPlayerOverlayRelayChannel(playerID);
+		const postSnapshot = () => {
+			channel.postMessage({
+				type: "snapshot",
+				payload: {
+					playerID,
+					playableId: targetPlayableRef.current?.id || null,
+					comments: commentsRef.current,
+					jkContext: jkContextRef.current,
+					wsStatus: wsStatusRef.current,
+					isLive: overlayIsLiveRef.current,
+				},
+			} satisfies PlayerOverlayRelayMessage);
+		};
+		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
+			if (event.data.type === "requestSnapshot") {
+				postSnapshot();
+			}
+		};
+		relayChannelRef.current = channel;
+		postSnapshot();
+
+		return () => {
+			channel.onmessage = null;
+			channel.close();
+			if (relayChannelRef.current === channel) {
+				relayChannelRef.current = null;
+			}
+		};
+	}, [area?.type, area?.playerID]);
+
+	useEffect(() => {
+		if (area?.type !== "playerOverlay" || !area.playerID) return;
+		const channel = relayChannelRef.current;
+		if (!channel) return;
+
+		channel.postMessage({
+			type: "snapshot",
+			payload: {
+				playerID: area.playerID,
+				playableId: targetPlayable?.id || null,
+				comments,
+				jkContext,
+				wsStatus,
+				isLive: !targetPlayable?.isSeekable,
+			},
+		} satisfies PlayerOverlayRelayMessage);
+	}, [
+		area?.type,
+		area?.playerID,
+		comments,
+		jkContext,
+		wsStatus,
+		targetPlayable?.id,
+		targetPlayable?.isSeekable,
+	]);
+
+	useEffect(() => {
+		if (area?.type !== "pluginScreen") return;
+
+		const playerID = targetPlayable?.playerID;
+		const expectedPlayableId = targetPlayable?.id || null;
+
+		setComments([]);
+		setJkContext(null);
+		setWsStatus("disconnected");
+		setScreenIsLive(false);
+
+		if (!playerID) return;
+
+		const channel = createPlayerOverlayRelayChannel(playerID);
+		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
+			if (event.data.type !== "snapshot") return;
+			if (
+				expectedPlayableId &&
+				event.data.payload.playableId &&
+				event.data.payload.playableId !== expectedPlayableId
+			) {
+				return;
+			}
+
+			setComments(event.data.payload.comments);
+			setJkContext(event.data.payload.jkContext);
+			setWsStatus(event.data.payload.wsStatus);
+			setScreenIsLive(event.data.payload.isLive);
+		};
+		channel.postMessage({ type: "requestSnapshot" } satisfies PlayerOverlayRelayMessage);
+
+		return () => {
+			channel.onmessage = null;
+			channel.close();
+		};
+	}, [area?.type, targetPlayable?.playerID, targetPlayable?.id]);
 
 	// Bridge & Background Resources Lifecycle
 	useEffect(() => {
@@ -67,27 +213,38 @@ export default function App() {
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
 
-			const tag = currentArea.playerID
+			const tag = currentArea.type === "playerOverlay" && currentArea.playerID
 				? `[Overlay:${currentArea.playerID}]`
-				: "[Screen]";
+				: currentArea.type === "pluginSettings"
+					? "[Settings]"
+					: "[Screen]";
 
 			let targetP: Playable | null = null;
 			let targetS: PlayerPlaybackState | null = null;
 
-			if (currentArea.playerID) {
+			if (currentArea.type === "playerOverlay" && currentArea.playerID) {
 				targetP = bridge.getPlayable(currentArea.playerID);
 				targetS = bridge.getPlayerStatus(currentArea.playerID);
-			} else {
+			} else if (currentArea.type === "pluginScreen") {
 				const activeId = bridge.getFocusedPlayerID();
 				targetP = activeId ? bridge.getPlayable(activeId) : null;
 				targetS = activeId ? bridge.getPlayerStatus(activeId) : null;
+			} else {
+				setTargetPlayable(null);
+				targetPlayableRef.current = null;
+				setPlaybackState(null);
+				setComments([]);
+				setJkContext(null);
+				setWsStatus("disconnected");
+				setScreenIsLive(false);
+				return;
 			}
 
 			setTargetPlayable(targetP);
 			targetPlayableRef.current = targetP;
 			setPlaybackState(targetS);
 
-			if (targetP) {
+			if (currentArea.type === "playerOverlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
 				setComments(data?.comments || []);
 				setJkContext(data?.jkContext || null);
@@ -105,6 +262,7 @@ export default function App() {
 				setComments([]);
 				setJkContext(null);
 				setWsStatus("disconnected");
+				setScreenIsLive(false);
 			}
 		};
 
@@ -122,8 +280,12 @@ export default function App() {
 		bridge.onPlayerStatusesChange((statuses) => {
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
+			if (currentArea.type === "pluginSettings") {
+				setPlaybackState(null);
+				return;
+			}
 			let s: PlayerPlaybackState | null = null;
-			if (currentArea.playerID) {
+			if (currentArea.type === "playerOverlay" && currentArea.playerID) {
 				s = statuses.find((it) => it.playerID === currentArea.playerID) || null;
 			} else {
 				const activeId = bridge.getFocusedPlayerID();
@@ -155,18 +317,12 @@ export default function App() {
 			const playables = bridge.getPlayables();
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
-
-			// Manage playables based on instance role
-			// Overlay instance: Only manage its own target
-			// Screen instance: Manage ALL for smooth background switching
-			const targetPids = new Set<string>();
-			if (currentArea.playerID) {
-				targetPids.add(currentArea.playerID);
-			} else {
-				for (const p of playables) targetPids.add(p.playerID);
+			if (currentArea.type !== "playerOverlay" || !currentArea.playerID) {
+				return;
 			}
-			const playablesToManage = playables.filter((p) =>
-				targetPids.has(p.playerID),
+
+			const playablesToManage = playables.filter(
+				(p) => p.playerID === currentArea.playerID,
 			);
 
 			for (const p of playablesToManage) {
@@ -181,7 +337,6 @@ export default function App() {
 				const dataObject = playersDataRef.current.get(p.playerID);
 				if (!dataObject) continue;
 				const data = dataObject;
-				const isPassive = !currentArea.playerID;
 
 				// Playable switch detection (same playerID, different content)
 				if (data.playableId !== p.id) {
@@ -233,7 +388,7 @@ export default function App() {
 								if (pData.jkId === data.jkId) {
 									pData.comments = [...pData.comments, c]
 										.sort((a, b) => a.vpos - b.vpos)
-										.slice(-MAX_COMMENTS);
+										.slice(-MAX_LIVE_COMMENTS);
 									if (targetPlayableRef.current?.playerID === pid) {
 										setComments(pData.comments);
 									}
@@ -248,7 +403,7 @@ export default function App() {
 									if (toAdd.length > 0) {
 										pData.comments = [...pData.comments, ...toAdd]
 											.sort((a, b) => a.vpos - b.vpos)
-											.slice(-MAX_COMMENTS);
+											.slice(-MAX_LIVE_COMMENTS);
 										if (targetPlayableRef.current?.playerID === pid) {
 											setComments(pData.comments);
 										}
@@ -267,7 +422,7 @@ export default function App() {
 								}
 							}
 						});
-						client.connect(data.jkId, { passive: isPassive });
+						client.connect(data.jkId);
 						clientsRef.current.set(data.jkId, client);
 					}
 				}
@@ -308,7 +463,7 @@ export default function App() {
 										const jkId = data.jkId;
 										if (jkId) {
 											const client = clientsRef.current.get(jkId);
-											if (client && !isPassive) {
+											if (client) {
 												client.broadcastHistory(toAdd);
 											}
 										}
@@ -351,6 +506,11 @@ export default function App() {
 
 	if (!area) return null;
 
+	const debugKiririn =
+		typeof window !== "undefined"
+			? (window.kiririn as DebugKiririnBridge)
+			: null;
+
 	return (
 		<div
 			className={`w-full h-full relative font-sans ${area.type === "playerOverlay" ? "overflow-hidden" : ""}`}
@@ -369,7 +529,7 @@ export default function App() {
 			{area.type === "pluginScreen" && (
 				<PluginScreen
 					comments={comments}
-					isLive={!!targetPlayable && !targetPlayable.isSeekable}
+					isLive={screenIsLive}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
 					jkContext={jkContext}
@@ -380,8 +540,7 @@ export default function App() {
 			{area.type === "pluginSettings" && <PluginSettings />}
 
 			{/* Debug UI for MockBridge */}
-			{typeof window !== "undefined" &&
-				(window.kiririn as any)?.toggleSeekable && (
+			{debugKiririn?.toggleSeekable && (
 					<div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm max-w-sm">
 						<div className="text-[10px] text-gray-400 font-mono flex justify-between">
 							<span>MockBridge Controls</span>
@@ -392,14 +551,14 @@ export default function App() {
 						<div className="flex gap-2">
 							<button
 								type="button"
-								onClick={() => (window.kiririn as any).toggleSeekable()}
+								onClick={() => debugKiririn.toggleSeekable?.()}
 								className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] rounded"
 							>
 								Toggle Seekable
 							</button>
 							<button
 								type="button"
-								onClick={() => (window.kiririn as any).nextAreaPattern()}
+								onClick={() => debugKiririn.nextAreaPattern?.()}
 								className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[10px] rounded"
 							>
 								Next Area
@@ -408,13 +567,11 @@ export default function App() {
 						<div className="flex flex-col gap-1 b border-t border-gray-700 pt-1">
 							<div className="text-[8px] text-gray-500">Active Players:</div>
 							<div className="flex gap-1 overflow-x-auto">
-								{(window.kiririn as any).getPlayables().map((p: any) => (
+								{debugKiririn.getPlayables().map((p) => (
 									<div key={p.playerID} className="flex flex-col gap-1">
 										<button
 											type="button"
-											onClick={() =>
-												(window.kiririn as any).focusPlayable(p.playerID)
-											}
+											onClick={() => debugKiririn.focusPlayable?.(p.playerID)}
 											className={`px-2 py-1 text-[8px] rounded truncate max-w-[80px] ${
 												targetPlayable?.playerID === p.playerID
 													? "bg-green-600 text-white"
@@ -425,9 +582,7 @@ export default function App() {
 										</button>
 										<button
 											type="button"
-											onClick={() =>
-												(window.kiririn as any).closePlayer(p.playerID)
-											}
+											onClick={() => debugKiririn.closePlayer?.(p.playerID)}
 											className="px-2 py-0.5 bg-red-900/50 hover:bg-red-800 text-red-200 text-[8px] rounded"
 										>
 											Close
