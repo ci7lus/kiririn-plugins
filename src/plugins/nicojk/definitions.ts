@@ -11,6 +11,7 @@ interface ChannelDefinition {
 	serviceIds: number[];
 	networkId: number;
 	nicojkId?: number;
+	syobocalId?: number;
 }
 
 interface DefinitionsCache {

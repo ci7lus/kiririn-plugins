@@ -3,13 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
-import {
-	filterMail,
-	getSettings,
-	isNG,
-	SETTINGS_UPDATED_EVENT,
-	STORAGE_KEY,
-} from "../ng-settings";
+import { filterMail, getSettings, isNG } from "../ng-settings";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -44,17 +38,13 @@ export default function PlayerOverlay({
 			setOpacity(s.opacity);
 			setShowDebugInfo(s.showDebugInfo);
 		};
-		const handleStorage = (e: StorageEvent) => {
-			if (e.key === STORAGE_KEY) {
-				handleUpdate();
-			}
-		};
-
-		window.addEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
-		window.addEventListener("storage", handleStorage);
+		window.addEventListener("nicojk_settings_updated", handleUpdate);
+		window.addEventListener("storage", (e) => {
+			if (e.key === "nicojk_settings_v3") handleUpdate();
+		});
 		return () => {
-			window.removeEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
-			window.removeEventListener("storage", handleStorage);
+			window.removeEventListener("nicojk_settings_updated", handleUpdate);
+			window.removeEventListener("storage", handleUpdate);
 		};
 	}, []);
 

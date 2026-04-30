@@ -6,35 +6,17 @@ export interface NicoJKSettings {
 	showDebugInfo: boolean;
 }
 
-export const STORAGE_KEY = "nicojk_settings";
-export const SETTINGS_UPDATED_EVENT = "nicojk_settings_updated";
-
-const LEGACY_STORAGE_KEYS = ["nicojk_settings_v4", "nicojk_settings_v3"];
-
-function parseSettings(stored: string): NicoJKSettings | null {
-	try {
-		return JSON.parse(stored);
-	} catch (e) {
-		console.error("Failed to parse settings", e);
-		return null;
-	}
-}
+const STORAGE_KEY = "nicojk_settings_v4"; // Bump version because of new property
 
 export function getSettings(): NicoJKSettings {
-	const storageKeys = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
-	for (const storageKey of storageKeys) {
-		const stored = localStorage.getItem(storageKey);
-		if (!stored) continue;
-
-		const parsed = parseSettings(stored);
-		if (parsed) {
-			if (storageKey !== STORAGE_KEY) {
-				localStorage.setItem(STORAGE_KEY, stored);
-			}
-			return parsed;
+	const stored = localStorage.getItem(STORAGE_KEY);
+	if (stored) {
+		try {
+			return JSON.parse(stored);
+		} catch (e) {
+			console.error("Failed to parse settings", e);
 		}
 	}
-
 	return {
 		ngWords: [],
 		ngIds: [],
@@ -46,7 +28,7 @@ export function getSettings(): NicoJKSettings {
 
 export function saveSettings(settings: NicoJKSettings) {
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-	window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
+	window.dispatchEvent(new Event("nicojk_settings_updated"));
 }
 
 export function addNGWord(word: string) {
