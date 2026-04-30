@@ -15,15 +15,12 @@ export interface NiconicoComment {
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;
-type HistoryCallback = (comments: NiconicoComment[]) => void;
 export type ConnectionStatus =
 	| "disconnected"
 	| "connecting"
 	| "connected"
 	| "error";
 type StatusCallback = (status: ConnectionStatus) => void;
-
-const MAX_LIVE_HISTORY = 1000;
 
 interface RoomData {
 	messageServer: {
@@ -39,7 +36,6 @@ export class CommentClient {
 	private commentWs: ReconnectingWebSocket | null = null;
 	private bc: BroadcastChannel | null = null;
 	private listeners: CommentCallback[] = [];
-	private historyListeners: HistoryCallback[] = [];
 	private statusListeners: StatusCallback[] = [];
 	private jkId: string | null = null;
 	private abortController: AbortController | null = null;
@@ -55,16 +51,6 @@ export class CommentClient {
 		return this.status;
 	}
 
-	constructor() {
-		// sessionStorage の他タブからの更新を監視
-		window.addEventListener("storage", (ev) => {
-			if (this.jkId && ev.key === this.getStorageKey(this.jkId)) {
-				const history = this.loadHistory(this.jkId);
-				this.notifyHistoryListeners(history);
-			}
-		});
-	}
-
 	private setupBC(jkId: string) {
 		if (this.bc) {
 			this.bc.close();
@@ -73,11 +59,6 @@ export class CommentClient {
 		this.bc.onmessage = (ev) => {
 			if (ev.data.type === "comment") {
 				this.notifyListeners({ ...ev.data.payload, origin: "broadcast" });
-			} else if (ev.data.type === "history") {
-				const history = ev.data.payload as NiconicoComment[];
-				this.notifyHistoryListeners(
-					history.map((c) => ({ ...c, origin: "broadcast" })),
-				);
 			}
 		};
 	}
@@ -87,10 +68,6 @@ export class CommentClient {
 		this.disconnect();
 		this.jkId = jkId;
 		this.updateStatus("connecting");
-
-		// 接続時に sessionStorage から即座に履歴を読み込んで通知する
-		const history = this.loadHistory(jkId);
-		this.notifyHistoryListeners(history);
 
 		this.setupBC(jkId);
 
@@ -120,7 +97,6 @@ export class CommentClient {
 						);
 						this.updateStatus("connected");
 
-						// Background wait for promotion
 						navigator.locks.request(`nicojk_lock_${jkId}`, async (lock) => {
 							if (!signal.aborted && lock) {
 								console.log(`[NicoJK] Promoted to Leader for ${jkId}.`);
@@ -328,66 +304,13 @@ export class CommentClient {
 		};
 	}
 
-	public onHistoryUpdate(callback: HistoryCallback) {
-		this.historyListeners.push(callback);
-		return () => {
-			this.historyListeners = this.historyListeners.filter(
-				(cb) => cb !== callback,
-			);
-		};
-	}
-
 	private notifyListeners(comment: NiconicoComment) {
 		for (const cb of this.listeners) {
 			cb(comment);
 		}
 	}
 
-	private notifyHistoryListeners(comments: NiconicoComment[]) {
-		for (const cb of this.historyListeners) {
-			cb(comments);
-		}
-	}
-
-	private getStorageKey(jkId: string): string {
-		return `nicojk_comments_v2_${jkId}`;
-	}
-
-	private loadHistory(jkId: string): NiconicoComment[] {
-		const saved = sessionStorage.getItem(this.getStorageKey(jkId));
-		if (!saved) return [];
-		try {
-			return JSON.parse(saved);
-		} catch {
-			return [];
-		}
-	}
-
-	private saveHistory(jkId: string, comments: NiconicoComment[]) {
-		sessionStorage.setItem(
-			this.getStorageKey(jkId),
-			JSON.stringify(comments.slice(-MAX_LIVE_HISTORY)),
-		);
-	}
-
-	public broadcastHistory(comments: NiconicoComment[]) {
-		this.bc?.postMessage({ type: "history", payload: comments });
-	}
-
 	private broadcast(comment: NiconicoComment) {
 		this.bc?.postMessage({ type: "comment", payload: comment });
-
-		if (this.jkId) {
-			const history = this.loadHistory(this.jkId);
-			if (
-				!history.some(
-					(h) => (h.no && h.no === comment.no) || h.id === comment.id,
-				)
-			) {
-				const nextHistory = [...history, comment].slice(-MAX_LIVE_HISTORY);
-				this.saveHistory(this.jkId, nextHistory);
-				this.notifyHistoryListeners(nextHistory);
-			}
-		}
 	}
 }

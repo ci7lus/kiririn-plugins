@@ -105,7 +105,8 @@ export default function PlayerOverlay({
 						? (performance.now() - syncRef.current.receivedAt) / 1000
 						: 0;
 					nowVpos = Math.floor(
-						(syncRef.current.time + elapsed + jkContextRef.current.startAt) * 100,
+						(syncRef.current.time + elapsed + jkContextRef.current.startAt) *
+							100,
 					);
 				} else {
 					nowVpos = 0;
@@ -201,10 +202,21 @@ export default function PlayerOverlay({
 				<div className="absolute top-4 left-4 flex flex-col gap-1 p-2 bg-black/40 text-white rounded text-[10px] tabular-nums font-mono border border-white/20">
 					<div>
 						{jkContext.channelName} ({jkContext.jkId})
+						{jkContext.sources.length > 1
+							? ` +${jkContext.sources.length - 1} source${jkContext.sources.length === 2 ? "" : "s"}`
+							: ""}
 					</div>
 					<div>
 						{formatTime(jkContext.startAt)} - {formatTime(jkContext.endAt)}
 					</div>
+					{jkContext.sources.length > 1 && (
+						<div className="text-[9px] text-gray-200/90">
+							{jkContext.sources
+								.slice(1)
+								.map((source) => source.channelName)
+								.join(" / ")}
+						</div>
+					)}
 				</div>
 			)}
 		</div>

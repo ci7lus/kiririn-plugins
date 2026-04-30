@@ -1,0 +1,246 @@
+import type { NicoJKChannelDefinition } from "./definitions";
+import { getAllChannelDefinitions } from "./definitions";
+import {
+	haveSimilarDuration,
+	lookupChannelProgramAt,
+	lookupProgramsByTitleAt,
+	lookupProgramsByTitleBetween,
+	programsDescribeSameEpisode,
+	type SyobocalProgram,
+} from "./syobocal";
+
+const MAX_RECORDED_REPLAY_AIRINGS = 5;
+// ニコニコ実況サービス開始日
+const RECORDED_REPLAY_LOOKUP_START_AT = Math.floor(
+	new Date("2009-11-28T00:00:00+09:00").getTime() / 1000,
+);
+// CM がない AT-X はコメントのタイミングがズレるため除外する
+const EXCLUDED_REPLAY_CH_IDS = new Set([20]);
+
+export type ResolvedSourceKind = "primary" | "simulcast" | "replay";
+
+export interface ResolvedCommentSource {
+	key: string;
+	kind: ResolvedSourceKind;
+	jkId: string;
+	channelName: string;
+	syobocalId?: number;
+	startAt: number;
+	endAt: number;
+}
+
+export interface ResolvedCommentSources {
+	primary: ResolvedCommentSource;
+	liveSources: ResolvedCommentSource[];
+	replaySources: ResolvedCommentSource[];
+}
+
+function makeSourceKey(
+	kind: ResolvedSourceKind,
+	jkId: string,
+	startAt: number,
+	syobocalId?: number,
+) {
+	return [kind, jkId, syobocalId || "na", startAt].join(":");
+}
+
+function buildSource(
+	channel: NicoJKChannelDefinition,
+	kind: ResolvedSourceKind,
+	startAt: number,
+	endAt: number,
+): ResolvedCommentSource | null {
+	if (!channel.jkId) {
+		return null;
+	}
+
+	return {
+		key: makeSourceKey(kind, channel.jkId, startAt, channel.syobocalId),
+		kind,
+		jkId: channel.jkId,
+		channelName: channel.name,
+		syobocalId: channel.syobocalId,
+		startAt,
+		endAt,
+	};
+}
+
+function createChannelIndex(channels: NicoJKChannelDefinition[]) {
+	const bySyobocalId = new Map<number, NicoJKChannelDefinition>();
+	for (const channel of channels) {
+		if (
+			!channel.syobocalId ||
+			!channel.jkId ||
+			bySyobocalId.has(channel.syobocalId)
+		) {
+			continue;
+		}
+		bySyobocalId.set(channel.syobocalId, channel);
+	}
+	return bySyobocalId;
+}
+
+function isCandidateProgramMatch(
+	baseProgram: SyobocalProgram,
+	candidate: SyobocalProgram,
+) {
+	return (
+		candidate.tid === baseProgram.tid &&
+		programsDescribeSameEpisode(baseProgram, candidate) &&
+		haveSimilarDuration(baseProgram, candidate)
+	);
+}
+
+function dedupeSources(sources: ResolvedCommentSource[]) {
+	const seen = new Set<string>();
+	return sources.filter((source) => {
+		const key = `${source.jkId}:${source.startAt}`;
+		if (seen.has(key)) {
+			return false;
+		}
+		seen.add(key);
+		return true;
+	});
+}
+
+async function resolveLiveSources(
+	primaryChannel: NicoJKChannelDefinition,
+	baseProgram: SyobocalProgram,
+	atUnixSeconds: number,
+	channelIndex: Map<number, NicoJKChannelDefinition>,
+) {
+	const candidates = await lookupProgramsByTitleAt(
+		baseProgram.tid,
+		atUnixSeconds,
+		baseProgram.count,
+	);
+
+	const sources = candidates
+		.filter(
+			(candidate) =>
+				candidate.chId !== baseProgram.chId &&
+				candidate.startAt <= atUnixSeconds &&
+				atUnixSeconds < candidate.endAt &&
+				isCandidateProgramMatch(baseProgram, candidate),
+		)
+		.map((candidate) => {
+			const channel = channelIndex.get(candidate.chId);
+			return channel
+				? buildSource(channel, "simulcast", candidate.startAt, candidate.endAt)
+				: null;
+		})
+		.filter((source): source is ResolvedCommentSource => !!source)
+		.filter((source) => source.jkId !== primaryChannel.jkId);
+
+	return dedupeSources(sources);
+}
+
+async function resolveRecordedReplaySources(
+	primaryChannel: NicoJKChannelDefinition,
+	baseProgram: SyobocalProgram,
+	channelIndex: Map<number, NicoJKChannelDefinition>,
+) {
+	const seenPrograms = new Set<string>([
+		`${baseProgram.chId}:${baseProgram.startAt}:${baseProgram.endAt}`,
+	]);
+	const candidates = await lookupProgramsByTitleBetween(
+		baseProgram.tid,
+		RECORDED_REPLAY_LOOKUP_START_AT,
+		Math.floor(Date.now() / 1000),
+		baseProgram.count,
+	);
+
+	const matches = candidates
+		.filter(
+			(candidate) =>
+				!EXCLUDED_REPLAY_CH_IDS.has(candidate.chId) &&
+				candidate.chId !== baseProgram.chId &&
+				isCandidateProgramMatch(baseProgram, candidate),
+		)
+		.sort((left, right) => right.startAt - left.startAt)
+		.map((candidate) => {
+			const programKey = `${candidate.chId}:${candidate.startAt}:${candidate.endAt}`;
+			if (seenPrograms.has(programKey)) {
+				return null;
+			}
+			seenPrograms.add(programKey);
+
+			const channel = channelIndex.get(candidate.chId);
+			const source = channel
+				? buildSource(channel, "replay", candidate.startAt, candidate.endAt)
+				: null;
+			if (!source || source.jkId === primaryChannel.jkId) {
+				return null;
+			}
+			return source;
+		})
+		.filter((source): source is ResolvedCommentSource => !!source);
+
+	return dedupeSources(matches).slice(0, MAX_RECORDED_REPLAY_AIRINGS);
+}
+
+export async function resolveCommentSources(params: {
+	primaryChannel: NicoJKChannelDefinition;
+	baseStartAt: number;
+	duration: number;
+	isLive: boolean;
+	queryTime: number;
+}): Promise<ResolvedCommentSources> {
+	const { primaryChannel, baseStartAt, duration, isLive, queryTime } = params;
+	if (!primaryChannel.jkId) {
+		throw new Error("Primary channel does not have a NicoJK id");
+	}
+
+	const primary = buildSource(
+		primaryChannel,
+		"primary",
+		baseStartAt,
+		baseStartAt + duration,
+	);
+	if (!primary) {
+		throw new Error("Failed to build primary comment source");
+	}
+
+	if (!primaryChannel.syobocalId) {
+		return {
+			primary,
+			liveSources: [],
+			replaySources: [],
+		};
+	}
+
+	const channelIndex = createChannelIndex(await getAllChannelDefinitions());
+	const baseProgram = await lookupChannelProgramAt(
+		primaryChannel.syobocalId,
+		queryTime,
+	);
+	if (!baseProgram) {
+		return {
+			primary,
+			liveSources: [],
+			replaySources: [],
+		};
+	}
+
+	const liveSources = isLive
+		? await resolveLiveSources(
+				primaryChannel,
+				baseProgram,
+				queryTime,
+				channelIndex,
+			)
+		: [];
+	const replaySources = isLive
+		? []
+		: await resolveRecordedReplaySources(
+				primaryChannel,
+				baseProgram,
+				channelIndex,
+			);
+
+	return {
+		primary,
+		liveSources,
+		replaySources,
+	};
+}

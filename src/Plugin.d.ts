@@ -1,3 +1,23 @@
+/**
+ * プラグインのマニフェスト情報は HTML の <meta> タグで宣言します。
+ *
+ * @example
+ * <meta name="kiririn:version" content="1.0.0">
+ * <meta name="kiririn:author"  content="作者名">
+ * <meta name="kiririn:link"    content="https://example.com">
+ * <meta name="kiririn:areas"   content="playerOverlay,pluginSettings">
+ * <meta name="kiririn:id"      content="com.example.my-plugin">
+ * <meta name="kiririn:contextId" content="my-plugin">
+ *
+ * kiririn:areas に指定可能な値: playerOverlay, pluginSettings, pluginScreen
+ *
+ * kiririn:id: プラグインの一意な識別子（任意）。
+ *   指定すると「ファイルから上書き」時に異なる id のファイルへの更新を拒否し誤上書きを防ぎます。
+ *
+ * kiririn:contextId: WebView のオリジンに使われるサブドメインラベル（任意、小文字英数字とハイフン、1〜63文字）。
+ *   未指定の場合は pluginID (UUID) の SHA-256 ハッシュの先頭 63 文字が使われます。
+ */
+
 export interface Genre {
 	lv1: number;
 	lv2?: number;
@@ -50,10 +70,6 @@ export interface Playable {
 	id: string;
 	title: string;
 	subtitle?: string;
-	/**
-	 * 再生 time=0 に対応する現実時間の Unix timestamp。
-	 * 未指定の場合は program.startAt を fallback として扱えます。
-	 */
 	initialNetworkTime?: number;
 	isSeekable: boolean;
 	length?: number;
@@ -136,6 +152,33 @@ export interface KiririnBridge {
 	 * 表示領域の更新（リサイズなど）を購読します。
 	 */
 	onDisplayAreaChange(callback: (area: DisplayArea) => void): void;
+
+	/**
+	 * 指定したプレイヤーを再生します。playerID を省略した場合はフォーカス中のプレイヤーを操作します。
+	 */
+	play(playerID?: string): void;
+
+	/**
+	 * 指定したプレイヤーを一時停止します。playerID を省略した場合はフォーカス中のプレイヤーを操作します。
+	 */
+	pause(playerID?: string): void;
+
+	/**
+	 * 指定したプレイヤーの再生・一時停止を切り替えます。playerID を省略した場合はフォーカス中のプレイヤーを操作します。
+	 */
+	togglePlayPause(playerID?: string): void;
+
+	/**
+	 * 指定したプレイヤーのシーク位置を設定します。playerID を省略した場合はフォーカス中のプレイヤーを操作します。
+	 * @param position シーク位置（0.0〜1.0）
+	 */
+	seek(position: number, playerID?: string): void;
+
+	/**
+	 * ホスト（Swift）側のネットワークスタック経由で HTTP(S) リクエストを送信します。
+	 * 通常の fetch と違い、外部オリジンへのアクセスでもブラウザの CORS 制約を受けません。
+	 */
+	fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 
 	/**
 	 * ホスト（Swift）側にメッセージを送信します。

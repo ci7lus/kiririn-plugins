@@ -17,8 +17,8 @@ import {
 	addNGId,
 	getSettings,
 	isNG,
-	saveSettings,
 	SETTINGS_UPDATED_EVENT,
+	saveSettings,
 } from "../ng-settings";
 
 interface Props {
@@ -35,6 +35,15 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
 	connecting: "接続中",
 	disconnected: "切断",
 	error: "エラー",
+};
+
+const SOURCE_KIND_LABELS: Record<
+	NicoJKContext["sources"][number]["kind"],
+	string
+> = {
+	primary: "主",
+	simulcast: "同時",
+	replay: "過去",
 };
 
 export default function PluginScreen({
@@ -184,6 +193,10 @@ export default function PluginScreen({
 		});
 	};
 
+	const formatTimeRange = (startUnix: number, endUnix: number) => {
+		return `${formatTime(startUnix)} 〜 ${formatTime(endUnix)}`;
+	};
+
 	const formatPlaybackTime = (vpos: number) => {
 		const baseStartAt = jkContext?.startAt || 0;
 		const relativeSec = vpos / 100 - baseStartAt;
@@ -228,6 +241,9 @@ export default function PluginScreen({
 						{jkContext && (
 							<div className="text-sm text-gray-200 truncate">
 								{jkContext.channelName} ({jkContext.jkId})
+								{jkContext.sources.length > 1
+									? ` +${jkContext.sources.length - 1}`
+									: ""}
 							</div>
 						)}
 					</div>
@@ -347,7 +363,9 @@ export default function PluginScreen({
 
 						<div className="pt-3 mt-1 border-t border-gray-700 mx-1">
 							<div className="flex justify-between text-xs mb-2">
-								<span className="text-gray-400 font-medium">コメントの濃度</span>
+								<span className="text-gray-400 font-medium">
+									コメントの濃度
+								</span>
 								<span className="text-blue-400 font-mono">
 									{Math.round(settings.opacity * 100)}%
 								</span>
@@ -388,6 +406,29 @@ export default function PluginScreen({
 								<span>
 									{jkContext.channelName} ({jkContext.jkId})
 								</span>
+							</div>
+							<div className="border-b border-gray-700 pb-1">
+								<div className="text-gray-400 mb-1">合成元</div>
+								<div className="space-y-1 text-xs">
+									{jkContext.sources.map((source) => (
+										<div
+											key={source.key}
+											className="flex justify-between items-start gap-3"
+										>
+											<div className="min-w-0">
+												<div className="text-gray-300 truncate">
+													{source.channelName} ({source.jkId})
+												</div>
+												<div className="text-gray-500">
+													{formatTimeRange(source.startAt, source.endAt)}
+												</div>
+											</div>
+											<span className="text-gray-500 shrink-0">
+												{SOURCE_KIND_LABELS[source.kind]}
+											</span>
+										</div>
+									))}
+								</div>
 							</div>
 							{!isLive && (
 								<>

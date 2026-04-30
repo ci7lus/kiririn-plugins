@@ -62,7 +62,6 @@ export default function PluginSettings() {
 		refresh();
 	};
 
-
 	return (
 		<div className="p-6 bg-[#1a1a1a] text-white min-h-full max-w-2xl mx-auto">
 			<h2 className="text-xl font-bold mb-6 border-b border-gray-700 pb-2">

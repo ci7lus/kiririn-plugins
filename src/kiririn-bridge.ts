@@ -133,7 +133,19 @@ class MockBridge implements KiririnBridge {
 		setTimeout(() => callback(this.getDisplayArea()), 0);
 	}
 
-	sendMessage(type: string, data: any): void {
+	play(_playerID?: string): void {}
+
+	pause(_playerID?: string): void {}
+
+	togglePlayPause(_playerID?: string): void {}
+
+	seek(_position: number, _playerID?: string): void {}
+
+	fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+		return globalThis.fetch(input, init);
+	}
+
+	sendMessage(type: string, data: unknown): void {
 		console.log(`[MockBridge] sendMessage: ${type}`, data);
 	}
 
@@ -193,7 +205,7 @@ class MockBridge implements KiririnBridge {
 export function initBridge(): KiririnBridge {
 	if (typeof window !== "undefined" && !window.kiririn) {
 		console.warn("KiririnBridge not found. Using MockBridge.");
-		window.kiririn = new MockBridge() as any;
+		window.kiririn = new MockBridge();
 	}
 	return window.kiririn;
 }

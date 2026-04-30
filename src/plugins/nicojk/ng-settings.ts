@@ -6,7 +6,8 @@ export interface NicoJKSettings {
 	showDebugInfo: boolean;
 }
 
-const STORAGE_KEY = "nicojk_settings_v4"; // Bump version because of new property
+const STORAGE_KEY = "nicojk_settings_v4";
+export const SETTINGS_UPDATED_EVENT = "nicojk_settings_updated";
 
 export function getSettings(): NicoJKSettings {
 	const stored = localStorage.getItem(STORAGE_KEY);
@@ -28,7 +29,7 @@ export function getSettings(): NicoJKSettings {
 
 export function saveSettings(settings: NicoJKSettings) {
 	localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-	window.dispatchEvent(new Event("nicojk_settings_updated"));
+	window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
 }
 
 export function addNGWord(word: string) {
@@ -73,7 +74,10 @@ export function removeNGCommand(command: string) {
 	saveSettings(s);
 }
 
-export function isNG(comment: string | undefined, userId: string | undefined): boolean {
+export function isNG(
+	comment: string | undefined,
+	userId: string | undefined,
+): boolean {
 	const s = getSettings();
 	if (userId && s.ngIds.includes(userId)) return true;
 	if (comment && s.ngWords.some((word) => comment.includes(word))) return true;
