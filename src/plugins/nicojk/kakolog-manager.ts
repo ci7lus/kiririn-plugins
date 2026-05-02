@@ -20,10 +20,34 @@ interface KakologResponse {
 	packet: { chat: NicoLogComment }[];
 }
 
+function sortAndDedupeComments(comments: NiconicoComment[]) {
+	const sorted = [...comments].sort(
+		(a, b) =>
+			a.vpos - b.vpos ||
+			a.date - b.date ||
+			a.date_usec - b.date_usec ||
+			a.id - b.id,
+	);
+	const deduped: NiconicoComment[] = [];
+	const seen = new Set<number>();
+	for (const comment of sorted) {
+		if (seen.has(comment.id)) {
+			continue;
+		}
+		seen.add(comment.id);
+		deduped.push(comment);
+	}
+	return deduped;
+}
+
 export class KakologManager {
 	private baseStartAt = 0;
 	private sourceSignature = "";
 	private sources: ResolvedCommentSource[] = [];
+	private fetchRevision = 0;
+	private fullFetchDuration = 0;
+	private fullFetchPromise: Promise<NiconicoComment[]> | null = null;
+	private fullFetchResult: NiconicoComment[] | null = null;
 	private chunkStates = new Map<
 		number,
 		{
@@ -50,10 +74,18 @@ export class KakologManager {
 		this.baseStartAt = baseStartAt;
 		this.sourceSignature = signature;
 		this.sources = sources;
+		this.fetchRevision += 1;
+		this.fullFetchDuration = 0;
+		this.fullFetchPromise = null;
+		this.fullFetchResult = null;
 		this.chunkStates.clear();
 	}
 
 	public clearCache() {
+		this.fetchRevision += 1;
+		this.fullFetchDuration = 0;
+		this.fullFetchPromise = null;
+		this.fullFetchResult = null;
 		this.chunkStates.clear();
 	}
 
@@ -76,6 +108,56 @@ export class KakologManager {
 
 		const results = await Promise.all(tasks);
 		return results.flat().sort((a, b) => a.vpos - b.vpos);
+	}
+
+	public async fetchAll(duration: number): Promise<NiconicoComment[]> {
+		if (this.sources.length === 0 || duration <= 0) {
+			return [];
+		}
+
+		if (this.fullFetchResult && this.fullFetchDuration === duration) {
+			return this.fullFetchResult;
+		}
+
+		if (this.fullFetchPromise && this.fullFetchDuration === duration) {
+			return this.fullFetchPromise;
+		}
+
+		const revision = this.fetchRevision;
+		this.fullFetchDuration = duration;
+
+		let promise: Promise<NiconicoComment[]>;
+		promise = (async () => {
+			const chunkSize = 600;
+			const comments: NiconicoComment[] = [];
+
+			for (let offset = 0; offset < duration; offset += chunkSize) {
+				if (revision !== this.fetchRevision) {
+					return [];
+				}
+
+				const fetched = await this.fetchChunkGroup(offset, duration);
+				if (revision !== this.fetchRevision) {
+					return [];
+				}
+
+				comments.push(...fetched);
+			}
+
+			const result = sortAndDedupeComments(comments);
+			if (revision === this.fetchRevision) {
+				this.fullFetchResult = result;
+			}
+
+			return result;
+		})().finally(() => {
+			if (this.fullFetchPromise === promise) {
+				this.fullFetchPromise = null;
+			}
+		});
+
+		this.fullFetchPromise = promise;
+		return promise;
 	}
 
 	private async fetchChunkGroup(
@@ -110,17 +192,20 @@ export class KakologManager {
 		}
 
 		const newComments: NiconicoComment[] = [];
-		for (const [index, source] of applicableSources.entries()) {
+		for (const source of applicableSources) {
 			if (state.fetchedSourceKeys.has(source.key)) {
 				continue;
 			}
 
+			const sourceOrdinal = this.sources.findIndex(
+				(candidate) => candidate.key === source.key,
+			);
 			state.fetchedSourceKeys.add(source.key);
 			const fetched = await this.fetchSourceChunk({
 				source,
 				offset,
 				windowDuration,
-				sourceOrdinal: index,
+				sourceOrdinal: sourceOrdinal < 0 ? 0 : sourceOrdinal,
 			});
 			state.commentCount += fetched.length;
 			newComments.push(...fetched);

@@ -37,10 +37,14 @@ type PlayerData = {
 	liveSources: ResolvedCommentSource[];
 	replaySources: ResolvedCommentSource[];
 	jkContext: NicoJKContext | null;
+	areSourcesResolved: boolean;
 	channelLookupKey: string | null;
 	sourceResolutionKey: string | null;
 	isResolvingSources: boolean;
 	sourceResolutionToken: number;
+	recordedCommentsReady: boolean;
+	isLoadingRecordedComments: boolean;
+	recordedCommentsLoadToken: number;
 };
 
 function createPlayerData(playableId: string | null): PlayerData {
@@ -51,10 +55,14 @@ function createPlayerData(playableId: string | null): PlayerData {
 		liveSources: [],
 		replaySources: [],
 		jkContext: null,
+		areSourcesResolved: false,
 		channelLookupKey: null,
 		sourceResolutionKey: null,
 		isResolvingSources: false,
 		sourceResolutionToken: 0,
+		recordedCommentsReady: false,
+		isLoadingRecordedComments: false,
+		recordedCommentsLoadToken: 0,
 	};
 }
 
@@ -152,6 +160,24 @@ function applyResolvedSources(
 		startAt,
 		duration,
 	);
+}
+
+function resetRecordedCommentsState(data: PlayerData) {
+	data.comments = [];
+	data.recordedCommentsReady = false;
+	data.isLoadingRecordedComments = false;
+	data.recordedCommentsLoadToken += 1;
+}
+
+function getHasDisplayCandidates(
+	data: PlayerData | undefined,
+	isLive: boolean,
+) {
+	if (!data || !data.areSourcesResolved) {
+		return false;
+	}
+
+	return isLive ? data.liveSources.length > 0 : data.replaySources.length > 0;
 }
 
 function aggregateConnectionStatuses(
@@ -252,6 +278,8 @@ export default function App() {
 		useState<PlayerPlaybackState | null>(null);
 	const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
 	const [screenIsLive, setScreenIsLive] = useState(false);
+	const [hasDisplayCandidates, setHasDisplayCandidates] = useState(false);
+	const [recordedCommentsReady, setRecordedCommentsReady] = useState(false);
 
 	const areaRef = useRef<DisplayArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
@@ -412,9 +440,12 @@ export default function App() {
 		const syncTargetState = (playerID: string) => {
 			if (targetPlayableRef.current?.playerID !== playerID) return;
 			const data = playersDataRef.current.get(playerID);
+			const isLive = !targetPlayableRef.current?.isSeekable;
 			setComments(data?.comments || []);
 			setJkContext(data?.jkContext || null);
 			setWsStatus(getPlayerWsStatus(data));
+			setHasDisplayCandidates(getHasDisplayCandidates(data, isLive));
+			setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 		};
 
 		const updateTarget = () => {
@@ -439,6 +470,8 @@ export default function App() {
 				setJkContext(null);
 				setWsStatus("disconnected");
 				setScreenIsLive(false);
+				setHasDisplayCandidates(false);
+				setRecordedCommentsReady(false);
 				return;
 			}
 
@@ -451,11 +484,17 @@ export default function App() {
 				setComments(data?.comments || []);
 				setJkContext(data?.jkContext || null);
 				setWsStatus(getPlayerWsStatus(data));
+				setHasDisplayCandidates(
+					getHasDisplayCandidates(data, !targetP.isSeekable),
+				);
+				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 			} else {
 				setComments([]);
 				setJkContext(null);
 				setWsStatus("disconnected");
 				setScreenIsLive(false);
+				setHasDisplayCandidates(false);
+				setRecordedCommentsReady(false);
 			}
 		};
 
@@ -546,6 +585,12 @@ export default function App() {
 					data.liveSources = [];
 					data.replaySources = [];
 					data.jkContext = null;
+					data.areSourcesResolved = true;
+					if (p.isSeekable) {
+						resetRecordedCommentsState(data);
+					} else {
+						data.comments = [];
+					}
 					syncTargetState(p.playerID);
 					continue;
 				}
@@ -557,6 +602,11 @@ export default function App() {
 					data.liveSources = [];
 					data.replaySources = [];
 					data.jkContext = null;
+					data.areSourcesResolved = false;
+					data.comments = [];
+					data.recordedCommentsReady = false;
+					data.isLoadingRecordedComments = false;
+					data.recordedCommentsLoadToken += 1;
 					data.sourceResolutionKey = null;
 					data.isResolvingSources = false;
 					data.sourceResolutionToken += 1;
@@ -564,6 +614,7 @@ export default function App() {
 					const lookupPlayableId = p.id;
 					const lookupStartAt = startAt;
 					const lookupDuration = duration;
+					const lookupIsSeekable = p.isSeekable;
 					getChannelDefinition(service.serviceId, service.networkId || 0).then(
 						(channel) => {
 							const latest = playersDataRef.current.get(p.playerID);
@@ -577,6 +628,7 @@ export default function App() {
 
 							latest.primaryChannel = channel;
 							if (channel?.jkId) {
+								latest.areSourcesResolved = false;
 								const primarySource = buildPrimarySource(
 									channel,
 									lookupStartAt,
@@ -594,6 +646,12 @@ export default function App() {
 								latest.liveSources = [];
 								latest.replaySources = [];
 								latest.jkContext = null;
+								latest.areSourcesResolved = true;
+								if (lookupIsSeekable) {
+									resetRecordedCommentsState(latest);
+								} else {
+									latest.comments = [];
+								}
 							}
 							syncTargetState(p.playerID);
 						},
@@ -650,10 +708,15 @@ export default function App() {
 					data.sourceResolutionKey !== sourceResolutionKey &&
 					!data.isResolvingSources
 				) {
+					data.areSourcesResolved = false;
+					if (p.isSeekable) {
+						resetRecordedCommentsState(data);
+					}
 					data.isResolvingSources = true;
 					const sourceResolutionToken = data.sourceResolutionToken + 1;
 					data.sourceResolutionToken = sourceResolutionToken;
 					const currentPlayableId = p.id;
+					const isSeekable = p.isSeekable;
 					const queryTime = p.isSeekable
 						? startAt +
 							Math.min(
@@ -681,6 +744,7 @@ export default function App() {
 
 							latest.isResolvingSources = false;
 							latest.sourceResolutionKey = sourceResolutionKey;
+							latest.areSourcesResolved = true;
 							applyResolvedSources(
 								latest,
 								resolved,
@@ -706,6 +770,10 @@ export default function App() {
 
 							latest.isResolvingSources = false;
 							latest.sourceResolutionKey = sourceResolutionKey;
+							latest.areSourcesResolved = true;
+							if (isSeekable) {
+								latest.recordedCommentsReady = false;
+							}
 							syncTargetState(p.playerID);
 						});
 				}
@@ -768,7 +836,7 @@ export default function App() {
 						kakologManagersRef.current.set(p.playerID, mgr);
 					}
 					const mgr = kakologManagersRef.current.get(p.playerID);
-					if (mgr && status && data.replaySources.length > 0) {
+					if (mgr && data.replaySources.length > 0) {
 						mgr.setSources(startAt, data.replaySources);
 
 						if (data.jkContext && data.replaySources[0]) {
@@ -780,14 +848,54 @@ export default function App() {
 							);
 						}
 
-						mgr.fetchIfNeeded(status.time, duration).then((newOnes) => {
-							if (newOnes.length > 0) {
-								data.comments = mergeComments(data.comments, newOnes);
-								if (targetPlayableRef.current?.playerID === p.playerID) {
-									syncTargetState(p.playerID);
-								}
-							}
-						});
+						if (
+							data.areSourcesResolved &&
+							!data.recordedCommentsReady &&
+							!data.isLoadingRecordedComments
+						) {
+							data.isLoadingRecordedComments = true;
+							const loadToken = data.recordedCommentsLoadToken + 1;
+							data.recordedCommentsLoadToken = loadToken;
+							const currentPlayableId = p.id;
+
+							mgr.fetchAll(duration)
+								.then((allComments) => {
+									const latest = playersDataRef.current.get(p.playerID);
+									if (
+										!latest ||
+										latest.playableId !== currentPlayableId ||
+										latest.recordedCommentsLoadToken !== loadToken
+									) {
+										return;
+									}
+
+									latest.comments = allComments;
+									latest.isLoadingRecordedComments = false;
+									latest.recordedCommentsReady = true;
+									if (targetPlayableRef.current?.playerID === p.playerID) {
+										syncTargetState(p.playerID);
+									}
+								})
+								.catch((error) => {
+									console.error(
+										"[NicoJK] Failed to fetch recorded comments",
+										error,
+									);
+									const latest = playersDataRef.current.get(p.playerID);
+									if (
+										!latest ||
+										latest.playableId !== currentPlayableId ||
+										latest.recordedCommentsLoadToken !== loadToken
+									) {
+										return;
+									}
+
+									latest.isLoadingRecordedComments = false;
+									if (targetPlayableRef.current?.playerID === p.playerID) {
+										syncTargetState(p.playerID);
+									}
+								});
+						}
 					}
 				}
 			}
@@ -842,7 +950,10 @@ export default function App() {
 					comments={comments}
 					width={area.width}
 					height={area.height}
+					playableId={targetPlayable?.id || null}
 					isLive={!targetPlayable?.isSeekable}
+					hasDisplayCandidates={hasDisplayCandidates}
+					recordedCommentsReady={recordedCommentsReady}
 					playbackState={playbackState}
 					jkContext={jkContext}
 				/>

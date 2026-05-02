@@ -6,7 +6,7 @@ export interface NicoJKSettings {
 	showDebugInfo: boolean;
 }
 
-const STORAGE_KEY = "nicojk_settings_v4";
+export const STORAGE_KEY = "nicojk_settings_v4";
 export const SETTINGS_UPDATED_EVENT = "nicojk_settings_updated";
 
 export function getSettings(): NicoJKSettings {

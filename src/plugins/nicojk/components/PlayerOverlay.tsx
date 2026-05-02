@@ -1,34 +1,106 @@
-import NiconiComments from "@xpadev-net/niconicomments";
+import NiconiComments, {
+	type FormattedComment,
+} from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
-import { filterMail, getSettings, isNG } from "../ng-settings";
+import {
+	filterMail,
+	getSettings,
+	isNG,
+	SETTINGS_UPDATED_EVENT,
+	STORAGE_KEY,
+	type NicoJKSettings,
+} from "../ng-settings";
 
 interface Props {
 	comments: NiconicoComment[];
 	width: number;
 	height: number;
+	playableId: string | null;
 	isLive: boolean;
+	hasDisplayCandidates: boolean;
+	recordedCommentsReady: boolean;
 	playbackState: PlayerPlaybackState | null;
 	jkContext: NicoJKContext | null;
+}
+
+type RendererMode = "live" | "recorded";
+
+function getFilterSignature(settings: NicoJKSettings) {
+	return JSON.stringify({
+		ngWords: settings.ngWords,
+		ngIds: settings.ngIds,
+		ngCommands: settings.ngCommands,
+	});
+}
+
+function getMaxCommentId(comments: NiconicoComment[]) {
+	return comments.reduce((max, comment) => Math.max(max, comment.id), 0);
+}
+
+function sortComments(comments: NiconicoComment[]) {
+	return [...comments].sort(
+		(a, b) =>
+			a.vpos - b.vpos ||
+			a.date - b.date ||
+			a.date_usec - b.date_usec ||
+			a.id - b.id,
+	);
+}
+
+function toFormattedComment(comment: NiconicoComment): FormattedComment | null {
+	if (comment.content == null || isNG(comment.content, comment.user_id)) {
+		return null;
+	}
+
+	return {
+		id: comment.id,
+		vpos: comment.vpos,
+		content: comment.content,
+		date: comment.date,
+		date_usec: comment.date_usec,
+		owner: false,
+		premium: comment.premium === 1,
+		mail: filterMail(comment.mail),
+		user_id: -1,
+		layer: 0,
+		is_my_post: false,
+	};
+}
+
+function toFormattedComments(comments: NiconicoComment[]) {
+	return sortComments(comments)
+		.map(toFormattedComment)
+		.filter((comment): comment is FormattedComment => comment != null);
 }
 
 export default function PlayerOverlay({
 	comments,
 	width,
 	height,
+	playableId,
 	isLive,
+	hasDisplayCandidates,
+	recordedCommentsReady,
 	playbackState,
 	jkContext,
 }: Props) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const rendererRef = useRef<NiconiComments | null>(null);
+	const rendererMetaRef = useRef<{
+		mode: RendererMode;
+		playableId: string | null;
+		filterVersion: number;
+	} | null>(null);
+	const filterSignatureRef = useRef(getFilterSignature(getSettings()));
 	const lastCommentIdRef = useRef<number>(0);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
 	const [showDebugInfo, setShowDebugInfo] = useState(
 		getSettings().showDebugInfo,
 	);
+	const [filterVersion, setFilterVersion] = useState(0);
 	const [rendererInitialized, setRendererInitialized] = useState(false);
 
 	// Settings update listener
@@ -37,14 +109,22 @@ export default function PlayerOverlay({
 			const s = getSettings();
 			setOpacity(s.opacity);
 			setShowDebugInfo(s.showDebugInfo);
+			const nextFilterSignature = getFilterSignature(s);
+			if (nextFilterSignature !== filterSignatureRef.current) {
+				filterSignatureRef.current = nextFilterSignature;
+				setFilterVersion((version) => version + 1);
+			}
 		};
-		window.addEventListener("nicojk_settings_updated", handleUpdate);
-		window.addEventListener("storage", (e) => {
-			if (e.key === "nicojk_settings_v3") handleUpdate();
-		});
+		const handleStorage = (e: StorageEvent) => {
+			if (e.key === STORAGE_KEY) {
+				handleUpdate();
+			}
+		};
+		window.addEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
+		window.addEventListener("storage", handleStorage);
 		return () => {
-			window.removeEventListener("nicojk_settings_updated", handleUpdate);
-			window.removeEventListener("storage", handleUpdate);
+			window.removeEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
+			window.removeEventListener("storage", handleStorage);
 		};
 	}, []);
 
@@ -81,19 +161,71 @@ export default function PlayerOverlay({
 		jkContextRef.current = jkContext;
 	}, [jkContext]);
 
-	// Initial setup
+	useEffect(() => {
+		return () => {
+			rendererRef.current?.clear();
+			rendererRef.current = null;
+			rendererMetaRef.current = null;
+			lastCommentIdRef.current = 0;
+		};
+	}, []);
+
 	useEffect(() => {
 		if (!canvasRef.current) return;
 
-		// Create renderer
-		const renderer = new NiconiComments(canvasRef.current, [], {
-			format: "empty",
-		});
-		rendererRef.current = renderer;
-		lastCommentIdRef.current = 0;
-		setRendererInitialized(true);
+		const shouldCreateRenderer =
+			hasDisplayCandidates && (isLive || recordedCommentsReady);
+		if (!shouldCreateRenderer) {
+			if (rendererRef.current) {
+				rendererRef.current.clear();
+				rendererRef.current = null;
+				rendererMetaRef.current = null;
+				lastCommentIdRef.current = 0;
+				setRendererInitialized(false);
+			}
+			return;
+		}
 
-		// Animation loop
+		const nextMode: RendererMode = isLive ? "live" : "recorded";
+		const shouldRecreate =
+			!rendererRef.current ||
+			rendererMetaRef.current?.mode !== nextMode ||
+			rendererMetaRef.current?.playableId !== playableId ||
+			rendererMetaRef.current?.filterVersion !== filterVersion;
+		if (!shouldRecreate) {
+			return;
+		}
+
+		rendererRef.current?.clear();
+		const initialComments = toFormattedComments(comments);
+		const renderer = new NiconiComments(
+			canvasRef.current,
+			isLive ? [] : initialComments,
+			{
+			format: isLive ? "empty" : "formatted",
+			},
+		);
+		if (isLive && initialComments.length > 0) {
+			renderer.addComments(...initialComments);
+		}
+		rendererRef.current = renderer;
+		rendererMetaRef.current = {
+			mode: nextMode,
+			playableId,
+			filterVersion,
+		};
+		lastCommentIdRef.current = getMaxCommentId(comments);
+		setRendererInitialized(true);
+	}, [
+		comments,
+		filterVersion,
+		hasDisplayCandidates,
+		isLive,
+		playableId,
+		recordedCommentsReady,
+	]);
+
+	useEffect(() => {
 		let animationFrameId: number;
 		const animate = () => {
 			if (rendererRef.current) {
@@ -119,53 +251,37 @@ export default function PlayerOverlay({
 
 		return () => {
 			cancelAnimationFrame(animationFrameId);
-			rendererRef.current?.clear();
 		};
 	}, [isLive]);
 
-	// Handle new comments
 	useEffect(() => {
-		if (!rendererInitialized || !rendererRef.current) return;
+		if (!isLive || !rendererInitialized || !rendererRef.current) return;
+		if (rendererMetaRef.current?.mode !== "live") return;
 		if (comments.length === 0) {
 			lastCommentIdRef.current = 0;
 			return;
 		}
 
 		const lastCommentId = lastCommentIdRef.current;
-		const sorted = [...comments].sort((a, b) => a.vpos - b.vpos);
-		const filtered = sorted.filter(
-			(comment) =>
-				comment.id > lastCommentId &&
-				comment.content != null &&
-				!isNG(comment.content, comment.user_id),
+		const pendingComments = sortComments(comments).filter(
+			(comment) => comment.id > lastCommentId,
 		);
-
-		if (filtered.length > 0) {
-			const parsedComments = filtered.map((comment) => {
-				return {
-					id: comment.id,
-					vpos: comment.vpos,
-					content: comment.content,
-					date: comment.date,
-					date_usec: comment.date_usec,
-					owner: false,
-					premium: comment.premium === 1,
-					mail: filterMail(comment.mail),
-					user_id: -1,
-					layer: 0,
-					is_my_post: false,
-				};
-			});
-
-			rendererRef.current?.addComments(...parsedComments);
-			// Update with the maximum id encountered in this batch to avoid blocking
-			const maxId = parsedComments.reduce(
-				(max, c) => Math.max(max, c.id),
-				lastCommentId,
-			);
-			lastCommentIdRef.current = maxId;
+		if (pendingComments.length === 0) {
+			return;
 		}
-	}, [comments, rendererInitialized]);
+
+		const parsedComments = pendingComments
+			.map(toFormattedComment)
+			.filter((comment): comment is FormattedComment => comment != null);
+		if (parsedComments.length > 0) {
+			rendererRef.current?.addComments(...parsedComments);
+		}
+
+		lastCommentIdRef.current = pendingComments.reduce(
+			(max, comment) => Math.max(max, comment.id),
+			lastCommentId,
+		);
+	}, [comments, isLive, rendererInitialized]);
 
 	// 16:9 calculation
 	let targetW = width;
@@ -194,7 +310,6 @@ export default function PlayerOverlay({
 					width: targetW,
 					height: targetH,
 					opacity,
-					transition: "opacity 0.2s ease-in-out",
 				}}
 			/>
 
