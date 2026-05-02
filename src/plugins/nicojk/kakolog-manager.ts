@@ -20,6 +20,15 @@ interface KakologResponse {
 	packet: { chat: NicoLogComment }[];
 }
 
+export interface KakologFetchProgress {
+	currentSourceJkId: string | null;
+	currentSourceChannelName: string | null;
+	currentRequest: number;
+	totalRequests: number;
+	remainingRequests: number;
+	fetchedComments: number;
+}
+
 function sortAndDedupeComments(comments: NiconicoComment[]) {
 	const sorted = [...comments].sort(
 		(a, b) =>
@@ -48,6 +57,16 @@ export class KakologManager {
 	private fullFetchDuration = 0;
 	private fullFetchPromise: Promise<NiconicoComment[]> | null = null;
 	private fullFetchResult: NiconicoComment[] | null = null;
+	private progressListener: ((progress: KakologFetchProgress | null) => void) | null =
+		null;
+	private progressState: {
+		totalRequests: number;
+		completedRequests: number;
+		skippedRequests: number;
+		fetchedComments: number;
+		currentSourceJkId: string | null;
+		currentSourceChannelName: string | null;
+	} | null = null;
 	private chunkStates = new Map<
 		number,
 		{
@@ -78,6 +97,7 @@ export class KakologManager {
 		this.fullFetchDuration = 0;
 		this.fullFetchPromise = null;
 		this.fullFetchResult = null;
+		this.resetProgress();
 		this.chunkStates.clear();
 	}
 
@@ -86,7 +106,15 @@ export class KakologManager {
 		this.fullFetchDuration = 0;
 		this.fullFetchPromise = null;
 		this.fullFetchResult = null;
+		this.resetProgress();
 		this.chunkStates.clear();
+	}
+
+	public setProgressListener(
+		listener: ((progress: KakologFetchProgress | null) => void) | null,
+	) {
+		this.progressListener = listener;
+		this.emitProgress();
 	}
 
 	public async fetchIfNeeded(
@@ -112,10 +140,12 @@ export class KakologManager {
 
 	public async fetchAll(duration: number): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0 || duration <= 0) {
+			this.resetProgress();
 			return [];
 		}
 
 		if (this.fullFetchResult && this.fullFetchDuration === duration) {
+			this.resetProgress();
 			return this.fullFetchResult;
 		}
 
@@ -125,6 +155,15 @@ export class KakologManager {
 
 		const revision = this.fetchRevision;
 		this.fullFetchDuration = duration;
+		this.progressState = {
+			totalRequests: this.countPotentialRequests(duration),
+			completedRequests: 0,
+			skippedRequests: 0,
+			fetchedComments: 0,
+			currentSourceJkId: null,
+			currentSourceChannelName: null,
+		};
+		this.emitProgress();
 
 		let promise: Promise<NiconicoComment[]>;
 		promise = (async () => {
@@ -151,6 +190,7 @@ export class KakologManager {
 
 			return result;
 		})().finally(() => {
+			this.resetProgress();
 			if (this.fullFetchPromise === promise) {
 				this.fullFetchPromise = null;
 			}
@@ -200,6 +240,11 @@ export class KakologManager {
 			const sourceOrdinal = this.sources.findIndex(
 				(candidate) => candidate.key === source.key,
 			);
+			if (this.progressState) {
+				this.progressState.currentSourceJkId = source.jkId;
+				this.progressState.currentSourceChannelName = source.channelName;
+				this.emitProgress();
+			}
 			state.fetchedSourceKeys.add(source.key);
 			const fetched = await this.fetchSourceChunk({
 				source,
@@ -207,6 +252,10 @@ export class KakologManager {
 				windowDuration,
 				sourceOrdinal: sourceOrdinal < 0 ? 0 : sourceOrdinal,
 			});
+			if (this.progressState) {
+				this.progressState.completedRequests += 1;
+				this.progressState.fetchedComments += fetched.length;
+			}
 			state.commentCount += fetched.length;
 			newComments.push(...fetched);
 
@@ -214,8 +263,26 @@ export class KakologManager {
 				this.isDenseEnough(state.commentCount, windowDuration) ||
 				state.fetchedSourceKeys.size >= applicableSources.length
 			) {
+				if (
+					this.progressState &&
+					state.fetchedSourceKeys.size < applicableSources.length
+				) {
+					this.progressState.skippedRequests +=
+						applicableSources.length - state.fetchedSourceKeys.size;
+				}
 				state.completed = true;
+				if (this.progressState) {
+					this.progressState.currentSourceJkId = null;
+					this.progressState.currentSourceChannelName = null;
+					this.emitProgress();
+				}
 				break;
+			}
+
+			if (this.progressState) {
+				this.progressState.currentSourceJkId = null;
+				this.progressState.currentSourceChannelName = null;
+				this.emitProgress();
 			}
 		}
 
@@ -229,6 +296,50 @@ export class KakologManager {
 	private isDenseEnough(commentCount: number, windowDuration: number) {
 		const minutes = Math.max(windowDuration / 60, 1);
 		return commentCount / minutes >= 100;
+	}
+
+	private countPotentialRequests(duration: number) {
+		const chunkSize = 600;
+		let total = 0;
+		for (let offset = 0; offset < duration; offset += chunkSize) {
+			total += this.sources.filter(
+				(source) => offset < source.endAt - source.startAt,
+			).length;
+		}
+		return total;
+	}
+
+	private emitProgress() {
+		if (!this.progressListener) {
+			return;
+		}
+		if (!this.progressState) {
+			this.progressListener(null);
+			return;
+		}
+
+		const totalRequests = Math.max(
+			this.progressState.completedRequests,
+			this.progressState.totalRequests - this.progressState.skippedRequests,
+		);
+		const currentRequest = this.progressState.currentSourceJkId
+			? Math.min(this.progressState.completedRequests + 1, totalRequests)
+			: this.progressState.completedRequests;
+		const remainingRequests = Math.max(totalRequests - currentRequest, 0);
+
+		this.progressListener({
+			currentSourceJkId: this.progressState.currentSourceJkId,
+			currentSourceChannelName: this.progressState.currentSourceChannelName,
+			currentRequest,
+			totalRequests,
+			remainingRequests,
+			fetchedComments: this.progressState.fetchedComments,
+		});
+	}
+
+	private resetProgress() {
+		this.progressState = null;
+		this.emitProgress();
 	}
 
 	private async fetchSourceChunk(params: {

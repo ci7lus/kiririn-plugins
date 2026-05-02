@@ -20,7 +20,10 @@ import {
 	getChannelDefinition,
 	type NicoJKChannelDefinition,
 } from "./definitions";
-import { KakologManager } from "./kakolog-manager";
+import {
+	KakologManager,
+	type KakologFetchProgress,
+} from "./kakolog-manager";
 import {
 	type ResolvedCommentSource,
 	type ResolvedCommentSources,
@@ -38,6 +41,7 @@ type PlayerData = {
 	replaySources: ResolvedCommentSource[];
 	jkContext: NicoJKContext | null;
 	areSourcesResolved: boolean;
+	isLookingUpChannel: boolean;
 	channelLookupKey: string | null;
 	sourceResolutionKey: string | null;
 	isResolvingSources: boolean;
@@ -45,6 +49,7 @@ type PlayerData = {
 	recordedCommentsReady: boolean;
 	isLoadingRecordedComments: boolean;
 	recordedCommentsLoadToken: number;
+	recordedFetchProgress: KakologFetchProgress | null;
 };
 
 function createPlayerData(playableId: string | null): PlayerData {
@@ -56,6 +61,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 		replaySources: [],
 		jkContext: null,
 		areSourcesResolved: false,
+		isLookingUpChannel: false,
 		channelLookupKey: null,
 		sourceResolutionKey: null,
 		isResolvingSources: false,
@@ -63,6 +69,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 		recordedCommentsReady: false,
 		isLoadingRecordedComments: false,
 		recordedCommentsLoadToken: 0,
+		recordedFetchProgress: null,
 	};
 }
 
@@ -167,6 +174,7 @@ function resetRecordedCommentsState(data: PlayerData) {
 	data.recordedCommentsReady = false;
 	data.isLoadingRecordedComments = false;
 	data.recordedCommentsLoadToken += 1;
+	data.recordedFetchProgress = null;
 }
 
 function getHasDisplayCandidates(
@@ -178,6 +186,163 @@ function getHasDisplayCandidates(
 	}
 
 	return isLive ? data.liveSources.length > 0 : data.replaySources.length > 0;
+}
+
+interface ChannelDisplayState {
+	message: string | null;
+	detail: string | null;
+	isLoading: boolean;
+	fetchedCommentCount: number;
+}
+
+function createChannelDisplayState(
+	overrides: Partial<ChannelDisplayState> = {},
+): ChannelDisplayState {
+	return {
+		message: null,
+		detail: null,
+		isLoading: false,
+		fetchedCommentCount: 0,
+		...overrides,
+	};
+}
+
+const EMPTY_CHANNEL_DISPLAY_STATE = createChannelDisplayState();
+
+function getFetchedCommentCount(data?: PlayerData) {
+	return Math.max(
+		data?.comments.length || 0,
+		data?.recordedFetchProgress?.fetchedComments || 0,
+	);
+}
+
+function formatRecordedFetchProgress(progress: KakologFetchProgress | null) {
+	if (!progress) {
+		return null;
+	}
+
+	const sourceLabel = progress.currentSourceJkId || "次のリクエスト待ち";
+	return `${sourceLabel} ${progress.currentRequest}/${progress.totalRequests} リクエスト 残り${progress.remainingRequests}件 取得済${progress.fetchedComments}件`;
+}
+
+function getRelayPendingChannelDisplayState(): ChannelDisplayState {
+	return createChannelDisplayState({
+		message: "実況情報を同期中",
+		isLoading: true,
+	});
+}
+
+function getChannelDisplayState(
+	playable: Playable | null,
+	data?: PlayerData,
+): ChannelDisplayState {
+	if (!playable) {
+		return EMPTY_CHANNEL_DISPLAY_STATE;
+	}
+
+	const fetchedCommentCount = getFetchedCommentCount(data);
+
+	if (!playable.service?.serviceId) {
+		return createChannelDisplayState({
+			message: "チャンネル情報を待機中",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (!data) {
+		return getRelayPendingChannelDisplayState();
+	}
+
+	if (data.isLookingUpChannel || data.channelLookupKey == null) {
+		return createChannelDisplayState({
+			message: "チャンネル情報を取得中",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (!data.primaryChannel) {
+		return createChannelDisplayState({
+			message: "対応するチャンネル情報が見つかりません",
+			isLoading: false,
+			fetchedCommentCount,
+		});
+	}
+
+	if (!data.primaryChannel.jkId) {
+		return createChannelDisplayState({
+			message: "このチャンネルに紐づく実況IDがありません",
+			isLoading: false,
+			fetchedCommentCount,
+		});
+	}
+
+	if (data.isResolvingSources) {
+		return createChannelDisplayState({
+			message: data.primaryChannel.syobocalId
+				? "cal.syoboi から実況ソースを取得中"
+				: "実況ソースを取得中",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (!data.areSourcesResolved) {
+		return createChannelDisplayState({
+			message: data.primaryChannel.syobocalId
+				? "cal.syoboi 取得開始待ち"
+				: "実況ソース取得待ち",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (
+		!data.jkContext &&
+		data.areSourcesResolved &&
+		!getHasDisplayCandidates(data, !playable.isSeekable)
+	) {
+		return createChannelDisplayState({
+			message: "利用できる実況ソースがありません",
+			isLoading: false,
+			fetchedCommentCount,
+		});
+	}
+
+	if (!data.jkContext) {
+		return createChannelDisplayState({
+			message: "実況情報を準備中",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (
+		playable.isSeekable &&
+		getHasDisplayCandidates(data, false) &&
+		!data.recordedCommentsReady &&
+		!data.isLoadingRecordedComments
+	) {
+		return createChannelDisplayState({
+			message: "コメントデータ取得待ち",
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (data.isLoadingRecordedComments) {
+		return createChannelDisplayState({
+			message: "コメントデータを取得中",
+			detail: formatRecordedFetchProgress(data.recordedFetchProgress),
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	return createChannelDisplayState({
+		fetchedCommentCount,
+	});
 }
 
 function aggregateConnectionStatuses(
@@ -249,6 +414,7 @@ interface PlayerOverlaySnapshot {
 	playableId: string | null;
 	comments: NiconicoComment[];
 	jkContext: NicoJKContext | null;
+	channelDisplayState: ChannelDisplayState;
 	wsStatus: ConnectionStatus;
 	isLive: boolean;
 }
@@ -280,12 +446,17 @@ export default function App() {
 	const [screenIsLive, setScreenIsLive] = useState(false);
 	const [hasDisplayCandidates, setHasDisplayCandidates] = useState(false);
 	const [recordedCommentsReady, setRecordedCommentsReady] = useState(false);
+	const [channelDisplayState, setChannelDisplayState] =
+		useState<ChannelDisplayState>(EMPTY_CHANNEL_DISPLAY_STATE);
 
 	const areaRef = useRef<DisplayArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
 	const relayChannelRef = useRef<BroadcastChannel | null>(null);
 	const commentsRef = useRef<NiconicoComment[]>([]);
 	const jkContextRef = useRef<NicoJKContext | null>(null);
+	const channelDisplayStateRef = useRef<ChannelDisplayState>(
+		EMPTY_CHANNEL_DISPLAY_STATE,
+	);
 	const wsStatusRef = useRef<ConnectionStatus>("disconnected");
 	const overlayIsLiveRef = useRef(false);
 	const playersDataRef = useRef<Map<string, PlayerData>>(new Map());
@@ -300,6 +471,10 @@ export default function App() {
 	useEffect(() => {
 		jkContextRef.current = jkContext;
 	}, [jkContext]);
+
+	useEffect(() => {
+		channelDisplayStateRef.current = channelDisplayState;
+	}, [channelDisplayState]);
 
 	useEffect(() => {
 		wsStatusRef.current = wsStatus;
@@ -322,6 +497,7 @@ export default function App() {
 					playableId: targetPlayableRef.current?.id || null,
 					comments: commentsRef.current,
 					jkContext: jkContextRef.current,
+					channelDisplayState: channelDisplayStateRef.current,
 					wsStatus: wsStatusRef.current,
 					isLive: overlayIsLiveRef.current,
 				},
@@ -356,6 +532,7 @@ export default function App() {
 				playableId: targetPlayable?.id || null,
 				comments,
 				jkContext,
+				channelDisplayState,
 				wsStatus,
 				isLive: !targetPlayable?.isSeekable,
 			},
@@ -365,6 +542,7 @@ export default function App() {
 		area?.playerID,
 		comments,
 		jkContext,
+		channelDisplayState,
 		wsStatus,
 		targetPlayable?.id,
 		targetPlayable?.isSeekable,
@@ -378,6 +556,9 @@ export default function App() {
 
 		setComments([]);
 		setJkContext(null);
+		setChannelDisplayState(
+			playerID ? getRelayPendingChannelDisplayState() : EMPTY_CHANNEL_DISPLAY_STATE,
+		);
 		setWsStatus("disconnected");
 		setScreenIsLive(false);
 
@@ -396,6 +577,7 @@ export default function App() {
 
 			setComments(event.data.payload.comments);
 			setJkContext(event.data.payload.jkContext);
+			setChannelDisplayState(event.data.payload.channelDisplayState);
 			setWsStatus(event.data.payload.wsStatus);
 			setScreenIsLive(event.data.payload.isLive);
 		};
@@ -440,9 +622,11 @@ export default function App() {
 		const syncTargetState = (playerID: string) => {
 			if (targetPlayableRef.current?.playerID !== playerID) return;
 			const data = playersDataRef.current.get(playerID);
-			const isLive = !targetPlayableRef.current?.isSeekable;
+			const currentPlayable = targetPlayableRef.current;
+			const isLive = !currentPlayable?.isSeekable;
 			setComments(data?.comments || []);
 			setJkContext(data?.jkContext || null);
+			setChannelDisplayState(getChannelDisplayState(currentPlayable, data));
 			setWsStatus(getPlayerWsStatus(data));
 			setHasDisplayCandidates(getHasDisplayCandidates(data, isLive));
 			setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
@@ -468,6 +652,7 @@ export default function App() {
 				setPlaybackState(null);
 				setComments([]);
 				setJkContext(null);
+				setChannelDisplayState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setWsStatus("disconnected");
 				setScreenIsLive(false);
 				setHasDisplayCandidates(false);
@@ -483,14 +668,24 @@ export default function App() {
 				const data = playersDataRef.current.get(targetP.playerID);
 				setComments(data?.comments || []);
 				setJkContext(data?.jkContext || null);
+				setChannelDisplayState(getChannelDisplayState(targetP, data));
 				setWsStatus(getPlayerWsStatus(data));
 				setHasDisplayCandidates(
 					getHasDisplayCandidates(data, !targetP.isSeekable),
 				);
 				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
+			} else if (targetP) {
+				setComments([]);
+				setJkContext(null);
+				setChannelDisplayState(getRelayPendingChannelDisplayState());
+				setWsStatus("disconnected");
+				setScreenIsLive(false);
+				setHasDisplayCandidates(false);
+				setRecordedCommentsReady(false);
 			} else {
 				setComments([]);
 				setJkContext(null);
+				setChannelDisplayState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setWsStatus("disconnected");
 				setScreenIsLive(false);
 				setHasDisplayCandidates(false);
@@ -573,6 +768,7 @@ export default function App() {
 					if (targetPlayableRef.current?.playerID === p.playerID) {
 						setComments([]);
 						setJkContext(null);
+						setChannelDisplayState(getChannelDisplayState(p, data));
 						setWsStatus("disconnected");
 					}
 				}
@@ -586,10 +782,12 @@ export default function App() {
 					data.replaySources = [];
 					data.jkContext = null;
 					data.areSourcesResolved = true;
+					data.isLookingUpChannel = false;
 					if (p.isSeekable) {
 						resetRecordedCommentsState(data);
 					} else {
 						data.comments = [];
+						data.recordedFetchProgress = null;
 					}
 					syncTargetState(p.playerID);
 					continue;
@@ -603,10 +801,12 @@ export default function App() {
 					data.replaySources = [];
 					data.jkContext = null;
 					data.areSourcesResolved = false;
+					data.isLookingUpChannel = true;
 					data.comments = [];
 					data.recordedCommentsReady = false;
 					data.isLoadingRecordedComments = false;
 					data.recordedCommentsLoadToken += 1;
+					data.recordedFetchProgress = null;
 					data.sourceResolutionKey = null;
 					data.isResolvingSources = false;
 					data.sourceResolutionToken += 1;
@@ -615,6 +815,7 @@ export default function App() {
 					const lookupStartAt = startAt;
 					const lookupDuration = duration;
 					const lookupIsSeekable = p.isSeekable;
+					syncTargetState(p.playerID);
 					getChannelDefinition(service.serviceId, service.networkId || 0).then(
 						(channel) => {
 							const latest = playersDataRef.current.get(p.playerID);
@@ -627,6 +828,7 @@ export default function App() {
 							}
 
 							latest.primaryChannel = channel;
+							latest.isLookingUpChannel = false;
 							if (channel?.jkId) {
 								latest.areSourcesResolved = false;
 								const primarySource = buildPrimarySource(
@@ -651,6 +853,7 @@ export default function App() {
 									resetRecordedCommentsState(latest);
 								} else {
 									latest.comments = [];
+									latest.recordedFetchProgress = null;
 								}
 							}
 							syncTargetState(p.playerID);
@@ -854,9 +1057,27 @@ export default function App() {
 							!data.isLoadingRecordedComments
 						) {
 							data.isLoadingRecordedComments = true;
+							if (targetPlayableRef.current?.playerID === p.playerID) {
+								syncTargetState(p.playerID);
+							}
 							const loadToken = data.recordedCommentsLoadToken + 1;
 							data.recordedCommentsLoadToken = loadToken;
 							const currentPlayableId = p.id;
+							mgr.setProgressListener((progress) => {
+								const latest = playersDataRef.current.get(p.playerID);
+								if (
+									!latest ||
+									latest.playableId !== currentPlayableId ||
+									latest.recordedCommentsLoadToken !== loadToken
+								) {
+									return;
+								}
+
+								latest.recordedFetchProgress = progress;
+								if (targetPlayableRef.current?.playerID === p.playerID) {
+									syncTargetState(p.playerID);
+								}
+							});
 
 							mgr.fetchAll(duration)
 								.then((allComments) => {
@@ -870,8 +1091,10 @@ export default function App() {
 									}
 
 									latest.comments = allComments;
+									latest.recordedFetchProgress = null;
 									latest.isLoadingRecordedComments = false;
 									latest.recordedCommentsReady = true;
+									mgr.setProgressListener(null);
 									if (targetPlayableRef.current?.playerID === p.playerID) {
 										syncTargetState(p.playerID);
 									}
@@ -890,7 +1113,9 @@ export default function App() {
 										return;
 									}
 
+									latest.recordedFetchProgress = null;
 									latest.isLoadingRecordedComments = false;
+									mgr.setProgressListener(null);
 									if (targetPlayableRef.current?.playerID === p.playerID) {
 										syncTargetState(p.playerID);
 									}
@@ -966,6 +1191,7 @@ export default function App() {
 					playbackState={playbackState}
 					wsStatus={wsStatus}
 					jkContext={jkContext}
+					channelDisplayState={channelDisplayState}
 					hasActivePlayer={!!targetPlayable}
 				/>
 			)}

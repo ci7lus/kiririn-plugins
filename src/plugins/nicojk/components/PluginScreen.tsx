@@ -27,6 +27,12 @@ interface Props {
 	playbackState: PlayerPlaybackState | null;
 	wsStatus?: ConnectionStatus;
 	jkContext: NicoJKContext | null;
+	channelDisplayState: {
+		message: string | null;
+		detail: string | null;
+		isLoading: boolean;
+		fetchedCommentCount: number;
+	};
 	hasActivePlayer: boolean;
 }
 
@@ -52,6 +58,7 @@ export default function PluginScreen({
 	playbackState,
 	wsStatus,
 	jkContext,
+	channelDisplayState,
 	hasActivePlayer,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -81,6 +88,11 @@ export default function PluginScreen({
 		: comments;
 
 	const displayComments = filteredComments;
+	const statusText = channelDisplayState.detail || channelDisplayState.message;
+	const fetchedCommentCount = Math.max(
+		comments.length,
+		channelDisplayState.fetchedCommentCount,
+	);
 
 	const lastScrolledTimeRef = useRef(0);
 
@@ -239,11 +251,43 @@ export default function PluginScreen({
 							</div>
 						)}
 						{jkContext && (
-							<div className="text-sm text-gray-200 truncate">
-								{jkContext.channelName} ({jkContext.jkId})
-								{jkContext.sources.length > 1
-									? ` +${jkContext.sources.length - 1}`
-									: ""}
+							<div className="flex items-center gap-2 min-w-0 max-w-full">
+								<div
+									className="text-sm text-gray-200 truncate shrink"
+									title={`${jkContext.channelName} (${jkContext.jkId})`}
+								>
+									{jkContext.channelName} ({jkContext.jkId})
+									{jkContext.sources.length > 1
+										? ` +${jkContext.sources.length - 1}`
+										: ""}
+								</div>
+								{statusText && (
+									<div
+										className="min-w-0 max-w-40 truncate text-xs text-gray-400"
+										title={statusText}
+									>
+										{statusText}
+									</div>
+								)}
+								{channelDisplayState.isLoading && (
+									<div
+										className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-gray-500 border-t-transparent animate-spin"
+										title={statusText || channelDisplayState.message || "読み込み中"}
+									/>
+								)}
+							</div>
+						)}
+						{!jkContext && channelDisplayState.message && (
+							<div
+								className="flex items-center gap-2 min-w-0"
+								title={channelDisplayState.message}
+							>
+								<div className="text-sm text-gray-400 truncate">
+									{channelDisplayState.message}
+								</div>
+								{channelDisplayState.isLoading && (
+									<div className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
+								)}
 							</div>
 						)}
 					</div>
@@ -403,9 +447,14 @@ export default function PluginScreen({
 						<div className="space-y-2 text-sm">
 							<div className="flex justify-between border-b border-gray-700 pb-1">
 								<span className="text-gray-400">チャンネル</span>
-								<span>
-									{jkContext.channelName} ({jkContext.jkId})
-								</span>
+								<div className="flex items-center gap-2 min-w-0 max-w-[70%] justify-end">
+									<span className="truncate text-right">
+										{jkContext.channelName} ({jkContext.jkId})
+									</span>
+									<span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 tabular-nums">
+										{fetchedCommentCount}件
+									</span>
+								</div>
 							</div>
 							<div className="border-b border-gray-700 pb-1">
 								<div className="text-gray-400 mb-1">合成元</div>
