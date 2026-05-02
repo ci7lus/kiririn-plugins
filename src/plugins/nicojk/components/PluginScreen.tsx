@@ -9,7 +9,8 @@ import {
 	UserX,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
@@ -83,9 +84,11 @@ export default function PluginScreen({
 		saveSettings(newSettings);
 	};
 
-	const filteredComments = filterNG
-		? comments.filter((c) => !isNG(c.content, c.user_id))
-		: comments;
+	const filteredComments = useMemo(
+		() =>
+			filterNG ? comments.filter((c) => !isNG(c.content, c.user_id)) : comments,
+		[comments, filterNG],
+	);
 
 	const displayComments = filteredComments;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
@@ -94,47 +97,83 @@ export default function PluginScreen({
 		channelDisplayState.fetchedCommentCount,
 	);
 
+	const rowVirtualizer = useVirtualizer({
+		count: hasActivePlayer ? displayComments.length : 0,
+		getScrollElement: () => scrollContainerRef.current,
+		estimateSize: () => 56,
+		overscan: 10,
+		getItemKey: (index) => {
+			const item = displayComments[index];
+			return item ? `${item.no}-${item.id}` : index;
+		},
+	});
+
+	const findCommentIndexByVpos = useCallback(
+		(targetVpos: number) => {
+			let low = 0;
+			let high = displayComments.length - 1;
+			let result = -1;
+
+			while (low <= high) {
+				const mid = Math.floor((low + high) / 2);
+				const value = displayComments[mid]?.vpos ?? 0;
+				if (value <= targetVpos) {
+					result = mid;
+					low = mid + 1;
+				} else {
+					high = mid - 1;
+				}
+			}
+
+			return result;
+		},
+		[displayComments],
+	);
+
 	const lastScrolledTimeRef = useRef(0);
 
 	// Scroll management
 	useEffect(() => {
-		if (!hasActivePlayer || !autoScroll || !scrollContainerRef.current) return;
+		if (!hasActivePlayer || !autoScroll) return;
 
 		if (isLive) {
-			// ライブ時は常に一番下（最新）
-			// 自動追従は instant (auto) にして安定性を高める
-			scrollContainerRef.current.scrollTo({
-				top: scrollContainerRef.current.scrollHeight,
+			if (displayComments.length > 0) {
+				rowVirtualizer.scrollToIndex(displayComments.length - 1, {
+					align: "end",
+					behavior: "auto",
+				});
+			}
+			return;
+		}
+
+		if (!playbackState) return;
+
+		const baseStartAt = jkContext?.startAt || 0;
+		const targetVpos = (playbackState.time + baseStartAt) * 100;
+
+		// 録画追従は軽量寄りに間引いて負荷を抑える
+		if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.9) {
+			return;
+		}
+		lastScrolledTimeRef.current = playbackState.time;
+
+		const targetIndex = findCommentIndexByVpos(targetVpos);
+		if (targetIndex >= 0) {
+			rowVirtualizer.scrollToIndex(targetIndex, {
+				align: "end",
 				behavior: "auto",
 			});
-		} else if (playbackState) {
-			// 過去ログ時は再生時間に一番近いコメントを探す
-			const baseStartAt = jkContext?.startAt || 0;
-			const targetVpos = (playbackState.time + baseStartAt) * 100;
-
-			// 0.5秒に1回程度の更新に抑える（パフォーマンスのため）
-			if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.5)
-				return;
-			lastScrolledTimeRef.current = playbackState.time;
-
-			const elements =
-				scrollContainerRef.current.querySelectorAll("[data-vpos]");
-			let targetElement: HTMLElement | null = null;
-			for (let i = 0; i < elements.length; i++) {
-				const el = elements[i] as HTMLElement;
-				const vpos = parseInt(el.dataset.vpos || "0", 10);
-				if (vpos <= targetVpos) {
-					targetElement = el;
-				} else {
-					break;
-				}
-			}
-			if (targetElement) {
-				// 追従時は instant
-				targetElement.scrollIntoView({ behavior: "auto", block: "end" });
-			}
 		}
-	}, [autoScroll, isLive, playbackState, hasActivePlayer, jkContext?.startAt]);
+	}, [
+		autoScroll,
+		displayComments,
+		findCommentIndexByVpos,
+		hasActivePlayer,
+		isLive,
+		jkContext?.startAt,
+		playbackState,
+		rowVirtualizer,
+	]);
 
 	// ユーザーの意思によるスクロールを検知して自動スクロールをオフにする
 	useEffect(() => {
@@ -172,21 +211,15 @@ export default function PluginScreen({
 		setShowScrollTop(scrollHeight - scrollTop - clientHeight > 200);
 	};
 
-	const scrollTicking = useRef(false);
-
 	const scrollToBottom = useCallback(() => {
-		if (scrollContainerRef.current && !scrollTicking.current) {
-			scrollTicking.current = true;
-			requestAnimationFrame(() => {
-				if (scrollContainerRef.current) {
-					scrollContainerRef.current.scrollTop =
-						scrollContainerRef.current.scrollHeight;
-				}
-				scrollTicking.current = false;
+		if (displayComments.length > 0) {
+			rowVirtualizer.scrollToIndex(displayComments.length - 1, {
+				align: "end",
+				behavior: "auto",
 			});
 		}
 		setAutoScroll(true);
-	}, []);
+	}, [displayComments.length, rowVirtualizer]);
 
 	const handleNGId = useCallback((id: string) => {
 		if (confirm(`ID: ${id} をNGに追加しますか？`)) {
@@ -310,7 +343,7 @@ export default function PluginScreen({
 
 			<div
 				ref={scrollContainerRef}
-				className="flex-1 overflow-y-auto p-2 space-y-1 relative"
+				className="flex-1 overflow-y-auto p-2 relative"
 				onScroll={handleScroll}
 			>
 				{!hasActivePlayer ? (
@@ -321,36 +354,62 @@ export default function PluginScreen({
 							プレイヤーを操作するとコメントが表示されます
 						</p>
 					</div>
+				) : displayComments.length === 0 ? (
+					<div className="flex flex-col h-full items-center justify-center p-4">
+						<MessageSquare size={42} className="text-gray-700 mb-3" />
+						<p className="text-gray-500 text-sm">表示できるコメントがありません</p>
+					</div>
 				) : (
-					displayComments.map((c) => (
-						<div
-							key={`${c.no}-${c.id}`}
-							data-vpos={c.vpos}
-							className="group flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed"
-						>
-							<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
-								<span>{c.no}</span>
-								{!isLive && (
-									<span className="text-[8px] text-gray-600 mt-0.5">
-										{formatPlaybackTime(c.vpos)}
-									</span>
-								)}
-							</div>
-							<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
-								{c.content}
-							</div>
-							<div className="flex-shrink-0">
-								<button
-									type="button"
-									onClick={() => handleNGId(c.user_id)}
-									className="text-gray-400 hover:text-red-400 p-1"
-									title={`ID: ${c.user_id} をNGに追加`}
+					<div
+						className="relative w-full"
+						style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+					>
+						{rowVirtualizer.getVirtualItems().map((virtualRow) => {
+							const c = displayComments[virtualRow.index];
+							if (!c) {
+								return null;
+							}
+							return (
+								<div
+									key={virtualRow.key}
+									ref={rowVirtualizer.measureElement}
+									data-index={virtualRow.index}
+									data-vpos={c.vpos}
+									style={{
+										position: "absolute",
+										top: 0,
+										left: 0,
+										width: "100%",
+										transform: `translateY(${virtualRow.start}px)`,
+									}}
 								>
-									<UserX size={14} />
-								</button>
-							</div>
-						</div>
-					))
+									<div className="group mb-1 flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed">
+										<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
+											<span>{c.no}</span>
+											{!isLive && (
+												<span className="text-[8px] text-gray-600 mt-0.5">
+													{formatPlaybackTime(c.vpos)}
+												</span>
+											)}
+										</div>
+										<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
+											{c.content}
+										</div>
+										<div className="flex-shrink-0">
+											<button
+												type="button"
+												onClick={() => handleNGId(c.user_id)}
+												className="text-gray-400 hover:text-red-400 p-1"
+												title={`ID: ${c.user_id} をNGに追加`}
+											>
+												<UserX size={14} />
+											</button>
+										</div>
+									</div>
+								</div>
+							);
+						})}
+					</div>
 				)}
 			</div>
 
