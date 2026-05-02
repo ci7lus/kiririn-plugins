@@ -35,6 +35,7 @@ function getFilterSignature(settings: NicoJKSettings) {
 		ngWords: settings.ngWords,
 		ngIds: settings.ngIds,
 		ngCommands: settings.ngCommands,
+		hideSecondarySourceComments: settings.hideSecondarySourceComments,
 	});
 }
 
@@ -57,6 +58,16 @@ function toFormattedComment(comment: NiconicoComment): FormattedComment | null {
 		return null;
 	}
 
+	const settings = getSettings();
+	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
+	if (settings.hideSecondarySourceComments && sourceOrdinal > 0) {
+		return null;
+	}
+	const mail = filterMail(comment.mail);
+	if (sourceOrdinal > 0) {
+		mail.push("nico:opacity:0.7");
+	}
+
 	return {
 		id: comment.id,
 		vpos: comment.vpos,
@@ -65,7 +76,7 @@ function toFormattedComment(comment: NiconicoComment): FormattedComment | null {
 		date_usec: comment.date_usec,
 		owner: false,
 		premium: comment.premium === 1,
-		mail: filterMail(comment.mail),
+		mail,
 		user_id: -1,
 		layer: 0,
 		is_my_post: false,
@@ -182,8 +193,7 @@ export default function PlayerOverlay({
 			: isLoadingRecordedComments
 				? "partial"
 				: "complete";
-		const shouldCreateRenderer =
-			hasDisplayCandidates && (isLive || recordedCommentsReady);
+		const shouldCreateRenderer = hasDisplayCandidates;
 		if (!shouldCreateRenderer) {
 			if (rendererRef.current) {
 				rendererRef.current.clear();
@@ -208,16 +218,16 @@ export default function PlayerOverlay({
 		}
 
 		rendererRef.current?.clear();
-		const initialComments = toFormattedComments(comments);
-		const renderer = new NiconiComments(
-			canvasRef.current,
-			isLive ? [] : initialComments,
-			{
-				format: isLive ? "empty" : "formatted",
-			},
-		);
-		if (isLive && initialComments.length > 0) {
-			renderer.addComments(...initialComments);
+		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
+		const initialComments = usesFormattedRenderer
+			? toFormattedComments(comments)
+			: [];
+		const liveComments = isLive ? toFormattedComments(comments) : [];
+		const renderer = new NiconiComments(canvasRef.current, initialComments, {
+			format: usesFormattedRenderer ? "formatted" : "empty",
+		});
+		if (isLive && liveComments.length > 0) {
+			renderer.addComments(...liveComments);
 		}
 		rendererRef.current = renderer;
 		rendererMetaRef.current = {

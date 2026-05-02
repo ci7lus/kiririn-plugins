@@ -344,9 +344,10 @@ export class KakologManager {
 		return newComments;
 	}
 
+	// コメントが十分集まっている場合、同じ範囲の残りのソースは取得しない（リクエストをスキップする）
 	private isDenseEnough(commentCount: number, windowDuration: number) {
 		const minutes = Math.max(windowDuration / 60, 1);
-		return commentCount / minutes >= 100;
+		return commentCount / minutes >= 1000; // 1分あたり1000コメント以上なら十分とみなす
 	}
 
 	private countPotentialRequests(duration: number) {

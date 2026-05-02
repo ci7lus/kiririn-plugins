@@ -48,9 +48,9 @@ const SOURCE_KIND_LABELS: Record<
 	NicoJKContext["sources"][number]["kind"],
 	string
 > = {
-	primary: "主",
-	simulcast: "同時",
-	replay: "過去",
+	primary: "主ch",
+	simulcast: "別ch",
+	replay: "別ch",
 };
 
 export default function PluginScreen({
@@ -69,6 +69,8 @@ export default function PluginScreen({
 	const [showInfo, setShowInfo] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
 	const [settings, setSettings] = useState(getSettings());
+	const [hoveredCommentId, setHoveredCommentId] = useState<number | null>(null);
+	const [pinnedCommentId, setPinnedCommentId] = useState<number | null>(null);
 
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
@@ -84,11 +86,17 @@ export default function PluginScreen({
 		saveSettings(newSettings);
 	};
 
-	const filteredComments = useMemo(
-		() =>
-			filterNG ? comments.filter((c) => !isNG(c.content, c.user_id)) : comments,
-		[comments, filterNG],
-	);
+	const filteredComments = useMemo(() => {
+		const ngFiltered = filterNG
+			? comments.filter((comment) => !isNG(comment.content, comment.user_id))
+			: comments;
+		if (!settings.hideSecondarySourceComments) {
+			return ngFiltered;
+		}
+		return ngFiltered.filter(
+			(comment) => Math.max(comment.sourceOrdinal || 0, 0) === 0,
+		);
+	}, [comments, filterNG, settings.hideSecondarySourceComments]);
 
 	const displayComments = filteredComments;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
@@ -235,6 +243,27 @@ export default function PluginScreen({
 		}
 	}, []);
 
+	const handleHideSecondarySourceCommentsChange = useCallback(() => {
+		const newSettings = {
+			...settings,
+			hideSecondarySourceComments: !settings.hideSecondarySourceComments,
+		};
+		setSettings(newSettings);
+		saveSettings(newSettings);
+	}, [settings]);
+
+	useEffect(() => {
+		setHoveredCommentId(null);
+		setPinnedCommentId((current) => {
+			if (current == null) {
+				return null;
+			}
+			return displayComments.some((comment) => comment.id === current)
+				? current
+				: null;
+		});
+	}, [displayComments]);
+
 	const formatTime = (unix: number) => {
 		if (!unix) return "--:--";
 		return new Date(unix * 1000).toLocaleString("ja-JP", {
@@ -257,6 +286,18 @@ export default function PluginScreen({
 		const m = Math.floor(relativeSec / 60);
 		const s = Math.floor(relativeSec % 60);
 		return `${m}:${s.toString().padStart(2, "0")}`;
+	};
+
+	const formatCommentTimestamp = (comment: NiconicoComment) => {
+		const unix = comment.date + comment.date_usec / 1_000_000;
+		return new Date(unix * 1000).toLocaleString("ja-JP", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
 	};
 
 	return (
@@ -381,6 +422,11 @@ export default function PluginScreen({
 							if (!c) {
 								return null;
 							}
+							const sourceOrdinal = Math.max(c.sourceOrdinal || 0, 0);
+							const commentSource = jkContext?.sources[sourceOrdinal] || null;
+							const isSecondarySource = sourceOrdinal > 0;
+							const isTooltipVisible =
+								hoveredCommentId === c.id || pinnedCommentId === c.id;
 							return (
 								<div
 									key={virtualRow.key}
@@ -389,24 +435,51 @@ export default function PluginScreen({
 									data-vpos={c.vpos}
 									style={{
 										position: "absolute",
-										top: 0,
+										top: virtualRow.start,
 										left: 0,
 										width: "100%",
-										transform: `translateY(${virtualRow.start}px)`,
+										zIndex: isTooltipVisible ? 30 : 0,
 									}}
 								>
-									<div className="group mb-1 flex items-center gap-2 p-2 hover:bg-[#333] rounded text-sm transition-colors leading-relaxed">
-										<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
-											<span>{c.no}</span>
-											{!isLive && (
-												<span className="text-[8px] text-gray-600 mt-0.5">
-													{formatPlaybackTime(c.vpos)}
-												</span>
-											)}
-										</div>
-										<div className="flex-1 min-w-0 break-words line-height-1.5 self-center">
-											{c.content}
-										</div>
+									<div className="group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors hover:bg-[#333]">
+										<button
+											type="button"
+											onMouseEnter={() => setHoveredCommentId(c.id)}
+											onMouseLeave={() =>
+												setHoveredCommentId((current) =>
+													current === c.id ? null : current,
+												)
+											}
+											onClick={() => {
+												setPinnedCommentId((current) =>
+													current === c.id ? null : c.id,
+												);
+											}}
+											className="flex min-w-0 flex-1 items-center gap-2 text-left focus:outline-none"
+										>
+											<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
+												<span>{c.no}</span>
+												{!isLive && (
+													<span className="text-[8px] text-gray-600 mt-0.5">
+														{formatPlaybackTime(c.vpos)}
+													</span>
+												)}
+											</div>
+											<div
+												className={`flex min-w-0 flex-1 items-center gap-2 self-center ${isSecondarySource ? "opacity-70" : ""}`}
+											>
+												<div className="min-w-0 flex-1 break-words line-height-1.5">
+													{c.content}
+												</div>
+												{isSecondarySource && (
+													<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
+														{commentSource
+															? SOURCE_KIND_LABELS[commentSource.kind]
+															: `src${sourceOrdinal + 1}`}
+													</span>
+												)}
+											</div>
+										</button>
 										<div className="flex-shrink-0">
 											<button
 												type="button"
@@ -417,6 +490,34 @@ export default function PluginScreen({
 												<UserX size={14} />
 											</button>
 										</div>
+										{isTooltipVisible && (
+											<div className="pointer-events-none absolute inset-x-10 top-full z-10 mt-1 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl">
+												<div className="flex items-center justify-between gap-2 text-gray-300">
+													<span>No.{c.no}</span>
+													<span>{formatCommentTimestamp(c)}</span>
+												</div>
+												<div className="mt-1 text-white break-words">
+													{c.content}
+												</div>
+												<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
+													<span>ID: {c.user_id || "-"}</span>
+													{!isLive && (
+														<span>再生位置: {formatPlaybackTime(c.vpos)}</span>
+													)}
+													<span>
+														ソース:{" "}
+														{commentSource
+															? `${commentSource.channelName} (${commentSource.jkId})`
+															: `src${sourceOrdinal + 1}`}
+													</span>
+													{commentSource && (
+														<span>
+															種別: {SOURCE_KIND_LABELS[commentSource.kind]}
+														</span>
+													)}
+												</div>
+											</div>
+										)}
 									</div>
 								</div>
 							);
@@ -474,6 +575,19 @@ export default function PluginScreen({
 								<span>NGフィルター</span>
 							</div>
 							{filterNG && <Check size={16} className="text-red-400" />}
+						</button>
+						<button
+							type="button"
+							onClick={handleHideSecondarySourceCommentsChange}
+							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
+						>
+							<div className="flex items-center gap-2">
+								<MessageSquare size={16} />
+								<span>主ch以外を表示しない</span>
+							</div>
+							{settings.hideSecondarySourceComments && (
+								<Check size={16} className="text-blue-400" />
+							)}
 						</button>
 
 						<div className="pt-3 mt-1 border-t border-gray-700 mx-1">

@@ -4,27 +4,34 @@ export interface NicoJKSettings {
 	ngCommands: string[];
 	opacity: number;
 	showDebugInfo: boolean;
+	hideSecondarySourceComments: boolean;
 }
 
 export const STORAGE_KEY = "nicojk_settings_v4";
 export const SETTINGS_UPDATED_EVENT = "nicojk_settings_updated";
 
+const DEFAULT_SETTINGS: NicoJKSettings = {
+	ngWords: [],
+	ngIds: [],
+	ngCommands: [],
+	opacity: 0.8,
+	showDebugInfo: false,
+	hideSecondarySourceComments: false,
+};
+
 export function getSettings(): NicoJKSettings {
 	const stored = localStorage.getItem(STORAGE_KEY);
 	if (stored) {
 		try {
-			return JSON.parse(stored);
+			return {
+				...DEFAULT_SETTINGS,
+				...JSON.parse(stored),
+			};
 		} catch (e) {
 			console.error("Failed to parse settings", e);
 		}
 	}
-	return {
-		ngWords: [],
-		ngIds: [],
-		ngCommands: [],
-		opacity: 0.8,
-		showDebugInfo: false,
-	};
+	return DEFAULT_SETTINGS;
 }
 
 export function saveSettings(settings: NicoJKSettings) {
