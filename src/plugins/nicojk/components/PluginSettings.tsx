@@ -12,13 +12,64 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
+type RevealGroup = "word" | "id" | "command";
+
+function buildRevealKey(group: RevealGroup, value: string) {
+	return `${group}:${value}`;
+}
+
+function maskSettingValue(value: string) {
+	const chars = Array.from(value);
+	if (chars.length <= 1) {
+		return value;
+	}
+	if (chars.length === 2) {
+		return `${chars[0]}*`;
+	}
+	return `${chars[0]}${"*".repeat(chars.length - 2)}${chars[chars.length - 1]}`;
+}
+
 export default function PluginSettings() {
 	const [settings, setSettings] = useState<NicoJKSettings>(getSettings());
 	const [newWord, setNewWord] = useState("");
 	const [newId, setNewId] = useState("");
 	const [newCommand, setNewCommand] = useState("");
+	const [revealedValues, setRevealedValues] = useState<Set<string>>(
+		() => new Set(),
+	);
 
 	const refresh = () => setSettings(getSettings());
+
+	const toggleReveal = (group: RevealGroup, value: string) => {
+		const revealKey = buildRevealKey(group, value);
+		setRevealedValues((prev) => {
+			const next = new Set(prev);
+			if (next.has(revealKey)) {
+				next.delete(revealKey);
+			} else {
+				next.add(revealKey);
+			}
+			return next;
+		});
+	};
+
+	const hideReveal = (group: RevealGroup, value: string) => {
+		const revealKey = buildRevealKey(group, value);
+		setRevealedValues((prev) => {
+			if (!prev.has(revealKey)) {
+				return prev;
+			}
+			const next = new Set(prev);
+			next.delete(revealKey);
+			return next;
+		});
+	};
+
+	const displayValue = (group: RevealGroup, value: string) => {
+		return revealedValues.has(buildRevealKey(group, value))
+			? value
+			: maskSettingValue(value);
+	};
 
 	const handleAddWord = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -39,11 +90,13 @@ export default function PluginSettings() {
 	};
 
 	const handleDeleteWord = (word: string) => {
+		hideReveal("word", word);
 		removeNGWord(word);
 		refresh();
 	};
 
 	const handleDeleteId = (id: string) => {
+		hideReveal("id", id);
 		removeNGId(id);
 		refresh();
 	};
@@ -58,6 +111,7 @@ export default function PluginSettings() {
 	};
 
 	const handleDeleteCommand = (command: string) => {
+		hideReveal("command", command);
 		removeNGCommand(command);
 		refresh();
 	};
@@ -134,7 +188,14 @@ export default function PluginSettings() {
 								key={word}
 								className="flex justify-between items-center bg-[#333] px-3 py-2 rounded text-sm"
 							>
-								<span>{word}</span>
+								<button
+									type="button"
+									onClick={() => toggleReveal("word", word)}
+									className="flex-1 text-left truncate pr-3 text-white/90 active:text-white"
+									aria-label={`NGワードを${revealedValues.has(buildRevealKey("word", word)) ? "非表示" : "表示"}に切り替え`}
+								>
+									{displayValue("word", word)}
+								</button>
 								<button
 									type="button"
 									onClick={() => handleDeleteWord(word)}
@@ -179,7 +240,14 @@ export default function PluginSettings() {
 								key={id}
 								className="flex justify-between items-center bg-[#333] px-3 py-2 rounded text-sm"
 							>
-								<span className="font-mono text-xs opacity-70">{id}</span>
+								<button
+									type="button"
+									onClick={() => toggleReveal("id", id)}
+									className="flex-1 text-left truncate pr-3 font-mono text-xs opacity-70 active:opacity-100"
+									aria-label={`NG IDを${revealedValues.has(buildRevealKey("id", id)) ? "非表示" : "表示"}に切り替え`}
+								>
+									{displayValue("id", id)}
+								</button>
 								<button
 									type="button"
 									onClick={() => handleDeleteId(id)}
@@ -224,7 +292,14 @@ export default function PluginSettings() {
 								key={command}
 								className="flex justify-between items-center bg-[#333] px-3 py-2 rounded text-sm"
 							>
-								<span className="font-mono text-xs opacity-70">{command}</span>
+								<button
+									type="button"
+									onClick={() => toggleReveal("command", command)}
+									className="flex-1 text-left truncate pr-3 font-mono text-xs opacity-70 active:opacity-100"
+									aria-label={`NGコマンドを${revealedValues.has(buildRevealKey("command", command)) ? "非表示" : "表示"}に切り替え`}
+								>
+									{displayValue("command", command)}
+								</button>
 								<button
 									type="button"
 									onClick={() => handleDeleteCommand(command)}
