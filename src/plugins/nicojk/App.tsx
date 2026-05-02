@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { initBridge } from "../../kiririn-bridge";
 import type {
 	DisplayArea,
@@ -20,10 +20,7 @@ import {
 	getChannelDefinition,
 	type NicoJKChannelDefinition,
 } from "./definitions";
-import {
-	KakologManager,
-	type KakologFetchProgress,
-} from "./kakolog-manager";
+import { type KakologFetchProgress, KakologManager } from "./kakolog-manager";
 import {
 	type ResolvedCommentSource,
 	type ResolvedCommentSources,
@@ -228,7 +225,6 @@ function formatRecordedFetchProgress(progress: KakologFetchProgress | null) {
 function getRelayPendingChannelDisplayState(): ChannelDisplayState {
 	return createChannelDisplayState({
 		message: "実況情報を同期中",
-		isLoading: true,
 	});
 }
 
@@ -245,13 +241,19 @@ function getChannelDisplayState(
 	if (!playable.service?.serviceId) {
 		return createChannelDisplayState({
 			message: "チャンネル情報を待機中",
-			isLoading: true,
 			fetchedCommentCount,
 		});
 	}
 
 	if (!data) {
 		return getRelayPendingChannelDisplayState();
+	}
+
+	if (data.channelLookupKey == null) {
+		return createChannelDisplayState({
+			message: "チャンネル情報を取得待ち",
+			fetchedCommentCount,
+		});
 	}
 
 	if (data.isLookingUpChannel || data.channelLookupKey == null) {
@@ -283,7 +285,7 @@ function getChannelDisplayState(
 			message: data.primaryChannel.syobocalId
 				? "cal.syoboi から実況ソースを取得中"
 				: "実況ソースを取得中",
-			isLoading: true,
+			isLoading: Boolean(data.primaryChannel.syobocalId),
 			fetchedCommentCount,
 		});
 	}
@@ -293,7 +295,6 @@ function getChannelDisplayState(
 			message: data.primaryChannel.syobocalId
 				? "cal.syoboi 取得開始待ち"
 				: "実況ソース取得待ち",
-			isLoading: true,
 			fetchedCommentCount,
 		});
 	}
@@ -313,7 +314,6 @@ function getChannelDisplayState(
 	if (!data.jkContext) {
 		return createChannelDisplayState({
 			message: "実況情報を準備中",
-			isLoading: true,
 			fetchedCommentCount,
 		});
 	}
@@ -326,7 +326,6 @@ function getChannelDisplayState(
 	) {
 		return createChannelDisplayState({
 			message: "コメントデータ取得待ち",
-			isLoading: true,
 			fetchedCommentCount,
 		});
 	}
@@ -371,6 +370,7 @@ function scopeLiveComment(
 ): NiconicoComment {
 	return {
 		...comment,
+		sourceOrdinal,
 		id: buildStableCommentId({
 			seconds: comment.date,
 			microseconds: comment.date_usec,
@@ -446,12 +446,26 @@ export default function App() {
 	const [screenIsLive, setScreenIsLive] = useState(false);
 	const [hasDisplayCandidates, setHasDisplayCandidates] = useState(false);
 	const [recordedCommentsReady, setRecordedCommentsReady] = useState(false);
+	const [isLoadingRecordedComments, setIsLoadingRecordedComments] =
+		useState(false);
 	const [channelDisplayState, setChannelDisplayState] =
 		useState<ChannelDisplayState>(EMPTY_CHANNEL_DISPLAY_STATE);
 
 	const areaRef = useRef<DisplayArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
 	const relayChannelRef = useRef<BroadcastChannel | null>(null);
+	const screenRelayChannelRef = useRef<BroadcastChannel | null>(null);
+	const screenRelayPlayerIdRef = useRef<string | null>(null);
+	const screenSnapshotsRef = useRef<Map<string, PlayerOverlaySnapshot>>(
+		new Map(),
+	);
+	const screenSnapshotMetaRef = useRef<{
+		playerID: string | null;
+		playableId: string | null;
+	}>({
+		playerID: null,
+		playableId: null,
+	});
 	const commentsRef = useRef<NiconicoComment[]>([]);
 	const jkContextRef = useRef<NicoJKContext | null>(null);
 	const channelDisplayStateRef = useRef<ChannelDisplayState>(
@@ -483,6 +497,74 @@ export default function App() {
 	useEffect(() => {
 		overlayIsLiveRef.current = !targetPlayable?.isSeekable;
 	}, [targetPlayable?.isSeekable]);
+
+	const applyPluginScreenSnapshot = useCallback(
+		(snapshot: PlayerOverlaySnapshot) => {
+			screenSnapshotsRef.current.set(snapshot.playerID, snapshot);
+			screenSnapshotMetaRef.current = {
+				playerID: snapshot.playerID,
+				playableId: snapshot.playableId,
+			};
+			setComments(snapshot.comments);
+			setJkContext(snapshot.jkContext);
+			setChannelDisplayState(snapshot.channelDisplayState);
+			setWsStatus(snapshot.wsStatus);
+			setScreenIsLive(snapshot.isLive);
+		},
+		[],
+	);
+
+	const clearPluginScreenState = useCallback(
+		(displayState: ChannelDisplayState, isLive = false) => {
+			screenSnapshotMetaRef.current = {
+				playerID: null,
+				playableId: null,
+			};
+			setComments([]);
+			setJkContext(null);
+			setChannelDisplayState(displayState);
+			setWsStatus("disconnected");
+			setScreenIsLive(isLive);
+		},
+		[],
+	);
+
+	const getCachedPluginScreenSnapshot = useCallback(
+		(playerID: string, playableId: string | null) => {
+			const snapshot = screenSnapshotsRef.current.get(playerID);
+			if (!snapshot) {
+				return null;
+			}
+			if (
+				playableId &&
+				snapshot.playableId &&
+				snapshot.playableId !== playableId
+			) {
+				return null;
+			}
+			return snapshot;
+		},
+		[],
+	);
+
+	const hasCurrentPluginScreenSnapshot = useCallback(
+		(playerID: string, playableId: string | null) => {
+			return (
+				screenSnapshotMetaRef.current.playerID === playerID &&
+				screenSnapshotMetaRef.current.playableId === playableId
+			);
+		},
+		[],
+	);
+
+	const requestPluginScreenSnapshot = useCallback((playerID: string) => {
+		if (screenRelayPlayerIdRef.current !== playerID) {
+			return;
+		}
+		screenRelayChannelRef.current?.postMessage({
+			type: "requestSnapshot",
+		} satisfies PlayerOverlayRelayMessage);
+	}, []);
 
 	useEffect(() => {
 		if (area?.type !== "playerOverlay" || !area.playerID) return;
@@ -554,17 +636,14 @@ export default function App() {
 		const playerID = targetPlayable?.playerID;
 		const expectedPlayableId = targetPlayable?.id || null;
 
-		setComments([]);
-		setJkContext(null);
-		setChannelDisplayState(
-			playerID ? getRelayPendingChannelDisplayState() : EMPTY_CHANNEL_DISPLAY_STATE,
-		);
-		setWsStatus("disconnected");
-		setScreenIsLive(false);
-
-		if (!playerID) return;
+		if (!playerID) {
+			clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
+			return;
+		}
 
 		const channel = createPlayerOverlayRelayChannel(playerID);
+		screenRelayChannelRef.current = channel;
+		screenRelayPlayerIdRef.current = playerID;
 		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
 			if (event.data.type !== "snapshot") return;
 			if (
@@ -575,21 +654,49 @@ export default function App() {
 				return;
 			}
 
-			setComments(event.data.payload.comments);
-			setJkContext(event.data.payload.jkContext);
-			setChannelDisplayState(event.data.payload.channelDisplayState);
-			setWsStatus(event.data.payload.wsStatus);
-			setScreenIsLive(event.data.payload.isLive);
+			applyPluginScreenSnapshot(event.data.payload);
 		};
-		channel.postMessage({
-			type: "requestSnapshot",
-		} satisfies PlayerOverlayRelayMessage);
+
+		const cachedSnapshot = getCachedPluginScreenSnapshot(
+			playerID,
+			expectedPlayableId,
+		);
+		if (cachedSnapshot) {
+			applyPluginScreenSnapshot(cachedSnapshot);
+		} else if (!hasCurrentPluginScreenSnapshot(playerID, expectedPlayableId)) {
+			clearPluginScreenState(
+				getRelayPendingChannelDisplayState(),
+				!targetPlayable?.isSeekable,
+			);
+		}
+
+		requestPluginScreenSnapshot(playerID);
+		const retryTimer = window.setTimeout(() => {
+			if (!hasCurrentPluginScreenSnapshot(playerID, expectedPlayableId)) {
+				requestPluginScreenSnapshot(playerID);
+			}
+		}, 500);
 
 		return () => {
+			window.clearTimeout(retryTimer);
 			channel.onmessage = null;
 			channel.close();
+			if (screenRelayChannelRef.current === channel) {
+				screenRelayChannelRef.current = null;
+				screenRelayPlayerIdRef.current = null;
+			}
 		};
-	}, [area?.type, targetPlayable?.playerID, targetPlayable?.id]);
+	}, [
+		area?.type,
+		applyPluginScreenSnapshot,
+		clearPluginScreenState,
+		getCachedPluginScreenSnapshot,
+		hasCurrentPluginScreenSnapshot,
+		requestPluginScreenSnapshot,
+		targetPlayable?.id,
+		targetPlayable?.isSeekable,
+		targetPlayable?.playerID,
+	]);
 
 	useEffect(() => {
 		console.log(`[NicoJK][#${instanceId}] App lifecycle start.`);
@@ -630,6 +737,7 @@ export default function App() {
 			setWsStatus(getPlayerWsStatus(data));
 			setHasDisplayCandidates(getHasDisplayCandidates(data, isLive));
 			setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
+			setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
 		};
 
 		const updateTarget = () => {
@@ -650,13 +758,10 @@ export default function App() {
 				setTargetPlayable(null);
 				targetPlayableRef.current = null;
 				setPlaybackState(null);
-				setComments([]);
-				setJkContext(null);
-				setChannelDisplayState(EMPTY_CHANNEL_DISPLAY_STATE);
-				setWsStatus("disconnected");
-				setScreenIsLive(false);
+				clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
+				setIsLoadingRecordedComments(false);
 				return;
 			}
 
@@ -674,22 +779,33 @@ export default function App() {
 					getHasDisplayCandidates(data, !targetP.isSeekable),
 				);
 				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
+				setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
 			} else if (targetP) {
-				setComments([]);
-				setJkContext(null);
-				setChannelDisplayState(getRelayPendingChannelDisplayState());
-				setWsStatus("disconnected");
-				setScreenIsLive(false);
+				const cachedSnapshot = getCachedPluginScreenSnapshot(
+					targetP.playerID,
+					targetP.id,
+				);
+				if (cachedSnapshot) {
+					applyPluginScreenSnapshot(cachedSnapshot);
+				} else if (
+					!hasCurrentPluginScreenSnapshot(targetP.playerID, targetP.id)
+				) {
+					clearPluginScreenState(
+						getRelayPendingChannelDisplayState(),
+						!targetP.isSeekable,
+					);
+				} else {
+					setScreenIsLive(!targetP.isSeekable);
+				}
+				requestPluginScreenSnapshot(targetP.playerID);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
+				setIsLoadingRecordedComments(false);
 			} else {
-				setComments([]);
-				setJkContext(null);
-				setChannelDisplayState(EMPTY_CHANNEL_DISPLAY_STATE);
-				setWsStatus("disconnected");
-				setScreenIsLive(false);
+				clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
+				setIsLoadingRecordedComments(false);
 			}
 		};
 
@@ -732,6 +848,13 @@ export default function App() {
 		bridge.onPlayerClosed((pid) => {
 			console.log(`[NicoJK][#${instanceId}] Player closed: ${pid}`);
 			playersDataRef.current.delete(pid);
+			screenSnapshotsRef.current.delete(pid);
+			if (screenSnapshotMetaRef.current.playerID === pid) {
+				screenSnapshotMetaRef.current = {
+					playerID: null,
+					playableId: null,
+				};
+			}
 			updateTarget();
 		});
 
@@ -1063,6 +1186,7 @@ export default function App() {
 							const loadToken = data.recordedCommentsLoadToken + 1;
 							data.recordedCommentsLoadToken = loadToken;
 							const currentPlayableId = p.id;
+							const initialPlayerTime = status?.time || 0;
 							mgr.setProgressListener((progress) => {
 								const latest = playersDataRef.current.get(p.playerID);
 								if (
@@ -1079,7 +1203,26 @@ export default function App() {
 								}
 							});
 
-							mgr.fetchAll(duration)
+							mgr
+								.fetchAll(duration, {
+									priorityTime: initialPlayerTime,
+									onPriorityChunkFetched: (initialComments) => {
+										const latest = playersDataRef.current.get(p.playerID);
+										if (
+											!latest ||
+											latest.playableId !== currentPlayableId ||
+											latest.recordedCommentsLoadToken !== loadToken
+										) {
+											return;
+										}
+
+										latest.comments = initialComments;
+										latest.recordedCommentsReady = true;
+										if (targetPlayableRef.current?.playerID === p.playerID) {
+											syncTargetState(p.playerID);
+										}
+									},
+								})
 								.then((allComments) => {
 									const latest = playersDataRef.current.get(p.playerID);
 									if (
@@ -1157,7 +1300,14 @@ export default function App() {
 			for (const client of clientsRef.current.values()) client.disconnect();
 			clientsRef.current.clear();
 		};
-	}, [instanceId]);
+	}, [
+		applyPluginScreenSnapshot,
+		clearPluginScreenState,
+		getCachedPluginScreenSnapshot,
+		hasCurrentPluginScreenSnapshot,
+		instanceId,
+		requestPluginScreenSnapshot,
+	]);
 
 	if (!area) return null;
 
@@ -1179,6 +1329,7 @@ export default function App() {
 					isLive={!targetPlayable?.isSeekable}
 					hasDisplayCandidates={hasDisplayCandidates}
 					recordedCommentsReady={recordedCommentsReady}
+					isLoadingRecordedComments={isLoadingRecordedComments}
 					playbackState={playbackState}
 					jkContext={jkContext}
 				/>

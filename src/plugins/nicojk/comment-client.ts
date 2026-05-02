@@ -12,6 +12,7 @@ export interface NiconicoComment {
 	premium: number;
 	anonymity: number;
 	origin?: "ws" | "broadcast";
+	sourceOrdinal?: number;
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;

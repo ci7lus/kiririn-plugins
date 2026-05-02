@@ -1,3 +1,4 @@
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	ArrowDown,
 	ArrowUp,
@@ -9,7 +10,6 @@ import {
 	UserX,
 	X,
 } from "lucide-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
@@ -96,6 +96,14 @@ export default function PluginScreen({
 		comments.length,
 		channelDisplayState.fetchedCommentCount,
 	);
+	const sourceCommentCounts = useMemo(() => {
+		const counts = new Map<number, number>();
+		for (const comment of comments) {
+			const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
+			counts.set(sourceOrdinal, (counts.get(sourceOrdinal) || 0) + 1);
+		}
+		return counts;
+	}, [comments]);
 
 	const rowVirtualizer = useVirtualizer({
 		count: hasActivePlayer ? displayComments.length : 0,
@@ -254,8 +262,8 @@ export default function PluginScreen({
 	return (
 		<div className="flex flex-col h-full bg-[#1a1a1a] text-white overflow-hidden relative">
 			{/* Persistent Header */}
-			<div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525] shrink-0">
-				<div className="flex items-center gap-2">
+			<div className="p-2 border-b border-gray-700 flex justify-between items-center gap-2 bg-[#252525] shrink-0">
+				<div className="flex items-center gap-2 min-w-0 flex-1">
 					<button
 						type="button"
 						onClick={() => {
@@ -268,7 +276,7 @@ export default function PluginScreen({
 					>
 						<Info size={18} />
 					</button>
-					<div className="flex items-center gap-1 justify-center">
+					<div className="flex items-center gap-1 min-w-0 flex-1">
 						{hasActivePlayer && isLive && (
 							<div
 								className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold transition-colors ${
@@ -284,9 +292,9 @@ export default function PluginScreen({
 							</div>
 						)}
 						{jkContext && (
-							<div className="flex items-center gap-2 min-w-0 max-w-full">
+							<div className="flex items-center gap-2 min-w-0 flex-1">
 								<div
-									className="text-sm text-gray-200 truncate shrink"
+									className="text-sm text-gray-200 shrink-0"
 									title={`${jkContext.channelName} (${jkContext.jkId})`}
 								>
 									{jkContext.channelName} ({jkContext.jkId})
@@ -296,7 +304,7 @@ export default function PluginScreen({
 								</div>
 								{statusText && (
 									<div
-										className="min-w-0 max-w-40 truncate text-xs text-gray-400"
+										className="min-w-0 flex-1 truncate text-xs text-gray-400"
 										title={statusText}
 									>
 										{statusText}
@@ -305,17 +313,19 @@ export default function PluginScreen({
 								{channelDisplayState.isLoading && (
 									<div
 										className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-gray-500 border-t-transparent animate-spin"
-										title={statusText || channelDisplayState.message || "読み込み中"}
+										title={
+											statusText || channelDisplayState.message || "読み込み中"
+										}
 									/>
 								)}
 							</div>
 						)}
 						{!jkContext && channelDisplayState.message && (
 							<div
-								className="flex items-center gap-2 min-w-0"
+								className="flex items-center gap-2 min-w-0 flex-1"
 								title={channelDisplayState.message}
 							>
-								<div className="text-sm text-gray-400 truncate">
+								<div className="text-sm text-gray-400 min-w-0 flex-1 truncate">
 									{channelDisplayState.message}
 								</div>
 								{channelDisplayState.isLoading && (
@@ -325,7 +335,7 @@ export default function PluginScreen({
 						)}
 					</div>
 				</div>
-				<div className="flex gap-2">
+				<div className="flex gap-2 shrink-0">
 					<button
 						type="button"
 						onClick={() => {
@@ -357,7 +367,9 @@ export default function PluginScreen({
 				) : displayComments.length === 0 ? (
 					<div className="flex flex-col h-full items-center justify-center p-4">
 						<MessageSquare size={42} className="text-gray-700 mb-3" />
-						<p className="text-gray-500 text-sm">表示できるコメントがありません</p>
+						<p className="text-gray-500 text-sm">
+							表示できるコメントがありません
+						</p>
 					</div>
 				) : (
 					<div
@@ -504,52 +516,38 @@ export default function PluginScreen({
 					</div>
 					{jkContext ? (
 						<div className="space-y-2 text-sm">
-							<div className="flex justify-between border-b border-gray-700 pb-1">
-								<span className="text-gray-400">チャンネル</span>
-								<div className="flex items-center gap-2 min-w-0 max-w-[70%] justify-end">
-									<span className="truncate text-right">
-										{jkContext.channelName} ({jkContext.jkId})
-									</span>
-									<span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300 tabular-nums">
-										{fetchedCommentCount}件
-									</span>
-								</div>
-							</div>
 							<div className="border-b border-gray-700 pb-1">
-								<div className="text-gray-400 mb-1">合成元</div>
+								<div className="text-gray-400 mb-1">チャンネル</div>
 								<div className="space-y-1 text-xs">
-									{jkContext.sources.map((source) => (
-										<div
-											key={source.key}
-											className="flex justify-between items-start gap-3"
-										>
-											<div className="min-w-0">
-												<div className="text-gray-300 truncate">
-													{source.channelName} ({source.jkId})
+									{jkContext.sources.map((source, index) => {
+										const sourceCount = sourceCommentCounts.get(index) || 0;
+										return (
+											<div
+												key={source.key}
+												className="flex justify-between items-start gap-3"
+											>
+												<div className="min-w-0">
+													<div className="text-gray-300 truncate">
+														{source.channelName} ({source.jkId}) {sourceCount}件
+													</div>
+													<div className="text-gray-500">
+														{formatTimeRange(source.startAt, source.endAt)}
+													</div>
 												</div>
-												<div className="text-gray-500">
-													{formatTimeRange(source.startAt, source.endAt)}
-												</div>
+												<span className="text-gray-500 shrink-0">
+													{SOURCE_KIND_LABELS[source.kind]}
+												</span>
 											</div>
-											<span className="text-gray-500 shrink-0">
-												{SOURCE_KIND_LABELS[source.kind]}
-											</span>
-										</div>
-									))}
+										);
+									})}
 								</div>
 							</div>
-							{!isLive && (
-								<>
-									<div className="flex justify-between border-b border-gray-700 pb-1">
-										<span className="text-gray-400">開始時間</span>
-										<span>{formatTime(jkContext.startAt)}</span>
-									</div>
-									<div className="flex justify-between">
-										<span className="text-gray-400">終了時間</span>
-										<span>{formatTime(jkContext.endAt)}</span>
-									</div>
-								</>
-							)}
+							<div className="flex justify-between">
+								<span className="text-gray-400">取得コメント数</span>
+								<span className="text-blue-300 tabular-nums">
+									{fetchedCommentCount}件
+								</span>
+							</div>
 						</div>
 					) : (
 						<p className="text-sm text-gray-500 italic">

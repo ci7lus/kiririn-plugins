@@ -29,6 +29,8 @@ export interface KakologFetchProgress {
 	fetchedComments: number;
 }
 
+const KAKOLOG_CHUNK_SIZE = 1800;
+
 function sortAndDedupeComments(comments: NiconicoComment[]) {
 	const sorted = [...comments].sort(
 		(a, b) =>
@@ -49,6 +51,26 @@ function sortAndDedupeComments(comments: NiconicoComment[]) {
 	return deduped;
 }
 
+function getChunkOffsets(duration: number) {
+	const offsets: number[] = [];
+	for (let offset = 0; offset < duration; offset += KAKOLOG_CHUNK_SIZE) {
+		offsets.push(offset);
+	}
+	return offsets;
+}
+
+function getPriorityChunkStart(playerTime: number, duration: number) {
+	const offsets = getChunkOffsets(duration);
+	if (offsets.length === 0) {
+		return 0;
+	}
+
+	const preferredOffset =
+		Math.floor(Math.max(playerTime, 0) / KAKOLOG_CHUNK_SIZE) *
+		KAKOLOG_CHUNK_SIZE;
+	return Math.min(preferredOffset, offsets[offsets.length - 1]);
+}
+
 export class KakologManager {
 	private baseStartAt = 0;
 	private sourceSignature = "";
@@ -57,8 +79,9 @@ export class KakologManager {
 	private fullFetchDuration = 0;
 	private fullFetchPromise: Promise<NiconicoComment[]> | null = null;
 	private fullFetchResult: NiconicoComment[] | null = null;
-	private progressListener: ((progress: KakologFetchProgress | null) => void) | null =
-		null;
+	private progressListener:
+		| ((progress: KakologFetchProgress | null) => void)
+		| null = null;
 	private progressState: {
 		totalRequests: number;
 		completedRequests: number;
@@ -123,22 +146,29 @@ export class KakologManager {
 	): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0) return [];
 
-		const chunkSize = 600;
-		const currentChunkStart = Math.floor(playerTime / chunkSize) * chunkSize;
+		const currentChunkStart = getPriorityChunkStart(playerTime, duration);
 
 		const tasks: Promise<NiconicoComment[]>[] = [];
 		if (currentChunkStart < duration) {
 			tasks.push(this.fetchChunkGroup(currentChunkStart, duration));
 		}
-		if (currentChunkStart + chunkSize < duration) {
-			tasks.push(this.fetchChunkGroup(currentChunkStart + chunkSize, duration));
+		if (currentChunkStart + KAKOLOG_CHUNK_SIZE < duration) {
+			tasks.push(
+				this.fetchChunkGroup(currentChunkStart + KAKOLOG_CHUNK_SIZE, duration),
+			);
 		}
 
 		const results = await Promise.all(tasks);
 		return results.flat().sort((a, b) => a.vpos - b.vpos);
 	}
 
-	public async fetchAll(duration: number): Promise<NiconicoComment[]> {
+	public async fetchAll(
+		duration: number,
+		options?: {
+			priorityTime?: number;
+			onPriorityChunkFetched?: (comments: NiconicoComment[]) => void;
+		},
+	): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0 || duration <= 0) {
 			this.resetProgress();
 			return [];
@@ -167,10 +197,22 @@ export class KakologManager {
 
 		let promise: Promise<NiconicoComment[]>;
 		promise = (async () => {
-			const chunkSize = 600;
 			const comments: NiconicoComment[] = [];
+			const offsets = getChunkOffsets(duration);
+			const priorityOffset = getPriorityChunkStart(
+				options?.priorityTime || 0,
+				duration,
+			);
+			const orderedOffsets = [
+				priorityOffset,
+				...offsets.filter((offset) => offset !== priorityOffset),
+			];
+			const shouldEmitPriorityChunk =
+				typeof options?.onPriorityChunkFetched === "function" &&
+				orderedOffsets.length > 1;
+			let emittedPriorityChunk = false;
 
-			for (let offset = 0; offset < duration; offset += chunkSize) {
+			for (const offset of orderedOffsets) {
 				if (revision !== this.fetchRevision) {
 					return [];
 				}
@@ -181,6 +223,12 @@ export class KakologManager {
 				}
 
 				comments.push(...fetched);
+				if (!emittedPriorityChunk && offset === priorityOffset) {
+					emittedPriorityChunk = true;
+					if (shouldEmitPriorityChunk) {
+						options.onPriorityChunkFetched?.(sortAndDedupeComments(comments));
+					}
+				}
 			}
 
 			const result = sortAndDedupeComments(comments);
@@ -217,7 +265,10 @@ export class KakologManager {
 			return [];
 		}
 
-		const windowDuration = Math.min(600, Math.max(duration - offset, 0));
+		const windowDuration = Math.min(
+			KAKOLOG_CHUNK_SIZE,
+			Math.max(duration - offset, 0),
+		);
 		if (windowDuration <= 0) {
 			state.completed = true;
 			return [];
@@ -299,9 +350,8 @@ export class KakologManager {
 	}
 
 	private countPotentialRequests(duration: number) {
-		const chunkSize = 600;
 		let total = 0;
-		for (let offset = 0; offset < duration; offset += chunkSize) {
+		for (const offset of getChunkOffsets(duration)) {
 			total += this.sources.filter(
 				(source) => offset < source.endAt - source.startAt,
 			).length;
@@ -403,6 +453,7 @@ export class KakologManager {
 					premium: parseInt(c.premium || "0", 10),
 					anonymity: parseInt(c.anonymity || "0", 10),
 					origin: "ws",
+					sourceOrdinal,
 				};
 			});
 

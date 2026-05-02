@@ -9,9 +9,9 @@ import {
 	filterMail,
 	getSettings,
 	isNG,
+	type NicoJKSettings,
 	SETTINGS_UPDATED_EVENT,
 	STORAGE_KEY,
-	type NicoJKSettings,
 } from "../ng-settings";
 
 interface Props {
@@ -22,11 +22,13 @@ interface Props {
 	isLive: boolean;
 	hasDisplayCandidates: boolean;
 	recordedCommentsReady: boolean;
+	isLoadingRecordedComments: boolean;
 	playbackState: PlayerPlaybackState | null;
 	jkContext: NicoJKContext | null;
 }
 
 type RendererMode = "live" | "recorded";
+type RecordedRendererPhase = "none" | "partial" | "complete";
 
 function getFilterSignature(settings: NicoJKSettings) {
 	return JSON.stringify({
@@ -84,6 +86,7 @@ export default function PlayerOverlay({
 	isLive,
 	hasDisplayCandidates,
 	recordedCommentsReady,
+	isLoadingRecordedComments,
 	playbackState,
 	jkContext,
 }: Props) {
@@ -93,6 +96,7 @@ export default function PlayerOverlay({
 		mode: RendererMode;
 		playableId: string | null;
 		filterVersion: number;
+		recordedPhase: RecordedRendererPhase;
 	} | null>(null);
 	const filterSignatureRef = useRef(getFilterSignature(getSettings()));
 	const lastCommentIdRef = useRef<number>(0);
@@ -173,6 +177,11 @@ export default function PlayerOverlay({
 	useEffect(() => {
 		if (!canvasRef.current) return;
 
+		const recordedRendererPhase: RecordedRendererPhase = !recordedCommentsReady
+			? "none"
+			: isLoadingRecordedComments
+				? "partial"
+				: "complete";
 		const shouldCreateRenderer =
 			hasDisplayCandidates && (isLive || recordedCommentsReady);
 		if (!shouldCreateRenderer) {
@@ -191,7 +200,9 @@ export default function PlayerOverlay({
 			!rendererRef.current ||
 			rendererMetaRef.current?.mode !== nextMode ||
 			rendererMetaRef.current?.playableId !== playableId ||
-			rendererMetaRef.current?.filterVersion !== filterVersion;
+			rendererMetaRef.current?.filterVersion !== filterVersion ||
+			(!isLive &&
+				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase);
 		if (!shouldRecreate) {
 			return;
 		}
@@ -202,7 +213,7 @@ export default function PlayerOverlay({
 			canvasRef.current,
 			isLive ? [] : initialComments,
 			{
-			format: isLive ? "empty" : "formatted",
+				format: isLive ? "empty" : "formatted",
 			},
 		);
 		if (isLive && initialComments.length > 0) {
@@ -213,6 +224,7 @@ export default function PlayerOverlay({
 			mode: nextMode,
 			playableId,
 			filterVersion,
+			recordedPhase: isLive ? "none" : recordedRendererPhase,
 		};
 		lastCommentIdRef.current = getMaxCommentId(comments);
 		setRendererInitialized(true);
@@ -220,6 +232,7 @@ export default function PlayerOverlay({
 		comments,
 		filterVersion,
 		hasDisplayCandidates,
+		isLoadingRecordedComments,
 		isLive,
 		playableId,
 		recordedCommentsReady,
