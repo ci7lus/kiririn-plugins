@@ -144,7 +144,7 @@ export async function lookupChannelProgramAt(
 ): Promise<SyobocalProgram | null> {
 	const programs = await progLookup({
 		ChID: chId.toString(),
-		Range: createSyobocalPointRange(atUnixSeconds),
+		Range: createSyobocalPointRange(atUnixSeconds + 30),
 		JOIN: ["SubTitles"],
 	});
 

@@ -7,6 +7,8 @@ export interface NiconicoComment {
 	content: string;
 	date: number;
 	date_usec: number;
+	postedAt?: number;
+	postedAtUsec?: number;
 	mail: string[];
 	user_id: string;
 	premium: number;

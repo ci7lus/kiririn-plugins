@@ -72,7 +72,6 @@ function getPriorityChunkStart(playerTime: number, duration: number) {
 }
 
 export class KakologManager {
-	private baseStartAt = 0;
 	private sourceSignature = "";
 	private sources: ResolvedCommentSource[] = [];
 	private fetchRevision = 0;
@@ -99,21 +98,19 @@ export class KakologManager {
 		}
 	>();
 
-	public setSources(baseStartAt: number, sources: ResolvedCommentSource[]) {
-		const signature = JSON.stringify({
-			baseStartAt,
-			sources: sources.map((source) => [
+	public setSources(_baseStartAt: number, sources: ResolvedCommentSource[]) {
+		const signature = JSON.stringify(
+			sources.map((source) => [
 				source.key,
 				source.jkId,
 				source.startAt,
 				source.endAt,
 			]),
-		});
+		);
 		if (this.sourceSignature === signature) {
 			return;
 		}
 
-		this.baseStartAt = baseStartAt;
 		this.sourceSignature = signature;
 		this.sources = sources;
 		this.fetchRevision += 1;
@@ -428,27 +425,34 @@ export class KakologManager {
 				const date = parseInt(c.date, 10);
 				const date_usec = parseInt(c.date_usec || "0", 10);
 				const no = parseInt(c.no, 10);
-				const relativeSeconds = date + date_usec / 1_000_000 - source.startAt;
-				const mappedTime = this.baseStartAt + relativeSeconds;
-				const mappedDate = Math.floor(mappedTime);
-				const mappedDateUsec = Math.max(
+				// vpos/date はプレイヤー時間軸相対（source.startAt を原点）で保持する。
+				// これにより baseStartAt（initialNetworkTime）の変化に影響を受けない。
+				const relativeSeconds =
+					date +
+					date_usec / 1_000_000 -
+					source.startAt +
+					(source.timelineOffsetSec || 0);
+				const relDate = Math.floor(relativeSeconds);
+				const relDateUsec = Math.max(
 					0,
-					Math.floor((mappedTime - mappedDate) * 1_000_000),
+					Math.floor((relativeSeconds - relDate) * 1_000_000),
 				);
-				const vpos = Math.floor(mappedTime * 100);
+				const vpos = Math.floor(relativeSeconds * 100);
 
 				return {
 					id: buildStableCommentId({
-						seconds: mappedDate,
-						microseconds: mappedDateUsec,
+						seconds: relDate,
+						microseconds: relDateUsec,
 						no,
 						sourceOrdinal,
 					}),
 					no,
 					vpos,
 					content: c.content,
-					date: mappedDate,
-					date_usec: mappedDateUsec,
+					date: relDate,
+					date_usec: relDateUsec,
+					postedAt: date,
+					postedAtUsec: date_usec,
 					mail: c.mail?.split(" ") || [],
 					user_id: c.user_id,
 					premium: parseInt(c.premium || "0", 10),

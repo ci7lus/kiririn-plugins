@@ -164,8 +164,7 @@ export default function PluginScreen({
 
 		if (!playbackState) return;
 
-		const baseStartAt = jkContext?.startAt || 0;
-		const targetVpos = (playbackState.time + baseStartAt) * 100;
+		const targetVpos = playbackState.time * 100;
 
 		// 録画追従は軽量寄りに間引いて負荷を抑える
 		if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.9) {
@@ -186,7 +185,6 @@ export default function PluginScreen({
 		findCommentIndexByVpos,
 		hasActivePlayer,
 		isLive,
-		jkContext?.startAt,
 		playbackState,
 		rowVirtualizer,
 	]);
@@ -279,9 +277,12 @@ export default function PluginScreen({
 		return `${formatTime(startUnix)} 〜 ${formatTime(endUnix)}`;
 	};
 
+	const formatSourceLabel = (source: NicoJKContext["sources"][number]) => {
+		return `${source.channelName} (${source.jkId}) ${formatTime(source.startAt)}-`;
+	};
+
 	const formatPlaybackTime = (vpos: number) => {
-		const baseStartAt = jkContext?.startAt || 0;
-		const relativeSec = vpos / 100 - baseStartAt;
+		const relativeSec = vpos / 100;
 		if (relativeSec < 0) return "--:--";
 		const m = Math.floor(relativeSec / 60);
 		const s = Math.floor(relativeSec % 60);
@@ -289,7 +290,9 @@ export default function PluginScreen({
 	};
 
 	const formatCommentTimestamp = (comment: NiconicoComment) => {
-		const unix = comment.date + comment.date_usec / 1_000_000;
+		const unix =
+			(comment.postedAt ?? comment.date) +
+			(comment.postedAtUsec ?? comment.date_usec) / 1_000_000;
 		return new Date(unix * 1000).toLocaleString("ja-JP", {
 			year: "numeric",
 			month: "2-digit",
@@ -507,7 +510,7 @@ export default function PluginScreen({
 													<span>
 														ソース:{" "}
 														{commentSource
-															? `${commentSource.channelName} (${commentSource.jkId})`
+															? formatSourceLabel(commentSource)
 															: `src${sourceOrdinal + 1}`}
 													</span>
 													{commentSource && (

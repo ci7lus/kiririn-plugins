@@ -27,6 +27,7 @@ export interface ResolvedCommentSource {
 	syobocalId?: number;
 	startAt: number;
 	endAt: number;
+	timelineOffsetSec?: number;
 }
 
 export interface ResolvedCommentSources {
@@ -49,6 +50,7 @@ function buildSource(
 	kind: ResolvedSourceKind,
 	startAt: number,
 	endAt: number,
+	timelineOffsetSec = 0,
 ): ResolvedCommentSource | null {
 	if (!channel.jkId) {
 		return null;
@@ -62,6 +64,7 @@ function buildSource(
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt,
+		timelineOffsetSec,
 	};
 }
 
@@ -139,6 +142,7 @@ async function resolveRecordedReplaySources(
 	_primaryChannel: NicoJKChannelDefinition,
 	baseProgram: SyobocalProgram,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
+	timelineOffsetSec: number,
 ) {
 	const seenPrograms = new Set<string>([
 		`${baseProgram.chId}:${baseProgram.startAt}:${baseProgram.endAt}`,
@@ -170,7 +174,13 @@ async function resolveRecordedReplaySources(
 
 			const channel = channelIndex.get(candidate.chId);
 			const source = channel
-				? buildSource(channel, "replay", candidate.startAt, candidate.endAt)
+				? buildSource(
+						channel,
+						"replay",
+						candidate.startAt,
+						candidate.endAt,
+						timelineOffsetSec,
+					)
 				: null;
 			return source ?? null;
 		})
@@ -236,6 +246,7 @@ export async function resolveCommentSources(params: {
 				primaryChannel,
 				baseProgram,
 				channelIndex,
+				baseProgram.startAt - baseStartAt,
 			);
 
 	return {

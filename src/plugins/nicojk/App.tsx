@@ -76,6 +76,10 @@ function getBaseTiming(playable: Playable) {
 	return { startAt, duration };
 }
 
+function getProgramStartAt(playable: Playable) {
+	return playable.program?.startAt || playable.initialNetworkTime || 0;
+}
+
 function getProgramResolutionSignature(playable: Playable) {
 	return [
 		playable.program?.eventId || "",
@@ -1026,7 +1030,7 @@ export default function App() {
 				}
 
 				const sourceResolutionKey = data.primaryChannel?.jkId
-					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${startAt}:${duration}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
+					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${startAt}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
 					: null;
 				if (
 					data.primaryChannel?.jkId &&
@@ -1043,8 +1047,9 @@ export default function App() {
 					data.sourceResolutionToken = sourceResolutionToken;
 					const currentPlayableId = p.id;
 					const isSeekable = p.isSeekable;
+					const programStartAt = getProgramStartAt(p);
 					const queryTime = p.isSeekable
-						? startAt +
+						? programStartAt +
 							Math.min(
 								Math.max(status?.time || Math.floor(duration / 2), 1),
 								Math.max(duration - 1, 1),
