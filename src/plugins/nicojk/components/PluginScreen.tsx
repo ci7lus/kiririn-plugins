@@ -48,9 +48,9 @@ const SOURCE_KIND_LABELS: Record<
 	NicoJKContext["sources"][number]["kind"],
 	string
 > = {
-	primary: "主ch",
-	simulcast: "別ch",
-	replay: "別ch",
+	primary: "主",
+	simulcast: "サイマル",
+	replay: "別",
 };
 
 export default function PluginScreen({

@@ -283,7 +283,7 @@ function getChannelDisplayState(
 	if (data.isResolvingSources) {
 		return createChannelDisplayState({
 			message: data.primaryChannel.syobocalId
-				? "cal.syoboi から実況ソースを取得中"
+				? "しょぼかるから実況ソースを取得中"
 				: "実況ソースを取得中",
 			isLoading: Boolean(data.primaryChannel.syobocalId),
 			fetchedCommentCount,
@@ -293,7 +293,7 @@ function getChannelDisplayState(
 	if (!data.areSourcesResolved) {
 		return createChannelDisplayState({
 			message: data.primaryChannel.syobocalId
-				? "cal.syoboi 取得開始待ち"
+				? "しょぼかる取得開始待ち"
 				: "実況ソース取得待ち",
 			fetchedCommentCount,
 		});

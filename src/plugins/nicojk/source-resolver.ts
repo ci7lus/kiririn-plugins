@@ -14,8 +14,8 @@ const MAX_RECORDED_REPLAY_AIRINGS = 5;
 const RECORDED_REPLAY_LOOKUP_START_AT = Math.floor(
 	new Date("2009-11-28T00:00:00+09:00").getTime() / 1000,
 );
-// CM がない AT-X はコメントのタイミングがズレるため除外する
-const EXCLUDED_REPLAY_CH_IDS = new Set([20]);
+// CM がない AT-X などタイミングがズレるチャンネルは他チャンネルと混ぜず、同チャンネルの過去放送のみと照合する
+const ISOLATED_REPLAY_CH_IDS = new Set([20]);
 
 export type ResolvedSourceKind = "primary" | "simulcast" | "replay";
 
@@ -136,7 +136,7 @@ async function resolveLiveSources(
 }
 
 async function resolveRecordedReplaySources(
-	primaryChannel: NicoJKChannelDefinition,
+	_primaryChannel: NicoJKChannelDefinition,
 	baseProgram: SyobocalProgram,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
 ) {
@@ -150,12 +150,15 @@ async function resolveRecordedReplaySources(
 		baseProgram.count,
 	);
 
+	const isPrimaryIsolated = ISOLATED_REPLAY_CH_IDS.has(baseProgram.chId);
+
 	const matches = candidates
 		.filter(
 			(candidate) =>
-				!EXCLUDED_REPLAY_CH_IDS.has(candidate.chId) &&
-				candidate.chId !== baseProgram.chId &&
-				isCandidateProgramMatch(baseProgram, candidate),
+				isCandidateProgramMatch(baseProgram, candidate) &&
+				(isPrimaryIsolated
+					? candidate.chId === baseProgram.chId
+					: !ISOLATED_REPLAY_CH_IDS.has(candidate.chId)),
 		)
 		.sort((left, right) => right.startAt - left.startAt)
 		.map((candidate) => {
@@ -169,10 +172,7 @@ async function resolveRecordedReplaySources(
 			const source = channel
 				? buildSource(channel, "replay", candidate.startAt, candidate.endAt)
 				: null;
-			if (!source || source.jkId === primaryChannel.jkId) {
-				return null;
-			}
-			return source;
+			return source ?? null;
 		})
 		.filter((source): source is ResolvedCommentSource => !!source);
 
