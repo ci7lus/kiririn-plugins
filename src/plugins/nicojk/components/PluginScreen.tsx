@@ -164,7 +164,9 @@ export default function PluginScreen({
 
 		if (!playbackState) return;
 
-		const targetVpos = playbackState.time * 100;
+		// vpos は絶対時間(Unix秒) × 100 となっているので、ターゲットも絶対時間に合わせる
+		const absoluteTime = (jkContext?.startAt ?? 0) + playbackState.time;
+		const targetVpos = absoluteTime * 100;
 
 		// 録画追従は軽量寄りに間引いて負荷を抑える
 		if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.9) {
@@ -185,6 +187,7 @@ export default function PluginScreen({
 		findCommentIndexByVpos,
 		hasActivePlayer,
 		isLive,
+		jkContext?.startAt,
 		playbackState,
 		rowVirtualizer,
 	]);
@@ -270,6 +273,7 @@ export default function PluginScreen({
 			day: "2-digit",
 			hour: "2-digit",
 			minute: "2-digit",
+			second: "2-digit",
 		});
 	};
 
@@ -282,7 +286,8 @@ export default function PluginScreen({
 	};
 
 	const formatPlaybackTime = (vpos: number) => {
-		const relativeSec = vpos / 100;
+		// vpos は絶対時間(Unix秒) × 100。プレイヤー表示時間 = vpos/100 - startAt。
+		const relativeSec = vpos / 100 - (jkContext?.startAt ?? 0);
 		if (relativeSec < 0) return "--:--";
 		const m = Math.floor(relativeSec / 60);
 		const s = Math.floor(relativeSec % 60);
@@ -290,9 +295,7 @@ export default function PluginScreen({
 	};
 
 	const formatCommentTimestamp = (comment: NiconicoComment) => {
-		const unix =
-			(comment.postedAt ?? comment.date) +
-			(comment.postedAtUsec ?? comment.date_usec) / 1_000_000;
+		const unix = comment.date + comment.date_usec / 1_000_000;
 		return new Date(unix * 1000).toLocaleString("ja-JP", {
 			year: "numeric",
 			month: "2-digit",
@@ -645,11 +648,14 @@ export default function PluginScreen({
 											>
 												<div className="min-w-0">
 													<div className="text-gray-300 truncate">
-														{source.channelName} ({source.jkId}) {sourceCount}件
+														{source.channelName} ({source.jkId})
+														{!isLive && ` ${sourceCount}件`}
 													</div>
-													<div className="text-gray-500">
-														{formatTimeRange(source.startAt, source.endAt)}
-													</div>
+													{!isLive && (
+														<div className="text-gray-500">
+															{formatTimeRange(source.startAt, source.endAt)}
+														</div>
+													)}
 												</div>
 												<span className="text-gray-500 shrink-0">
 													{SOURCE_KIND_LABELS[source.kind]}
@@ -659,12 +665,14 @@ export default function PluginScreen({
 									})}
 								</div>
 							</div>
-							<div className="flex justify-between">
-								<span className="text-gray-400">取得コメント数</span>
-								<span className="text-blue-300 tabular-nums">
-									{fetchedCommentCount}件
-								</span>
-							</div>
+							{!isLive && (
+								<div className="flex justify-between">
+									<span className="text-gray-400">取得コメント数</span>
+									<span className="text-blue-300 tabular-nums">
+										{fetchedCommentCount}件
+									</span>
+								</div>
+							)}
 						</div>
 					) : (
 						<p className="text-sm text-gray-500 italic">

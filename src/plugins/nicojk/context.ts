@@ -12,7 +12,9 @@ export interface NicoJKSourceContext {
 export interface NicoJKContext {
 	jkId: string;
 	channelName: string;
-	startAt: number; // replay time=0 に対応する Unix timestamp
+	startAt: number; // time=0 に対応する Unix timestamp（initialNetworkTime、なければ program.startAt）
 	endAt: number; // startAt + duration に対応する Unix timestamp
+	/** primary のしょぼかる番組開始 unixtime。preroll = programStartAt - startAt */
+	programStartAt: number;
 	sources: NicoJKSourceContext[];
 }

@@ -98,7 +98,7 @@ export class KakologManager {
 		}
 	>();
 
-	public setSources(_baseStartAt: number, sources: ResolvedCommentSource[]) {
+	public setSources(sources: ResolvedCommentSource[]) {
 		const signature = JSON.stringify(
 			sources.map((source) => [
 				source.key,
@@ -420,46 +420,53 @@ export class KakologManager {
 				return [];
 			}
 
-			const newComments: NiconicoComment[] = data.packet.map((p) => {
+			const newComments: NiconicoComment[] = data.packet.flatMap((p) => {
 				const c = p.chat;
+				if (!c) return [];
+
 				const date = parseInt(c.date, 10);
 				const date_usec = parseInt(c.date_usec || "0", 10);
 				const no = parseInt(c.no, 10);
-				// vpos/date はプレイヤー時間軸相対（source.startAt を原点）で保持する。
-				// これにより baseStartAt（initialNetworkTime）の変化に影響を受けない。
-				const relativeSeconds =
-					date +
-					date_usec / 1_000_000 -
-					source.startAt +
-					(source.timelineOffsetSec || 0);
-				const relDate = Math.floor(relativeSeconds);
-				const relDateUsec = Math.max(
-					0,
-					Math.floor((relativeSeconds - relDate) * 1_000_000),
-				);
-				const vpos = Math.floor(relativeSeconds * 100);
+				// vpos は絶対 unixtime × 100。
+				// primary: vpos = date * 100（そのまま）。
+				// replay: 同エピソードの同定時コメントが primary と同じ vpos になるよう、
+				//   replay の programStartAt を基点とした相対秒を primary の programStartAt にマッピングする。
+				//   vpos = (T_prog_primary + (date - T_prog_replay)) * 100
+				const primarySource = this.sources[0];
+				let vpos: number;
+				if (primarySource && source.jkId !== primarySource.jkId) {
+					const relativeTime =
+						date +
+						date_usec / 1_000_000 -
+						(source.programStartAt ?? source.startAt);
+					const masterBaseTime =
+						primarySource.programStartAt ?? primarySource.startAt;
+					vpos = Math.floor((masterBaseTime + relativeTime) * 100);
+				} else {
+					vpos = Math.floor((date + date_usec / 1_000_000) * 100);
+				}
 
-				return {
-					id: buildStableCommentId({
-						seconds: relDate,
-						microseconds: relDateUsec,
+				return [
+					{
+						id: buildStableCommentId({
+							seconds: date,
+							microseconds: date_usec,
+							no,
+							sourceOrdinal,
+						}),
 						no,
+						vpos,
+						content: c.content,
+						date,
+						date_usec,
+						mail: c.mail?.split(" ") || [],
+						user_id: c.user_id,
+						premium: parseInt(c.premium || "0", 10),
+						anonymity: parseInt(c.anonymity || "0", 10),
+						origin: "ws",
 						sourceOrdinal,
-					}),
-					no,
-					vpos,
-					content: c.content,
-					date: relDate,
-					date_usec: relDateUsec,
-					postedAt: date,
-					postedAtUsec: date_usec,
-					mail: c.mail?.split(" ") || [],
-					user_id: c.user_id,
-					premium: parseInt(c.premium || "0", 10),
-					anonymity: parseInt(c.anonymity || "0", 10),
-					origin: "ws",
-					sourceOrdinal,
-				};
+					},
+				];
 			});
 
 			return newComments;

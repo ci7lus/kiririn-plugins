@@ -47,6 +47,8 @@ type PlayerData = {
 	isLoadingRecordedComments: boolean;
 	recordedCommentsLoadToken: number;
 	recordedFetchProgress: KakologFetchProgress | null;
+	/** 最後に jkContext に反映した startAt（initialNetworkTime 判明時の軽量差し替え用） */
+	lastStartAt: number;
 };
 
 function createPlayerData(playableId: string | null): PlayerData {
@@ -67,6 +69,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 		isLoadingRecordedComments: false,
 		recordedCommentsLoadToken: 0,
 		recordedFetchProgress: null,
+		lastStartAt: 0,
 	};
 }
 
@@ -92,6 +95,7 @@ function getProgramResolutionSignature(playable: Playable) {
 function buildPrimarySource(
 	channel: NicoJKChannelDefinition,
 	startAt: number,
+	programStartAt: number,
 	duration: number,
 ): ResolvedCommentSource | null {
 	if (!channel.jkId) {
@@ -106,6 +110,7 @@ function buildPrimarySource(
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt: startAt + duration,
+		programStartAt,
 	};
 }
 
@@ -131,6 +136,7 @@ function buildJkContext(
 		channelName: primarySource.channelName,
 		startAt,
 		endAt: startAt + duration,
+		programStartAt: primarySource.programStartAt ?? startAt,
 		sources: sources.map(toContextSource),
 	};
 }
@@ -940,6 +946,7 @@ export default function App() {
 
 					const lookupPlayableId = p.id;
 					const lookupStartAt = startAt;
+					const lookupProgramStartAt = getProgramStartAt(p);
 					const lookupDuration = duration;
 					const lookupIsSeekable = p.isSeekable;
 					syncTargetState(p.playerID);
@@ -961,6 +968,7 @@ export default function App() {
 								const primarySource = buildPrimarySource(
 									channel,
 									lookupStartAt,
+									lookupProgramStartAt,
 									lookupDuration,
 								);
 								if (primarySource) {
@@ -992,6 +1000,7 @@ export default function App() {
 					const fallbackPrimary = buildPrimarySource(
 						data.primaryChannel,
 						startAt,
+						getProgramStartAt(p),
 						duration,
 					);
 					if (fallbackPrimary) {
@@ -1029,8 +1038,21 @@ export default function App() {
 					}
 				}
 
+				// initialNetworkTime が後から届いて startAt が変化した場合、
+				// vpos は programStartAt 固定のため再取得不要。
+				// jkContext の startAt/endAt だけ差し替えてレンダラの preroll 計算を更新する。
+				if (data.lastStartAt !== startAt && data.jkContext) {
+					data.jkContext = {
+						...data.jkContext,
+						startAt,
+						endAt: startAt + duration,
+					};
+					data.lastStartAt = startAt;
+					syncTargetState(p.playerID);
+				}
+
 				const sourceResolutionKey = data.primaryChannel?.jkId
-					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${startAt}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
+					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
 					: null;
 				if (
 					data.primaryChannel?.jkId &&
@@ -1168,7 +1190,7 @@ export default function App() {
 					}
 					const mgr = kakologManagersRef.current.get(p.playerID);
 					if (mgr && data.replaySources.length > 0) {
-						mgr.setSources(startAt, data.replaySources);
+						mgr.setSources(data.replaySources);
 
 						if (data.jkContext && data.replaySources[0]) {
 							data.jkContext = buildJkContext(

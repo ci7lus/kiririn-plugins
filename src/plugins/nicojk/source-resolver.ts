@@ -27,7 +27,8 @@ export interface ResolvedCommentSource {
 	syobocalId?: number;
 	startAt: number;
 	endAt: number;
-	timelineOffsetSec?: number;
+	/** vpos 計算の基点となる番組開始 unixtime（しょぼかる由来）。未設定時は startAt と同じ扱い */
+	programStartAt?: number;
 }
 
 export interface ResolvedCommentSources {
@@ -50,7 +51,6 @@ function buildSource(
 	kind: ResolvedSourceKind,
 	startAt: number,
 	endAt: number,
-	timelineOffsetSec = 0,
 ): ResolvedCommentSource | null {
 	if (!channel.jkId) {
 		return null;
@@ -64,7 +64,7 @@ function buildSource(
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt,
-		timelineOffsetSec,
+		// programStartAt は resolveCommentSources で baseProgram 取得後に上書きされる
 	};
 }
 
@@ -142,7 +142,6 @@ async function resolveRecordedReplaySources(
 	_primaryChannel: NicoJKChannelDefinition,
 	baseProgram: SyobocalProgram,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
-	timelineOffsetSec: number,
 ) {
 	const seenPrograms = new Set<string>([
 		`${baseProgram.chId}:${baseProgram.startAt}:${baseProgram.endAt}`,
@@ -174,13 +173,7 @@ async function resolveRecordedReplaySources(
 
 			const channel = channelIndex.get(candidate.chId);
 			const source = channel
-				? buildSource(
-						channel,
-						"replay",
-						candidate.startAt,
-						candidate.endAt,
-						timelineOffsetSec,
-					)
+				? buildSource(channel, "replay", candidate.startAt, candidate.endAt)
 				: null;
 			return source ?? null;
 		})
@@ -232,6 +225,12 @@ export async function resolveCommentSources(params: {
 		};
 	}
 
+	// primary の vpos 計算基点をしょぼかる番組開始時刻に更新する
+	const primaryWithProgramStart: ResolvedCommentSource = {
+		...primary,
+		programStartAt: baseProgram.startAt,
+	};
+
 	const liveSources = isLive
 		? await resolveLiveSources(
 				primaryChannel,
@@ -246,11 +245,10 @@ export async function resolveCommentSources(params: {
 				primaryChannel,
 				baseProgram,
 				channelIndex,
-				baseProgram.startAt - baseStartAt,
 			);
 
 	return {
-		primary,
+		primary: primaryWithProgramStart,
 		liveSources,
 		replaySources,
 	};

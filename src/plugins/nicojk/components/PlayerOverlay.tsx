@@ -259,8 +259,12 @@ export default function PlayerOverlay({
 					const elapsed = syncRef.current.isPlaying
 						? (performance.now() - syncRef.current.receivedAt) / 1000
 						: 0;
-					// vpos はプレイヤー時間軸相対で保持しているためプレイヤー時間をそのまま使う
-					nowVpos = Math.floor((syncRef.current.time + elapsed) * 100);
+					// vpos は絶対 unixtime × 100。nowVpos = (startAt + playerTime) * 100 で一致する。
+					// startAt = initialNetworkTime（TOT/PMT 判明後に更新される）。
+					nowVpos = Math.floor(
+						(syncRef.current.time + elapsed + jkContextRef.current.startAt) *
+							100,
+					);
 				} else {
 					nowVpos = 0;
 				}
