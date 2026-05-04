@@ -429,12 +429,12 @@ export class KakologManager {
 				const no = parseInt(c.no, 10);
 				// vpos は絶対 unixtime × 100。
 				// primary: vpos = date * 100（そのまま）。
-				// replay: 同エピソードの同定時コメントが primary と同じ vpos になるよう、
-				//   replay の programStartAt を基点とした相対秒を primary の programStartAt にマッピングする。
+				// secondary source: 同エピソードの同一タイミングのコメントが primary と同じ vpos になるよう、
+				//   source の programStartAt を基点とした相対秒を primary の programStartAt にマッピングする。
 				//   vpos = (T_prog_primary + (date - T_prog_replay)) * 100
 				const primarySource = this.sources[0];
 				let vpos: number;
-				if (primarySource && source.jkId !== primarySource.jkId) {
+				if (primarySource && sourceOrdinal > 0) {
 					const relativeTime =
 						date +
 						date_usec / 1_000_000 -
