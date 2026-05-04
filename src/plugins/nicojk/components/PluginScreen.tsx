@@ -3,6 +3,7 @@ import {
 	ArrowDown,
 	ArrowUp,
 	Ban,
+	Bookmark,
 	Check,
 	Info,
 	MessageSquare,
@@ -22,9 +23,25 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
+const CHAPTER_WINDOW_SECONDS = 10;
+const CHAPTER_COOLDOWN_SECONDS = 60;
+const CHAPTER_MINIMUM_COUNT = 3;
+const CHAPTER_SEEK_LEAD_SECONDS = 5;
+const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED"] as const;
+
+type ChapterLabel = (typeof CHAPTER_LABELS)[number];
+
+type ChapterPoint = {
+	key: string;
+	label: ChapterLabel;
+	relativeSec: number;
+	position: number;
+};
+
 interface Props {
 	comments: NiconicoComment[];
 	isLive: boolean;
+	duration: number;
 	playbackState: PlayerPlaybackState | null;
 	wsStatus?: ConnectionStatus;
 	jkContext: NicoJKContext | null;
@@ -56,6 +73,7 @@ const SOURCE_KIND_LABELS: Record<
 export default function PluginScreen({
 	comments,
 	isLive,
+	duration,
 	playbackState,
 	wsStatus,
 	jkContext,
@@ -66,6 +84,7 @@ export default function PluginScreen({
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
+	const [showChapters, setShowChapters] = useState(false);
 	const [showInfo, setShowInfo] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
 	const [settings, setSettings] = useState(getSettings());
@@ -112,6 +131,113 @@ export default function PluginScreen({
 		}
 		return counts;
 	}, [comments]);
+	const chapterComments = useMemo(() => {
+		if (!settings.hideSecondarySourceComments) {
+			return comments;
+		}
+		return comments.filter(
+			(comment) => Math.max(comment.sourceOrdinal || 0, 0) === 0,
+		);
+	}, [comments, settings.hideSecondarySourceComments]);
+	const chapters = useMemo<ChapterPoint[]>(() => {
+		if (isLive || !jkContext || duration <= 0) {
+			return [];
+		}
+
+		type ChapterMatch = {
+			label: ChapterLabel;
+			relativeSec: number;
+			commentId: number;
+		};
+
+		type ChapterBucket = {
+			matches: ChapterMatch[];
+			counts: Map<ChapterLabel, number>;
+		};
+
+		const buckets = new Map<number, ChapterBucket>();
+
+		for (const comment of chapterComments) {
+			const label = normalizeChapterLabel(comment.content);
+			if (!label) {
+				continue;
+			}
+
+			const relativeSec = comment.vpos / 100 - jkContext.startAt;
+			if (
+				!Number.isFinite(relativeSec) ||
+				relativeSec < 0 ||
+				relativeSec > duration
+			) {
+				continue;
+			}
+
+			const bucketIndex = Math.floor(relativeSec / CHAPTER_WINDOW_SECONDS);
+			let bucket = buckets.get(bucketIndex);
+			if (!bucket) {
+				bucket = {
+					matches: [],
+					counts: new Map<ChapterLabel, number>(),
+				};
+				buckets.set(bucketIndex, bucket);
+			}
+
+			bucket.matches.push({
+				label,
+				relativeSec,
+				commentId: comment.id,
+			});
+			bucket.counts.set(label, (bucket.counts.get(label) || 0) + 1);
+		}
+
+		const candidates = [...buckets.entries()]
+			.sort(([left], [right]) => left - right)
+			.flatMap(([bucketIndex, bucket]) => {
+				if (bucket.matches.length < CHAPTER_MINIMUM_COUNT) {
+					return [];
+				}
+
+				const sortedMatches = [...bucket.matches].sort((left, right) => {
+					if (left.relativeSec !== right.relativeSec) {
+						return left.relativeSec - right.relativeSec;
+					}
+					return left.commentId - right.commentId;
+				});
+				const anchor = sortedMatches[0];
+				const highestCount = Math.max(...bucket.counts.values());
+				const dominantLabels = CHAPTER_LABELS.filter(
+					(label) => (bucket.counts.get(label) || 0) === highestCount,
+				);
+				const dominantLabel =
+					sortedMatches.find((match) => dominantLabels.includes(match.label))
+						?.label || anchor.label;
+
+				return [
+					{
+						key: `${bucketIndex}:${anchor.commentId}`,
+						label: dominantLabel,
+						relativeSec: anchor.relativeSec,
+						position: clamp(anchor.relativeSec / duration, 0, 1),
+					},
+				];
+			});
+
+		const filtered: ChapterPoint[] = [];
+		let nextAvailableSec = -Infinity;
+
+		for (const candidate of candidates) {
+			if (candidate.relativeSec < nextAvailableSec) {
+				continue;
+			}
+
+			filtered.push(candidate);
+			nextAvailableSec = candidate.relativeSec + CHAPTER_COOLDOWN_SECONDS;
+		}
+
+		return filtered;
+	}, [chapterComments, duration, isLive, jkContext]);
+	const canSeekToChapters = !isLive && duration > 0;
+	const playbackProgress = clamp(playbackState?.position ?? 0, 0, 1);
 
 	const rowVirtualizer = useVirtualizer({
 		count: hasActivePlayer ? displayComments.length : 0,
@@ -265,6 +391,12 @@ export default function PluginScreen({
 		});
 	}, [displayComments]);
 
+	useEffect(() => {
+		if (isLive || !hasActivePlayer) {
+			setShowChapters(false);
+		}
+	}, [hasActivePlayer, isLive]);
+
 	const formatTime = (unix: number) => {
 		if (!unix) return "--:--";
 		return new Date(unix * 1000).toLocaleString("ja-JP", {
@@ -289,9 +421,7 @@ export default function PluginScreen({
 		// vpos は絶対時間(Unix秒) × 100。プレイヤー表示時間 = vpos/100 - startAt。
 		const relativeSec = vpos / 100 - (jkContext?.startAt ?? 0);
 		if (relativeSec < 0) return "--:--";
-		const m = Math.floor(relativeSec / 60);
-		const s = Math.floor(relativeSec % 60);
-		return `${m}:${s.toString().padStart(2, "0")}`;
+		return formatRelativeSeconds(relativeSec);
 	};
 
 	const formatCommentTimestamp = (comment: NiconicoComment) => {
@@ -306,6 +436,21 @@ export default function PluginScreen({
 		});
 	};
 
+	const handleChapterSeek = useCallback(
+		(chapter: ChapterPoint) => {
+			if (!canSeekToChapters) {
+				return;
+			}
+			const seekPosition = clamp(
+				Math.max(0, chapter.relativeSec - CHAPTER_SEEK_LEAD_SECONDS) / duration,
+				0,
+				1,
+			);
+			window.kiririn.seek(seekPosition, playbackState?.playerID);
+		},
+		[canSeekToChapters, duration, playbackState?.playerID],
+	);
+
 	return (
 		<div className="flex flex-col h-full bg-[#1a1a1a] text-white overflow-hidden relative">
 			{/* Persistent Header */}
@@ -315,6 +460,7 @@ export default function PluginScreen({
 						type="button"
 						onClick={() => {
 							setShowInfo(!showInfo);
+							setShowChapters(false);
 							setShowMenu(false);
 						}}
 						className="p-1 hover:bg-gray-700 rounded transition-colors text-blue-400"
@@ -383,10 +529,25 @@ export default function PluginScreen({
 					</div>
 				</div>
 				<div className="flex gap-2 shrink-0">
+					{hasActivePlayer && !isLive && (
+						<button
+							type="button"
+							onClick={() => {
+								setShowChapters(!showChapters);
+								setShowMenu(false);
+								setShowInfo(false);
+							}}
+							className={`p-1 hover:bg-gray-700 rounded transition-colors ${showChapters ? "text-blue-400 bg-gray-700" : "text-gray-400"}`}
+							title="コメントチャプター"
+						>
+							<Bookmark size={20} />
+						</button>
+					)}
 					<button
 						type="button"
 						onClick={() => {
 							setShowMenu(!showMenu);
+							setShowChapters(false);
 							setShowInfo(false);
 						}}
 						disabled={!hasActivePlayer}
@@ -544,6 +705,65 @@ export default function PluginScreen({
 				</button>
 			)}
 
+			{/* Chapter Popover */}
+			{hasActivePlayer && !isLive && showChapters && (
+				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+					<div className="mb-3 flex items-start justify-between gap-3">
+						<h4 className="font-bold text-gray-100">コメントチャプター</h4>
+						<button
+							type="button"
+							onClick={() => setShowChapters(false)}
+							className="text-gray-400 hover:text-white"
+						>
+							<X size={16} />
+						</button>
+					</div>
+
+					{canSeekToChapters && chapters.length > 0 ? (
+						<div className="space-y-3">
+							<div className="rounded-md border border-gray-700 bg-[#1f1f1f] px-3 py-4">
+								<div className="relative h-16">
+									<div className="absolute inset-x-0 top-9 h-1 rounded-full bg-gray-700" />
+									<div
+										className="absolute left-0 top-9 h-1 rounded-full bg-blue-500"
+										style={{ width: `${playbackProgress * 100}%` }}
+									/>
+									{chapters.map((chapter) => (
+										<button
+											key={chapter.key}
+											type="button"
+											onClick={() => handleChapterSeek(chapter)}
+											className="group absolute top-1 -translate-x-1/2 text-left"
+											style={{ left: `${chapter.position * 100}%` }}
+											title={`${chapter.label} ${formatRelativeSeconds(chapter.relativeSec)}`}
+										>
+											<div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded border border-gray-600 bg-[#101010] px-2 py-1 text-[10px] text-gray-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+												{formatRelativeSeconds(chapter.relativeSec)}
+											</div>
+											<div className="flex h-7 w-7 items-center justify-center rounded border border-blue-400 bg-blue-500 text-[10px] font-bold text-blue-200 shadow-md transition-colors group-hover:bg-blue-500/25">
+												{chapter.label}
+											</div>
+										</button>
+									))}
+								</div>
+								<div className="mt-2 flex justify-between text-[10px] text-gray-500">
+									<span>0:00</span>
+									<span>{formatRelativeSeconds(duration)}</span>
+								</div>
+							</div>
+						</div>
+					) : canSeekToChapters ? (
+						<div className="rounded-md border border-dashed border-gray-700 bg-[#1f1f1f] px-3 py-6 text-center text-sm text-gray-400">
+							コメントチャプターはありません
+						</div>
+					) : (
+						<div className="rounded-md border border-dashed border-gray-700 bg-[#1f1f1f] px-3 py-6 text-center text-sm text-gray-400">
+							シークに必要な再生時間が取得できません
+						</div>
+					)}
+				</div>
+			)}
+
 			{/* Settings Menu Popover */}
 			{hasActivePlayer && showMenu && (
 				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -683,4 +903,38 @@ export default function PluginScreen({
 			)}
 		</div>
 	);
+}
+
+function normalizeChapterLabel(content: string): ChapterLabel | null {
+	const normalized = content
+		.trim()
+		.replace(/[Ａ-Ｚａ-ｚ]/g, (char) =>
+			String.fromCharCode(char.charCodeAt(0) - 0xfee0),
+		)
+		.toUpperCase();
+
+	return CHAPTER_LABELS.find((label) => label === normalized) || null;
+}
+
+function formatRelativeSeconds(value: number): string {
+	if (!Number.isFinite(value) || value < 0) {
+		return "--:--";
+	}
+
+	const totalSeconds = Math.floor(value);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+
+	if (hours > 0) {
+		return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds
+			.toString()
+			.padStart(2, "0")}`;
+	}
+
+	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
 }

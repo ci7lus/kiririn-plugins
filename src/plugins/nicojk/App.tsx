@@ -1366,6 +1366,7 @@ export default function App() {
 				<PluginScreen
 					comments={comments}
 					isLive={screenIsLive}
+					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
 					jkContext={jkContext}
