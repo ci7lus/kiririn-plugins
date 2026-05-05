@@ -65,7 +65,7 @@ function toFormattedComment(comment: NiconicoComment): FormattedComment | null {
 	}
 	const mail = filterMail(comment.mail);
 	if (sourceOrdinal > 0) {
-		mail.push("nico:opacity:0.7");
+		mail.push("nico:opacity:0.8");
 	}
 
 	return {

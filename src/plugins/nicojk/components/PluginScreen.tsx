@@ -16,6 +16,7 @@ import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import {
+	addNGCommand,
 	addNGId,
 	getSettings,
 	isNG,
@@ -81,6 +82,7 @@ export default function PluginScreen({
 	hasActivePlayer,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const activeTooltipRootRef = useRef<HTMLDivElement | null>(null);
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
@@ -370,6 +372,22 @@ export default function PluginScreen({
 		}
 	}, []);
 
+	const handleNGCommand = useCallback(
+		(command: string) => {
+			if (!command || settings.ngCommands.includes(command)) {
+				return;
+			}
+			if (confirm(`mail: ${command} をNGコマンドに追加しますか？`)) {
+				addNGCommand(command);
+			}
+		},
+		[settings.ngCommands],
+	);
+
+	const handleTooltipMouseLeave = useCallback((commentId: number) => {
+		setHoveredCommentId((current) => (current === commentId ? null : current));
+	}, []);
+
 	const handleHideSecondarySourceCommentsChange = useCallback(() => {
 		const newSettings = {
 			...settings,
@@ -396,6 +414,29 @@ export default function PluginScreen({
 			setShowChapters(false);
 		}
 	}, [hasActivePlayer, isLive]);
+
+	useEffect(() => {
+		if (pinnedCommentId == null) {
+			activeTooltipRootRef.current = null;
+			return;
+		}
+
+		const handlePointerDownOutside = (event: PointerEvent) => {
+			const target = event.target;
+			if (!(target instanceof Node)) {
+				return;
+			}
+			if (activeTooltipRootRef.current?.contains(target)) {
+				return;
+			}
+			setPinnedCommentId(null);
+			setHoveredCommentId(null);
+		};
+
+		document.addEventListener("pointerdown", handlePointerDownOutside);
+		return () =>
+			document.removeEventListener("pointerdown", handlePointerDownOutside);
+	}, [pinnedCommentId]);
 
 	const formatTime = (unix: number) => {
 		if (!unix) return "--:--";
@@ -594,6 +635,9 @@ export default function PluginScreen({
 							const isSecondarySource = sourceOrdinal > 0;
 							const isTooltipVisible =
 								hoveredCommentId === c.id || pinnedCommentId === c.id;
+							const mailCommands = [...new Set(c.mail.filter(Boolean))].filter(
+								(n) => n !== "184" && !n.startsWith("nico:"),
+							);
 							return (
 								<div
 									key={virtualRow.key}
@@ -609,44 +653,117 @@ export default function PluginScreen({
 									}}
 								>
 									<div className="group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors hover:bg-[#333]">
-										<button
-											type="button"
-											onMouseEnter={() => setHoveredCommentId(c.id)}
-											onMouseLeave={() =>
-												setHoveredCommentId((current) =>
-													current === c.id ? null : current,
-												)
-											}
-											onClick={() => {
-												setPinnedCommentId((current) =>
-													current === c.id ? null : c.id,
-												);
+										<div
+											ref={(node) => {
+												if (pinnedCommentId === c.id) {
+													activeTooltipRootRef.current = node;
+												} else if (activeTooltipRootRef.current === node) {
+													activeTooltipRootRef.current = null;
+												}
 											}}
-											className="flex min-w-0 flex-1 items-center gap-2 text-left focus:outline-none"
+											className="relative min-w-0 flex-1"
 										>
-											<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
-												<span>{c.no}</span>
-												{!isLive && (
-													<span className="text-[8px] text-gray-600 mt-0.5">
-														{formatPlaybackTime(c.vpos)}
-													</span>
-												)}
-											</div>
-											<div
-												className={`flex min-w-0 flex-1 items-center gap-2 self-center ${isSecondarySource ? "opacity-70" : ""}`}
+											<button
+												type="button"
+												onMouseEnter={() => setHoveredCommentId(c.id)}
+												onMouseLeave={() => handleTooltipMouseLeave(c.id)}
+												onClick={() => {
+													setPinnedCommentId((current) =>
+														current === c.id ? null : c.id,
+													);
+												}}
+												className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none"
 											>
-												<div className="min-w-0 flex-1 break-words line-height-1.5">
-													{c.content}
+												<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
+													<span>{c.no}</span>
+													{!isLive && (
+														<span className="text-[8px] text-gray-600 mt-0.5">
+															{formatPlaybackTime(c.vpos)}
+														</span>
+													)}
 												</div>
-												{isSecondarySource && (
-													<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
-														{commentSource
-															? SOURCE_KIND_LABELS[commentSource.kind]
-															: `src${sourceOrdinal + 1}`}
-													</span>
-												)}
-											</div>
-										</button>
+												<div
+													className={`flex min-w-0 flex-1 items-center gap-2 self-center ${isSecondarySource ? "opacity-70" : ""}`}
+												>
+													<div className="min-w-0 flex-1 break-words line-height-1.5">
+														{c.content}
+													</div>
+													{isSecondarySource && (
+														<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
+															{commentSource
+																? SOURCE_KIND_LABELS[commentSource.kind]
+																: `src${sourceOrdinal + 1}`}
+														</span>
+													)}
+												</div>
+											</button>
+											{isTooltipVisible && (
+												<div className="absolute inset-x-10 top-full z-10 mt-1 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl">
+													<div className="flex items-center justify-between gap-2 text-gray-300">
+														<span>No.{c.no}</span>
+														<span>{formatCommentTimestamp(c)}</span>
+													</div>
+													<div className="mt-1 text-white break-words">
+														{c.content}
+													</div>
+													<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
+														<span>ID: {c.user_id || "-"}</span>
+														{!isLive && (
+															<span>
+																再生位置: {formatPlaybackTime(c.vpos)}
+															</span>
+														)}
+														<span>
+															ソース:{" "}
+															{commentSource
+																? formatSourceLabel(commentSource)
+																: `src${sourceOrdinal + 1}`}
+														</span>
+														{commentSource && (
+															<span>
+																種別: {SOURCE_KIND_LABELS[commentSource.kind]}
+															</span>
+														)}
+													</div>
+													<div className="mt-2 border-t border-gray-800 pt-2">
+														<div className="mb-1 text-gray-400">コマンド</div>
+														{mailCommands.length > 0 ? (
+															<div className="flex flex-wrap gap-1.5">
+																{mailCommands.map((command) => {
+																	const isNGCommand =
+																		settings.ngCommands.includes(command);
+																	return (
+																		<button
+																			key={command}
+																			type="button"
+																			onClick={(event) => {
+																				event.stopPropagation();
+																				handleNGCommand(command);
+																			}}
+																			disabled={isNGCommand}
+																			className={`rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
+																				isNGCommand
+																					? "cursor-default border-gray-700 bg-gray-800 text-gray-500"
+																					: "border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+																			}`}
+																			title={
+																				isNGCommand
+																					? "既にNGコマンドに登録済み"
+																					: `${command} をNGコマンドに追加`
+																			}
+																		>
+																			{command}
+																		</button>
+																	);
+																})}
+															</div>
+														) : (
+															<div className="text-gray-500">-</div>
+														)}
+													</div>
+												</div>
+											)}
+										</div>
 										<div className="flex-shrink-0">
 											<button
 												type="button"
@@ -657,34 +774,6 @@ export default function PluginScreen({
 												<UserX size={14} />
 											</button>
 										</div>
-										{isTooltipVisible && (
-											<div className="pointer-events-none absolute inset-x-10 top-full z-10 mt-1 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl">
-												<div className="flex items-center justify-between gap-2 text-gray-300">
-													<span>No.{c.no}</span>
-													<span>{formatCommentTimestamp(c)}</span>
-												</div>
-												<div className="mt-1 text-white break-words">
-													{c.content}
-												</div>
-												<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
-													<span>ID: {c.user_id || "-"}</span>
-													{!isLive && (
-														<span>再生位置: {formatPlaybackTime(c.vpos)}</span>
-													)}
-													<span>
-														ソース:{" "}
-														{commentSource
-															? formatSourceLabel(commentSource)
-															: `src${sourceOrdinal + 1}`}
-													</span>
-													{commentSource && (
-														<span>
-															種別: {SOURCE_KIND_LABELS[commentSource.kind]}
-														</span>
-													)}
-												</div>
-											</div>
-										)}
 									</div>
 								</div>
 							);
