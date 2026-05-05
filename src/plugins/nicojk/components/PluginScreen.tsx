@@ -5,6 +5,9 @@ import {
 	Ban,
 	Bookmark,
 	Check,
+	CircleMinus,
+	CirclePlus,
+	Filter,
 	Info,
 	MessageSquare,
 	MoreVertical,
@@ -41,8 +44,8 @@ type ChapterPoint = {
 
 interface Props {
 	comments: NiconicoComment[];
-	activeSourceKey: string | null;
-	onActiveSourceKeyChange: (sourceKey: string | null) => void;
+	visibleSourceKeys: string[] | null;
+	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
 	isLive: boolean;
 	duration: number;
 	playbackState: PlayerPlaybackState | null;
@@ -84,8 +87,8 @@ const SOURCE_KIND_BADGE_CLASSES: Record<
 
 export default function PluginScreen({
 	comments,
-	activeSourceKey,
-	onActiveSourceKeyChange,
+	visibleSourceKeys,
+	onVisibleSourceKeysChange,
 	isLive,
 	duration,
 	playbackState,
@@ -125,9 +128,9 @@ export default function PluginScreen({
 			? comments.filter((comment) => !isNG(comment.content, comment.user_id))
 			: comments;
 		return ngFiltered.filter((comment) =>
-			isCommentVisibleForSource(comment, jkContext, activeSourceKey),
+			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
 		);
-	}, [activeSourceKey, comments, filterNG, jkContext]);
+	}, [comments, filterNG, jkContext, visibleSourceKeys]);
 
 	const displayComments = filteredComments;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
@@ -145,9 +148,9 @@ export default function PluginScreen({
 	}, [comments]);
 	const chapterComments = useMemo(() => {
 		return comments.filter((comment) =>
-			isCommentVisibleForSource(comment, jkContext, activeSourceKey),
+			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
 		);
-	}, [activeSourceKey, comments, jkContext]);
+	}, [comments, jkContext, visibleSourceKeys]);
 	const chapters = useMemo<ChapterPoint[]>(() => {
 		if (isLive || !jkContext || duration <= 0) {
 			return [];
@@ -283,7 +286,6 @@ export default function PluginScreen({
 
 	const lastScrolledTimeRef = useRef(0);
 
-	// Scroll management
 	useEffect(() => {
 		if (!hasActivePlayer || !autoScroll) return;
 
@@ -299,11 +301,9 @@ export default function PluginScreen({
 
 		if (!playbackState) return;
 
-		// vpos は絶対時間(Unix秒) × 100 となっているので、ターゲットも絶対時間に合わせる
 		const absoluteTime = (jkContext?.startAt ?? 0) + playbackState.time;
 		const targetVpos = absoluteTime * 100;
 
-		// 録画追従は軽量寄りに間引いて負荷を抑える
 		if (Math.abs(playbackState.time - lastScrolledTimeRef.current) < 0.9) {
 			return;
 		}
@@ -327,14 +327,12 @@ export default function PluginScreen({
 		rowVirtualizer,
 	]);
 
-	// ユーザーの意思によるスクロールを検知して自動スクロールをオフにする
 	useEffect(() => {
 		const el = scrollContainerRef.current;
 		if (!el) return;
 
 		const onInteraction = () => {
 			if (autoScroll) {
-				// スクロール中（特に慣性スクロール中）にオフにする
 				setAutoScroll(false);
 			}
 		};
@@ -352,14 +350,12 @@ export default function PluginScreen({
 		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
 
 		if (isLive) {
-			// ライブモード時のみ、手動で一番下に戻ったら自動スクロールをオンに復帰させる
 			const isAtBottom = scrollHeight - scrollTop - clientHeight < 30;
 			if (isAtBottom && !autoScroll) {
 				setAutoScroll(true);
 			}
 		}
 
-		// 上方向に200px以上スクロールして最新（下端）が見えなくなったらボタンを表示
 		setShowScrollTop(scrollHeight - scrollTop - clientHeight > 200);
 	};
 
@@ -394,6 +390,32 @@ export default function PluginScreen({
 	const handleTooltipMouseLeave = useCallback((commentId: number) => {
 		setHoveredCommentId((current) => (current === commentId ? null : current));
 	}, []);
+
+	const allSourcesVisible = areAllSourcesVisible(visibleSourceKeys, jkContext);
+
+	const handleShowAllSources = useCallback(() => {
+		onVisibleSourceKeysChange(null);
+	}, [onVisibleSourceKeysChange]);
+
+	const handleToggleSourceVisibility = useCallback(
+		(sourceKey: string) => {
+			if (!jkContext) {
+				return;
+			}
+
+			onVisibleSourceKeysChange(
+				toggleSourceVisibility(visibleSourceKeys, sourceKey, jkContext),
+			);
+		},
+		[jkContext, onVisibleSourceKeysChange, visibleSourceKeys],
+	);
+
+	const handleShowOnlySource = useCallback(
+		(sourceKey: string) => {
+			onVisibleSourceKeysChange([sourceKey]);
+		},
+		[onVisibleSourceKeysChange],
+	);
 
 	useEffect(() => {
 		setHoveredCommentId(null);
@@ -453,11 +475,10 @@ export default function PluginScreen({
 	};
 
 	const formatSourceLabel = (source: NicoJKContext["sources"][number]) => {
-		return `${source.channelName} (${source.jkId}) ${formatTime(source.startAt)}-`;
+		return `${source.channelName} (${source.jkId}) ${formatTimeRange(source.startAt, source.endAt)}`;
 	};
 
 	const formatPlaybackTime = (vpos: number) => {
-		// vpos は絶対時間(Unix秒) × 100。プレイヤー表示時間 = vpos/100 - startAt。
 		const relativeSec = vpos / 100 - (jkContext?.startAt ?? 0);
 		if (relativeSec < 0) return "--:--";
 		return formatRelativeSeconds(relativeSec);
@@ -491,130 +512,137 @@ export default function PluginScreen({
 	);
 
 	return (
-		<div className="flex flex-col h-full bg-[#1a1a1a] text-white overflow-hidden relative">
-			{/* Persistent Header */}
-			<div className="p-2 border-b border-gray-700 flex justify-between items-center gap-2 bg-[#252525] shrink-0">
-				<div className="flex items-center gap-2 min-w-0 flex-1">
-					<button
-						type="button"
-						onClick={() => {
-							setShowInfo(!showInfo);
-							setShowChapters(false);
-							setShowMenu(false);
-						}}
-						className="p-1 hover:bg-gray-700 rounded transition-colors text-blue-400"
-						title="情報"
-						disabled={!hasActivePlayer}
-					>
-						<Info size={18} />
-					</button>
-					<div className="flex items-center gap-1 min-w-0 flex-1">
-						{hasActivePlayer && isLive && (
-							<div
-								className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-bold transition-colors ${
-									wsStatus === "connected"
-										? "bg-green-600/20 text-green-400"
-										: wsStatus === "connecting"
-											? "bg-yellow-600/20 text-yellow-500 animate-pulse"
-											: "bg-red-600/20 text-red-500"
-								}`}
-								title={`Live Connection: ${wsStatus}`}
-							>
-								<span>{wsStatus ? STATUS_LABELS[wsStatus] : ""}</span>
-							</div>
-						)}
-						{jkContext && (
-							<div className="flex items-center gap-2 min-w-0 flex-1">
-								<div
-									className="text-sm text-gray-200 shrink-0"
-									title={`${jkContext.channelName} (${jkContext.jkId})`}
-								>
-									{jkContext.channelName} ({jkContext.jkId})
-									{jkContext.sources.length > 1
-										? ` +${jkContext.sources.length - 1}`
-										: ""}
-								</div>
-								{statusText && (
-									<div
-										className="min-w-0 flex-1 truncate text-xs text-gray-400"
-										title={statusText}
-									>
-										{statusText}
-									</div>
-								)}
-								{channelDisplayState.isLoading && (
-									<div
-										className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-gray-500 border-t-transparent animate-spin"
-										title={
-											statusText || channelDisplayState.message || "読み込み中"
-										}
-									/>
-								)}
-							</div>
-						)}
-						{!jkContext && channelDisplayState.message && (
-							<div
-								className="flex items-center gap-2 min-w-0 flex-1"
-								title={channelDisplayState.message}
-							>
-								<div className="text-sm text-gray-400 min-w-0 flex-1 truncate">
-									{channelDisplayState.message}
-								</div>
-								{channelDisplayState.isLoading && (
-									<div className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-gray-500 border-t-transparent animate-spin" />
-								)}
-							</div>
-						)}
-					</div>
-				</div>
-				<div className="flex gap-2 shrink-0">
-					{hasActivePlayer && !isLive && (
+		<div className="relative flex h-full flex-col overflow-hidden bg-[#1a1a1a] text-white">
+			<div className="shrink-0 border-b border-gray-700 bg-[#252525] p-2">
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex min-w-0 flex-1 items-center gap-2">
 						<button
 							type="button"
 							onClick={() => {
-								setShowChapters(!showChapters);
+								setShowInfo(!showInfo);
+								setShowChapters(false);
 								setShowMenu(false);
+							}}
+							className="rounded p-1 text-blue-400 transition-colors hover:bg-gray-700"
+							title="情報"
+							disabled={!hasActivePlayer}
+						>
+							<Info size={18} />
+						</button>
+						<div className="flex min-w-0 flex-1 items-center gap-1">
+							{hasActivePlayer && isLive && (
+								<div
+									className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs font-bold transition-colors ${
+										wsStatus === "connected"
+											? "bg-green-600/20 text-green-400"
+											: wsStatus === "connecting"
+												? "animate-pulse bg-yellow-600/20 text-yellow-500"
+												: "bg-red-600/20 text-red-500"
+									}`}
+									title={`Live Connection: ${wsStatus}`}
+								>
+									<span>{wsStatus ? STATUS_LABELS[wsStatus] : ""}</span>
+								</div>
+							)}
+							{jkContext && (
+								<div className="flex min-w-0 flex-1 items-center gap-2">
+									<div
+										className="shrink-0 text-sm text-gray-200"
+										title={`${jkContext.channelName} (${jkContext.jkId})`}
+									>
+										{jkContext.channelName} ({jkContext.jkId})
+										{jkContext.sources.length > 1
+											? ` +${jkContext.sources.length - 1}`
+											: ""}
+									</div>
+									{statusText && (
+										<div
+											className="min-w-0 flex-1 truncate text-xs text-gray-400"
+											title={statusText}
+										>
+											{statusText}
+										</div>
+									)}
+									{channelDisplayState.isLoading && (
+										<div
+											className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-gray-500 border-t-transparent"
+											title={
+												statusText ||
+												channelDisplayState.message ||
+												"読み込み中"
+											}
+										/>
+									)}
+								</div>
+							)}
+							{!jkContext && channelDisplayState.message && (
+								<div
+									className="flex min-w-0 flex-1 items-center gap-2"
+									title={channelDisplayState.message}
+								>
+									<div className="min-w-0 flex-1 truncate text-sm text-gray-400">
+										{channelDisplayState.message}
+									</div>
+									{channelDisplayState.isLoading && (
+										<div className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-gray-500 border-t-transparent" />
+									)}
+								</div>
+							)}
+						</div>
+					</div>
+					<div className="flex shrink-0 gap-2">
+						{hasActivePlayer && !isLive && (
+							<button
+								type="button"
+								onClick={() => {
+									setShowChapters(!showChapters);
+									setShowMenu(false);
+									setShowInfo(false);
+								}}
+								className={`rounded p-1 transition-colors hover:bg-gray-700 ${
+									showChapters ? "bg-gray-700 text-blue-400" : "text-gray-400"
+								}`}
+								title="コメントチャプター"
+							>
+								<Bookmark size={20} />
+							</button>
+						)}
+						<button
+							type="button"
+							onClick={() => {
+								setShowMenu(!showMenu);
+								setShowChapters(false);
 								setShowInfo(false);
 							}}
-							className={`p-1 hover:bg-gray-700 rounded transition-colors ${showChapters ? "text-blue-400 bg-gray-700" : "text-gray-400"}`}
-							title="コメントチャプター"
+							disabled={!hasActivePlayer}
+							className={`rounded p-1 transition-colors hover:bg-gray-700 ${
+								showMenu ? "bg-gray-700 text-blue-400" : "text-gray-400"
+							}`}
+							title="メニュー"
 						>
-							<Bookmark size={20} />
+							<MoreVertical size={20} />
 						</button>
-					)}
-					<button
-						type="button"
-						onClick={() => {
-							setShowMenu(!showMenu);
-							setShowChapters(false);
-							setShowInfo(false);
-						}}
-						disabled={!hasActivePlayer}
-						className={`p-1 hover:bg-gray-700 rounded transition-colors ${showMenu ? "text-blue-400 bg-gray-700" : "text-gray-400"}`}
-						title="メニュー"
-					>
-						<MoreVertical size={20} />
-					</button>
+					</div>
 				</div>
 			</div>
 
 			<div
 				ref={scrollContainerRef}
-				className="flex-1 overflow-y-auto p-2 relative"
+				className="relative flex-1 overflow-y-auto p-2"
 				onScroll={handleScroll}
 			>
 				{!hasActivePlayer ? (
-					<div className="flex flex-col h-full items-center justify-center p-4">
-						<MessageSquare size={48} className="text-gray-600 mb-4" />
-						<p className="text-gray-400 text-sm">プレイヤーを待機中…</p>
-						<p className="text-gray-600 text-[10px] mt-2 text-center">
+					<div className="flex h-full flex-col items-center justify-center p-4">
+						<MessageSquare size={48} className="mb-4 text-gray-600" />
+						<p className="text-sm text-gray-400">プレイヤーを待機中…</p>
+						<p className="mt-2 text-center text-[10px] text-gray-600">
 							プレイヤーを操作するとコメントが表示されます
 						</p>
 					</div>
 				) : displayComments.length === 0 ? (
-					<div className="flex flex-col h-full items-center justify-center p-4">
-						<MessageSquare size={42} className="text-gray-700 mb-3" />
-						<p className="text-gray-500 text-sm">
+					<div className="flex h-full flex-col items-center justify-center p-4">
+						<MessageSquare size={42} className="mb-3 text-gray-700" />
+						<p className="text-sm text-gray-500">
 							表示できるコメントがありません
 						</p>
 					</div>
@@ -635,8 +663,9 @@ export default function PluginScreen({
 							const isPinnedTooltip = pinnedCommentId === c.id;
 							const isTooltipVisible = isHoveredTooltip || isPinnedTooltip;
 							const mailCommands = [...new Set(c.mail.filter(Boolean))].filter(
-								(n) => n !== "184" && !n.startsWith("nico:"),
+								(mail) => mail !== "184" && !mail.startsWith("nico:"),
 							);
+
 							return (
 								<div
 									key={virtualRow.key}
@@ -676,18 +705,20 @@ export default function PluginScreen({
 												}}
 												className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none"
 											>
-												<div className="flex-shrink-0 w-8 text-right text-gray-500 text-[10px] tabular-nums flex flex-col items-end leading-none">
+												<div className="flex w-8 flex-shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
 													<span>{c.no}</span>
 													{!isLive && (
-														<span className="text-[8px] text-gray-600 mt-0.5">
+														<span className="mt-0.5 text-[8px] text-gray-600">
 															{formatPlaybackTime(c.vpos)}
 														</span>
 													)}
 												</div>
 												<div
-													className={`flex min-w-0 flex-1 items-center gap-2 self-center ${isSecondarySource ? "opacity-70" : ""}`}
+													className={`flex min-w-0 flex-1 items-center gap-2 self-center ${
+														isSecondarySource ? "opacity-70" : ""
+													}`}
 												>
-													<div className="min-w-0 flex-1 break-words line-height-1.5">
+													<div className="min-w-0 flex-1 break-words leading-[1.5]">
 														{c.content}
 													</div>
 													{isSecondarySource && (
@@ -705,7 +736,7 @@ export default function PluginScreen({
 														<span>No.{c.no}</span>
 														<span>{formatCommentTimestamp(c)}</span>
 													</div>
-													<div className="mt-1 text-white break-words">
+													<div className="mt-1 break-words text-white">
 														{c.content}
 													</div>
 													<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
@@ -771,7 +802,7 @@ export default function PluginScreen({
 											<button
 												type="button"
 												onClick={() => handleNGId(c.user_id)}
-												className="text-gray-400 hover:text-red-400 p-1"
+												className="p-1 text-gray-400 hover:text-red-400"
 												title={`ID: ${c.user_id} をNGに追加`}
 											>
 												<UserX size={14} />
@@ -785,21 +816,19 @@ export default function PluginScreen({
 				)}
 			</div>
 
-			{/* Floating Scroll to Bottom Button */}
 			{hasActivePlayer && showScrollTop && (
 				<button
 					type="button"
 					onClick={scrollToBottom}
-					className="absolute bottom-4 right-4 bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full shadow-2xl transition-all hover:scale-110 active:scale-95 animate-in fade-in zoom-in duration-200 z-10"
+					className="absolute bottom-4 right-4 z-10 rounded-full bg-blue-600 p-3 text-white shadow-2xl transition-all duration-200 hover:scale-110 hover:bg-blue-500 active:scale-95 animate-in fade-in zoom-in"
 					title="最新へ戻る"
 				>
 					<ArrowUp size={20} className="rotate-180" />
 				</button>
 			)}
 
-			{/* Chapter Popover */}
 			{hasActivePlayer && !isLive && showChapters && (
-				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
 					<div className="mb-3 flex items-start justify-between gap-3">
 						<h4 className="font-bold text-gray-100">コメントチャプター</h4>
 						<button
@@ -856,11 +885,10 @@ export default function PluginScreen({
 				</div>
 			)}
 
-			{/* Settings Menu Popover */}
 			{hasActivePlayer && showMenu && (
-				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
-					<div className="flex justify-between items-start mb-4">
-						<h4 className="font-bold text-gray-200 flex items-center gap-1">
+				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+					<div className="mb-4 flex items-start justify-between">
+						<h4 className="flex items-center gap-1 font-bold text-gray-200">
 							表示設定
 						</h4>
 						<button
@@ -875,7 +903,7 @@ export default function PluginScreen({
 						<button
 							type="button"
 							onClick={() => setAutoScroll(!autoScroll)}
-							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
+							className="flex w-full items-center justify-between rounded p-2 text-sm transition-colors hover:bg-gray-700"
 						>
 							<div className="flex items-center gap-2">
 								<ArrowDown size={16} />
@@ -886,7 +914,7 @@ export default function PluginScreen({
 						<button
 							type="button"
 							onClick={() => setFilterNG(!filterNG)}
-							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
+							className="flex w-full items-center justify-between rounded p-2 text-sm transition-colors hover:bg-gray-700"
 						>
 							<div className="flex items-center gap-2">
 								<Ban size={16} />
@@ -894,12 +922,12 @@ export default function PluginScreen({
 							</div>
 							{filterNG && <Check size={16} className="text-red-400" />}
 						</button>
-						<div className="pt-3 mt-1 border-t border-gray-700 mx-1">
-							<div className="flex justify-between text-xs mb-2">
-								<span className="text-gray-400 font-medium">
+						<div className="mx-1 mt-1 border-t border-gray-700 pt-3">
+							<div className="mb-2 flex justify-between text-xs">
+								<span className="font-medium text-gray-400">
 									コメントの濃度
 								</span>
-								<span className="text-blue-400 font-mono">
+								<span className="font-mono text-blue-400">
 									{Math.round(settings.opacity * 100)}%
 								</span>
 							</div>
@@ -910,21 +938,17 @@ export default function PluginScreen({
 								step="0.05"
 								value={settings.opacity}
 								onChange={handleOpacityChange}
-								className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-1"
+								className="mb-1 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-500"
 							/>
 						</div>
 					</div>
 				</div>
 			)}
 
-			{/* Info Popover */}
 			{hasActivePlayer && showInfo && (
-				<div
-					className="absolute inset-x-2 top-12 z-50 flex flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
-					style={{ maxHeight: "70%" }}
-				>
-					<div className="flex justify-between items-start mb-2">
-						<h4 className="font-bold text-blue-400 flex items-center gap-1">
+				<div className="absolute inset-x-2 top-12 z-50 flex max-h-[70%] flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+					<div className="mb-2 flex items-start justify-between">
+						<h4 className="flex items-center gap-1 font-bold text-blue-400">
 							<Info size={14} /> チャンネル情報
 						</h4>
 						<button
@@ -936,9 +960,9 @@ export default function PluginScreen({
 						</button>
 					</div>
 					{!isLive && (
-						<div className="flex justify-between text-sm mx-2 mb-2">
+						<div className="mb-2 flex justify-between text-sm">
 							<span className="text-gray-400">取得コメント数</span>
-							<span className="text-blue-300 tabular-nums">
+							<span className="tabular-nums text-blue-300">
 								{fetchedCommentCount}件
 							</span>
 						</div>
@@ -947,17 +971,42 @@ export default function PluginScreen({
 						{jkContext ? (
 							<div className="space-y-2 text-sm">
 								<div className="border-b border-gray-700 pb-1">
+									<div className="mb-2 flex items-center justify-between gap-3">
+										<div className="text-gray-400">コメントソース一覧</div>
+										<button
+											type="button"
+											onClick={handleShowAllSources}
+											disabled={allSourcesVisible}
+											className={`shrink-0 rounded px-2 py-1 text-[10px] transition-colors ${
+												allSourcesVisible
+													? "cursor-default bg-gray-700 text-gray-500"
+													: "bg-blue-600 text-white hover:bg-blue-500"
+											}`}
+											title="全てのソースを表示"
+											aria-label="全てのソースを表示"
+										>
+											全て表示
+										</button>
+									</div>
 									<div className="space-y-2 text-xs">
 										{jkContext.sources.map((source, index) => {
 											const sourceCount = sourceCommentCounts.get(index) || 0;
-											const isSourceActive = activeSourceKey === source.key;
+											const isSourceVisible = isSourceKeyVisible(
+												visibleSourceKeys,
+												source.key,
+											);
+											const isOnlySourceVisible = isOnlySourceVisibleState(
+												visibleSourceKeys,
+												source.key,
+											);
+
 											return (
 												<div
 													key={source.key}
 													className={`flex items-center justify-between gap-3 rounded-md px-2.5 py-2 ${
-														isSourceActive
-															? "border border-blue-500/40 bg-blue-500/10"
-															: "bg-[#2a2a2a]"
+														isSourceVisible
+															? "border border-blue-500/30 bg-blue-500/10"
+															: "bg-[#2a2a2a] opacity-60"
 													}`}
 												>
 													<div className="min-w-0 flex-1">
@@ -982,21 +1031,53 @@ export default function PluginScreen({
 															</div>
 														)}
 													</div>
-													<div className="flex shrink-0 items-center self-center">
+													<div className="flex shrink-0 items-center gap-2 self-center">
+														<button
+															type="button"
+															onClick={() => handleShowOnlySource(source.key)}
+															disabled={isOnlySourceVisible}
+															className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
+																isOnlySourceVisible
+																	? "cursor-default border-blue-500/40 bg-blue-600 text-white"
+																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
+															}`}
+															title={
+																isOnlySourceVisible
+																	? "このソースのみ表示中"
+																	: "このソースのみ表示"
+															}
+															aria-label={
+																isOnlySourceVisible
+																	? `${source.channelName} はこのソースのみ表示中`
+																	: `${source.channelName} のみ表示`
+															}
+														>
+															<Filter size={14} />
+														</button>
 														<button
 															type="button"
 															onClick={() =>
-																onActiveSourceKeyChange(
-																	isSourceActive ? null : source.key,
-																)
+																handleToggleSourceVisibility(source.key)
 															}
-															className={`rounded px-2 py-1 text-[10px] transition-colors ${
-																isSourceActive
-																	? "bg-blue-600 text-white hover:bg-blue-500"
-																	: "bg-gray-700 text-gray-200 hover:bg-gray-600"
+															className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
+																isSourceVisible
+																	? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500"
+																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
 															}`}
+															title={
+																isSourceVisible ? "非表示にする" : "表示する"
+															}
+															aria-label={
+																isSourceVisible
+																	? `${source.channelName} を非表示にする`
+																	: `${source.channelName} を表示する`
+															}
 														>
-															{isSourceActive ? "全て表示" : "絞り込む"}
+															{isSourceVisible ? (
+																<CircleMinus size={14} />
+															) : (
+																<CirclePlus size={14} />
+															)}
 														</button>
 													</div>
 												</div>
@@ -1006,7 +1087,7 @@ export default function PluginScreen({
 								</div>
 							</div>
 						) : (
-							<p className="text-sm text-gray-500 italic">
+							<p className="text-sm italic text-gray-500">
 								情報が取得できませんでした
 							</p>
 						)}
@@ -1062,11 +1143,70 @@ function getCommentSourceKey(
 function isCommentVisibleForSource(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
-	activeSourceKey: string | null,
+	visibleSourceKeys: string[] | null,
 ) {
-	if (!activeSourceKey) {
+	if (visibleSourceKeys == null) {
 		return true;
 	}
 
-	return getCommentSourceKey(comment, jkContext) === activeSourceKey;
+	const sourceKey = getCommentSourceKey(comment, jkContext);
+	return sourceKey != null && visibleSourceKeys.includes(sourceKey);
+}
+
+function isSourceKeyVisible(
+	visibleSourceKeys: string[] | null,
+	sourceKey: string,
+) {
+	return visibleSourceKeys == null || visibleSourceKeys.includes(sourceKey);
+}
+
+function isOnlySourceVisibleState(
+	visibleSourceKeys: string[] | null,
+	sourceKey: string,
+) {
+	return (
+		visibleSourceKeys != null &&
+		visibleSourceKeys.length === 1 &&
+		visibleSourceKeys[0] === sourceKey
+	);
+}
+
+function areAllSourcesVisible(
+	visibleSourceKeys: string[] | null,
+	jkContext: NicoJKContext | null,
+) {
+	if (!jkContext) {
+		return true;
+	}
+	if (visibleSourceKeys == null) {
+		return true;
+	}
+
+	return jkContext.sources.every((source) =>
+		visibleSourceKeys.includes(source.key),
+	);
+}
+
+function toggleSourceVisibility(
+	visibleSourceKeys: string[] | null,
+	sourceKey: string,
+	jkContext: NicoJKContext,
+) {
+	const sourceKeysInOrder = jkContext.sources.map((source) => source.key);
+
+	if (visibleSourceKeys == null) {
+		return sourceKeysInOrder.filter((key) => key !== sourceKey);
+	}
+
+	if (visibleSourceKeys.includes(sourceKey)) {
+		return visibleSourceKeys.filter((key) => key !== sourceKey);
+	}
+
+	const nextVisibleSourceKeys = sourceKeysInOrder.filter(
+		(key) => key === sourceKey || visibleSourceKeys.includes(key),
+	);
+
+	return nextVisibleSourceKeys.length === sourceKeysInOrder.length
+		? null
+		: nextVisibleSourceKeys;
 }

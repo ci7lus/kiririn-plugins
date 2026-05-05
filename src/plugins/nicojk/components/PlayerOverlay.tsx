@@ -16,7 +16,7 @@ import {
 
 interface Props {
 	comments: NiconicoComment[];
-	activeSourceKey: string | null;
+	visibleSourceKeys: string[] | null;
 	width: number;
 	height: number;
 	playableId: string | null;
@@ -42,24 +42,25 @@ function getCommentSourceKey(
 function isCommentVisibleForSource(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
-	activeSourceKey: string | null,
+	visibleSourceKeys: string[] | null,
 ) {
-	if (!activeSourceKey) {
+	if (visibleSourceKeys == null) {
 		return true;
 	}
 
-	return getCommentSourceKey(comment, jkContext) === activeSourceKey;
+	const sourceKey = getCommentSourceKey(comment, jkContext);
+	return sourceKey != null && visibleSourceKeys.includes(sourceKey);
 }
 
 function getFilterSignature(
 	settings: NicoJKSettings,
-	activeSourceKey: string | null,
+	visibleSourceKeys: string[] | null,
 ) {
 	return JSON.stringify({
 		ngWords: settings.ngWords,
 		ngIds: settings.ngIds,
 		ngCommands: settings.ngCommands,
-		activeSourceKey,
+		visibleSourceKeys,
 	});
 }
 
@@ -79,14 +80,14 @@ function sortComments(comments: NiconicoComment[]) {
 
 function toFormattedComment(
 	comment: NiconicoComment,
-	activeSourceKey: string | null,
+	visibleSourceKeys: string[] | null,
 	jkContext: NicoJKContext | null,
 ): FormattedComment | null {
 	if (comment.content == null || isNG(comment.content, comment.user_id)) {
 		return null;
 	}
 
-	if (!isCommentVisibleForSource(comment, jkContext, activeSourceKey)) {
+	if (!isCommentVisibleForSource(comment, jkContext, visibleSourceKeys)) {
 		return null;
 	}
 
@@ -113,17 +114,17 @@ function toFormattedComment(
 
 function toFormattedComments(
 	comments: NiconicoComment[],
-	activeSourceKey: string | null,
+	visibleSourceKeys: string[] | null,
 	jkContext: NicoJKContext | null,
 ) {
 	return sortComments(comments)
-		.map((comment) => toFormattedComment(comment, activeSourceKey, jkContext))
+		.map((comment) => toFormattedComment(comment, visibleSourceKeys, jkContext))
 		.filter((comment): comment is FormattedComment => comment != null);
 }
 
 export default function PlayerOverlay({
 	comments,
-	activeSourceKey,
+	visibleSourceKeys,
 	width,
 	height,
 	playableId,
@@ -143,9 +144,9 @@ export default function PlayerOverlay({
 		recordedPhase: RecordedRendererPhase;
 	} | null>(null);
 	const filterSignatureRef = useRef(
-		getFilterSignature(getSettings(), activeSourceKey),
+		getFilterSignature(getSettings(), visibleSourceKeys),
 	);
-	const activeSourceKeyRef = useRef(activeSourceKey);
+	const visibleSourceKeysRef = useRef(visibleSourceKeys);
 	const lastCommentIdRef = useRef<number>(0);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
 	const [showDebugInfo, setShowDebugInfo] = useState(
@@ -162,7 +163,7 @@ export default function PlayerOverlay({
 			setShowDebugInfo(s.showDebugInfo);
 			const nextFilterSignature = getFilterSignature(
 				s,
-				activeSourceKeyRef.current,
+				visibleSourceKeysRef.current,
 			);
 			if (nextFilterSignature !== filterSignatureRef.current) {
 				filterSignatureRef.current = nextFilterSignature;
@@ -183,16 +184,16 @@ export default function PlayerOverlay({
 	}, []);
 
 	useEffect(() => {
-		activeSourceKeyRef.current = activeSourceKey;
+		visibleSourceKeysRef.current = visibleSourceKeys;
 		const nextFilterSignature = getFilterSignature(
 			getSettings(),
-			activeSourceKey,
+			visibleSourceKeys,
 		);
 		if (nextFilterSignature !== filterSignatureRef.current) {
 			filterSignatureRef.current = nextFilterSignature;
 			setFilterVersion((version) => version + 1);
 		}
-	}, [activeSourceKey]);
+	}, [visibleSourceKeys]);
 
 	const syncRef = useRef<{
 		time: number;
@@ -271,10 +272,10 @@ export default function PlayerOverlay({
 		rendererRef.current?.clear();
 		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
 		const initialComments = usesFormattedRenderer
-			? toFormattedComments(comments, activeSourceKey, jkContext)
+			? toFormattedComments(comments, visibleSourceKeys, jkContext)
 			: [];
 		const liveComments = isLive
-			? toFormattedComments(comments, activeSourceKey, jkContext)
+			? toFormattedComments(comments, visibleSourceKeys, jkContext)
 			: [];
 		const renderer = new NiconiComments(canvasRef.current, initialComments, {
 			format: usesFormattedRenderer ? "formatted" : "empty",
@@ -300,7 +301,7 @@ export default function PlayerOverlay({
 		jkContext,
 		playableId,
 		recordedCommentsReady,
-		activeSourceKey,
+		visibleSourceKeys,
 	]);
 
 	useEffect(() => {
@@ -351,7 +352,9 @@ export default function PlayerOverlay({
 		}
 
 		const parsedComments = pendingComments
-			.map((comment) => toFormattedComment(comment, activeSourceKey, jkContext))
+			.map((comment) =>
+				toFormattedComment(comment, visibleSourceKeys, jkContext),
+			)
 			.filter((comment): comment is FormattedComment => comment != null);
 		if (parsedComments.length > 0) {
 			rendererRef.current?.addComments(...parsedComments);
@@ -361,7 +364,7 @@ export default function PlayerOverlay({
 			(max, comment) => Math.max(max, comment.id),
 			lastCommentId,
 		);
-	}, [activeSourceKey, comments, isLive, jkContext, rendererInitialized]);
+	}, [comments, isLive, jkContext, rendererInitialized, visibleSourceKeys]);
 
 	// 16:9 calculation
 	let targetW = width;

@@ -33,7 +33,7 @@ const PLAYER_OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
 type PlayerData = {
 	playableId: string | null;
 	comments: NiconicoComment[];
-	activeSourceKey: string | null;
+	visibleSourceKeys: string[] | null;
 	primaryChannel: NicoJKChannelDefinition | null;
 	liveSources: ResolvedCommentSource[];
 	replaySources: ResolvedCommentSource[];
@@ -56,7 +56,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
 		comments: [],
-		activeSourceKey: null,
+		visibleSourceKeys: null,
 		primaryChannel: null,
 		liveSources: [],
 		replaySources: [],
@@ -143,17 +143,25 @@ function buildJkContext(
 	};
 }
 
-function normalizeActiveSourceKey(
-	activeSourceKey: string | null | undefined,
+function normalizeVisibleSourceKeys(
+	visibleSourceKeys: string[] | null | undefined,
 	jkContext: NicoJKContext | null,
 ) {
-	if (!activeSourceKey || !jkContext) {
+	if (visibleSourceKeys == null) {
 		return null;
 	}
+	if (!jkContext) {
+		return visibleSourceKeys;
+	}
 
-	return jkContext.sources.some((source) => source.key === activeSourceKey)
-		? activeSourceKey
-		: null;
+	const availableSourceKeys = jkContext.sources.map((source) => source.key);
+	const normalizedSourceKeys = availableSourceKeys.filter((sourceKey) =>
+		visibleSourceKeys.includes(sourceKey),
+	);
+
+	return normalizedSourceKeys.length === availableSourceKeys.length
+		? null
+		: normalizedSourceKeys;
 }
 
 function applyPrimarySource(
@@ -170,8 +178,8 @@ function applyPrimarySource(
 		startAt,
 		duration,
 	);
-	data.activeSourceKey = normalizeActiveSourceKey(
-		data.activeSourceKey,
+	data.visibleSourceKeys = normalizeVisibleSourceKeys(
+		data.visibleSourceKeys,
 		data.jkContext,
 	);
 }
@@ -193,8 +201,8 @@ function applyResolvedSources(
 		startAt,
 		duration,
 	);
-	data.activeSourceKey = normalizeActiveSourceKey(
-		data.activeSourceKey,
+	data.visibleSourceKeys = normalizeVisibleSourceKeys(
+		data.visibleSourceKeys,
 		data.jkContext,
 	);
 }
@@ -446,7 +454,7 @@ interface PlayerOverlaySnapshot {
 	playerID: string;
 	playableId: string | null;
 	comments: NiconicoComment[];
-	activeSourceKey: string | null;
+	visibleSourceKeys: string[] | null;
 	jkContext: NicoJKContext | null;
 	channelDisplayState: ChannelDisplayState;
 	wsStatus: ConnectionStatus;
@@ -455,7 +463,7 @@ interface PlayerOverlaySnapshot {
 
 type PlayerOverlayRelayMessage =
 	| { type: "requestSnapshot" }
-	| { type: "setActiveSourceKey"; payload: { sourceKey: string | null } }
+	| { type: "setVisibleSourceKeys"; payload: { sourceKeys: string[] | null } }
 	| { type: "snapshot"; payload: PlayerOverlaySnapshot };
 
 function createPlayerOverlayRelayChannel(playerID: string) {
@@ -474,7 +482,9 @@ export default function App() {
 	const [targetPlayable, setTargetPlayable] = useState<Playable | null>(null);
 	const [area, setArea] = useState<DisplayArea | null>(null);
 	const [comments, setComments] = useState<NiconicoComment[]>([]);
-	const [activeSourceKey, setActiveSourceKey] = useState<string | null>(null);
+	const [visibleSourceKeys, setVisibleSourceKeys] = useState<string[] | null>(
+		null,
+	);
 	const [jkContext, setJkContext] = useState<NicoJKContext | null>(null);
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
@@ -503,7 +513,7 @@ export default function App() {
 		playableId: null,
 	});
 	const commentsRef = useRef<NiconicoComment[]>([]);
-	const activeSourceKeyRef = useRef<string | null>(null);
+	const visibleSourceKeysRef = useRef<string[] | null>(null);
 	const jkContextRef = useRef<NicoJKContext | null>(null);
 	const channelDisplayStateRef = useRef<ChannelDisplayState>(
 		EMPTY_CHANNEL_DISPLAY_STATE,
@@ -520,8 +530,8 @@ export default function App() {
 	}, [comments]);
 
 	useEffect(() => {
-		activeSourceKeyRef.current = activeSourceKey;
-	}, [activeSourceKey]);
+		visibleSourceKeysRef.current = visibleSourceKeys;
+	}, [visibleSourceKeys]);
 
 	useEffect(() => {
 		jkContextRef.current = jkContext;
@@ -547,7 +557,7 @@ export default function App() {
 				playableId: snapshot.playableId,
 			};
 			setComments(snapshot.comments);
-			setActiveSourceKey(snapshot.activeSourceKey);
+			setVisibleSourceKeys(snapshot.visibleSourceKeys);
 			setJkContext(snapshot.jkContext);
 			setChannelDisplayState(snapshot.channelDisplayState);
 			setWsStatus(snapshot.wsStatus);
@@ -563,7 +573,7 @@ export default function App() {
 				playableId: null,
 			};
 			setComments([]);
-			setActiveSourceKey(null);
+			setVisibleSourceKeys(null);
 			setJkContext(null);
 			setChannelDisplayState(displayState);
 			setWsStatus("disconnected");
@@ -609,31 +619,31 @@ export default function App() {
 		} satisfies PlayerOverlayRelayMessage);
 	}, []);
 
-	const handleActiveSourceKeyChange = useCallback(
-		(sourceKey: string | null) => {
+	const handleVisibleSourceKeysChange = useCallback(
+		(sourceKeys: string[] | null) => {
 			const playerID = targetPlayableRef.current?.playerID;
 			if (!playerID) {
 				return;
 			}
 
-			const normalizedSourceKey = normalizeActiveSourceKey(
-				sourceKey,
+			const normalizedSourceKeys = normalizeVisibleSourceKeys(
+				sourceKeys,
 				jkContextRef.current,
 			);
-			setActiveSourceKey(normalizedSourceKey);
+			setVisibleSourceKeys(normalizedSourceKeys);
 
 			const snapshot = screenSnapshotsRef.current.get(playerID);
 			if (snapshot) {
 				screenSnapshotsRef.current.set(playerID, {
 					...snapshot,
-					activeSourceKey: normalizedSourceKey,
+					visibleSourceKeys: normalizedSourceKeys,
 				});
 			}
 
 			screenRelayChannelRef.current?.postMessage({
-				type: "setActiveSourceKey",
+				type: "setVisibleSourceKeys",
 				payload: {
-					sourceKey: normalizedSourceKey,
+					sourceKeys: normalizedSourceKeys,
 				},
 			} satisfies PlayerOverlayRelayMessage);
 		},
@@ -652,7 +662,7 @@ export default function App() {
 					playerID,
 					playableId: targetPlayableRef.current?.id || null,
 					comments: commentsRef.current,
-					activeSourceKey: activeSourceKeyRef.current,
+					visibleSourceKeys: visibleSourceKeysRef.current,
 					jkContext: jkContextRef.current,
 					channelDisplayState: channelDisplayStateRef.current,
 					wsStatus: wsStatusRef.current,
@@ -666,18 +676,18 @@ export default function App() {
 				return;
 			}
 
-			if (event.data.type === "setActiveSourceKey") {
+			if (event.data.type === "setVisibleSourceKeys") {
 				const data = playersDataRef.current.get(playerID);
-				const normalizedSourceKey = normalizeActiveSourceKey(
-					event.data.payload.sourceKey,
+				const normalizedSourceKeys = normalizeVisibleSourceKeys(
+					event.data.payload.sourceKeys,
 					data?.jkContext || jkContextRef.current,
 				);
 
 				if (data) {
-					data.activeSourceKey = normalizedSourceKey;
+					data.visibleSourceKeys = normalizedSourceKeys;
 				}
 				if (targetPlayableRef.current?.playerID === playerID) {
-					setActiveSourceKey(normalizedSourceKey);
+					setVisibleSourceKeys(normalizedSourceKeys);
 				}
 				postSnapshot();
 			}
@@ -705,7 +715,7 @@ export default function App() {
 				playerID: area.playerID,
 				playableId: targetPlayable?.id || null,
 				comments,
-				activeSourceKey,
+				visibleSourceKeys,
 				jkContext,
 				channelDisplayState,
 				wsStatus,
@@ -716,7 +726,7 @@ export default function App() {
 		area?.type,
 		area?.playerID,
 		comments,
-		activeSourceKey,
+		visibleSourceKeys,
 		jkContext,
 		channelDisplayState,
 		wsStatus,
@@ -826,9 +836,9 @@ export default function App() {
 			const currentPlayable = targetPlayableRef.current;
 			const isLive = !currentPlayable?.isSeekable;
 			setComments(data?.comments || []);
-			setActiveSourceKey(
-				normalizeActiveSourceKey(
-					data?.activeSourceKey || null,
+			setVisibleSourceKeys(
+				normalizeVisibleSourceKeys(
+					data?.visibleSourceKeys || null,
 					data?.jkContext || null,
 				),
 			);
@@ -872,9 +882,9 @@ export default function App() {
 			if (currentArea.type === "playerOverlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
 				setComments(data?.comments || []);
-				setActiveSourceKey(
-					normalizeActiveSourceKey(
-						data?.activeSourceKey || null,
+				setVisibleSourceKeys(
+					normalizeVisibleSourceKeys(
+						data?.visibleSourceKeys || null,
 						data?.jkContext || null,
 					),
 				);
@@ -1446,7 +1456,7 @@ export default function App() {
 			{area.type === "playerOverlay" && (
 				<PlayerOverlay
 					comments={comments}
-					activeSourceKey={activeSourceKey}
+					visibleSourceKeys={visibleSourceKeys}
 					width={area.width}
 					height={area.height}
 					playableId={targetPlayable?.id || null}
@@ -1462,8 +1472,8 @@ export default function App() {
 			{area.type === "pluginScreen" && (
 				<PluginScreen
 					comments={comments}
-					activeSourceKey={activeSourceKey}
-					onActiveSourceKeyChange={handleActiveSourceKeyChange}
+					visibleSourceKeys={visibleSourceKeys}
+					onVisibleSourceKeysChange={handleVisibleSourceKeysChange}
 					isLive={screenIsLive}
 					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
