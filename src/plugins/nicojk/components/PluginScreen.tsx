@@ -633,8 +633,9 @@ export default function PluginScreen({
 							const sourceOrdinal = Math.max(c.sourceOrdinal || 0, 0);
 							const commentSource = jkContext?.sources[sourceOrdinal] || null;
 							const isSecondarySource = sourceOrdinal > 0;
-							const isTooltipVisible =
-								hoveredCommentId === c.id || pinnedCommentId === c.id;
+							const isHoveredTooltip = hoveredCommentId === c.id;
+							const isPinnedTooltip = pinnedCommentId === c.id;
+							const isTooltipVisible = isHoveredTooltip || isPinnedTooltip;
 							const mailCommands = [...new Set(c.mail.filter(Boolean))].filter(
 								(n) => n !== "184" && !n.startsWith("nico:"),
 							);
@@ -649,7 +650,7 @@ export default function PluginScreen({
 										top: virtualRow.start,
 										left: 0,
 										width: "100%",
-										zIndex: isTooltipVisible ? 30 : 0,
+										zIndex: isHoveredTooltip ? 40 : isPinnedTooltip ? 30 : 0,
 									}}
 								>
 									<div className="group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors hover:bg-[#333]">
@@ -668,9 +669,12 @@ export default function PluginScreen({
 												onMouseEnter={() => setHoveredCommentId(c.id)}
 												onMouseLeave={() => handleTooltipMouseLeave(c.id)}
 												onClick={() => {
-													setPinnedCommentId((current) =>
-														current === c.id ? null : c.id,
-													);
+													if (pinnedCommentId === c.id) {
+														setPinnedCommentId(null);
+														setHoveredCommentId(null);
+														return;
+													}
+													setPinnedCommentId(c.id);
 												}}
 												className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none"
 											>
@@ -724,6 +728,7 @@ export default function PluginScreen({
 																種別: {SOURCE_KIND_LABELS[commentSource.kind]}
 															</span>
 														)}
+														<span>premium: {c.premium}</span>
 													</div>
 													<div className="mt-2 border-t border-gray-800 pt-2">
 														<div className="mb-1 text-gray-400">コマンド</div>
