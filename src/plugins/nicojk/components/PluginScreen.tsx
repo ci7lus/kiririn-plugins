@@ -41,6 +41,8 @@ type ChapterPoint = {
 
 interface Props {
 	comments: NiconicoComment[];
+	activeSourceKey: string | null;
+	onActiveSourceKeyChange: (sourceKey: string | null) => void;
 	isLive: boolean;
 	duration: number;
 	playbackState: PlayerPlaybackState | null;
@@ -71,8 +73,19 @@ const SOURCE_KIND_LABELS: Record<
 	replay: "別",
 };
 
+const SOURCE_KIND_BADGE_CLASSES: Record<
+	NicoJKContext["sources"][number]["kind"],
+	string
+> = {
+	primary: "border-sky-500/40 bg-sky-500/15 text-sky-200",
+	simulcast: "border-amber-500/40 bg-amber-500/15 text-amber-200",
+	replay: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+};
+
 export default function PluginScreen({
 	comments,
+	activeSourceKey,
+	onActiveSourceKeyChange,
 	isLive,
 	duration,
 	playbackState,
@@ -111,13 +124,10 @@ export default function PluginScreen({
 		const ngFiltered = filterNG
 			? comments.filter((comment) => !isNG(comment.content, comment.user_id))
 			: comments;
-		if (!settings.hideSecondarySourceComments) {
-			return ngFiltered;
-		}
-		return ngFiltered.filter(
-			(comment) => Math.max(comment.sourceOrdinal || 0, 0) === 0,
+		return ngFiltered.filter((comment) =>
+			isCommentVisibleForSource(comment, jkContext, activeSourceKey),
 		);
-	}, [comments, filterNG, settings.hideSecondarySourceComments]);
+	}, [activeSourceKey, comments, filterNG, jkContext]);
 
 	const displayComments = filteredComments;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
@@ -134,13 +144,10 @@ export default function PluginScreen({
 		return counts;
 	}, [comments]);
 	const chapterComments = useMemo(() => {
-		if (!settings.hideSecondarySourceComments) {
-			return comments;
-		}
-		return comments.filter(
-			(comment) => Math.max(comment.sourceOrdinal || 0, 0) === 0,
+		return comments.filter((comment) =>
+			isCommentVisibleForSource(comment, jkContext, activeSourceKey),
 		);
-	}, [comments, settings.hideSecondarySourceComments]);
+	}, [activeSourceKey, comments, jkContext]);
 	const chapters = useMemo<ChapterPoint[]>(() => {
 		if (isLive || !jkContext || duration <= 0) {
 			return [];
@@ -387,15 +394,6 @@ export default function PluginScreen({
 	const handleTooltipMouseLeave = useCallback((commentId: number) => {
 		setHoveredCommentId((current) => (current === commentId ? null : current));
 	}, []);
-
-	const handleHideSecondarySourceCommentsChange = useCallback(() => {
-		const newSettings = {
-			...settings,
-			hideSecondarySourceComments: !settings.hideSecondarySourceComments,
-		};
-		setSettings(newSettings);
-		saveSettings(newSettings);
-	}, [settings]);
 
 	useEffect(() => {
 		setHoveredCommentId(null);
@@ -896,20 +894,6 @@ export default function PluginScreen({
 							</div>
 							{filterNG && <Check size={16} className="text-red-400" />}
 						</button>
-						<button
-							type="button"
-							onClick={handleHideSecondarySourceCommentsChange}
-							className="w-full flex items-center justify-between p-2 hover:bg-gray-700 rounded transition-colors text-sm"
-						>
-							<div className="flex items-center gap-2">
-								<MessageSquare size={16} />
-								<span>主ch以外を表示しない</span>
-							</div>
-							{settings.hideSecondarySourceComments && (
-								<Check size={16} className="text-blue-400" />
-							)}
-						</button>
-
 						<div className="pt-3 mt-1 border-t border-gray-700 mx-1">
 							<div className="flex justify-between text-xs mb-2">
 								<span className="text-gray-400 font-medium">
@@ -935,7 +919,10 @@ export default function PluginScreen({
 
 			{/* Info Popover */}
 			{hasActivePlayer && showInfo && (
-				<div className="absolute inset-x-2 top-12 z-50 bg-[#333] border border-gray-600 rounded-lg shadow-2xl p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+				<div
+					className="absolute inset-x-2 top-12 z-50 flex flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
+					style={{ maxHeight: "70%" }}
+				>
 					<div className="flex justify-between items-start mb-2">
 						<h4 className="font-bold text-blue-400 flex items-center gap-1">
 							<Info size={14} /> チャンネル情報
@@ -948,51 +935,82 @@ export default function PluginScreen({
 							<X size={16} />
 						</button>
 					</div>
-					{jkContext ? (
-						<div className="space-y-2 text-sm">
-							<div className="border-b border-gray-700 pb-1">
-								<div className="text-gray-400 mb-1">チャンネル</div>
-								<div className="space-y-1 text-xs">
-									{jkContext.sources.map((source, index) => {
-										const sourceCount = sourceCommentCounts.get(index) || 0;
-										return (
-											<div
-												key={source.key}
-												className="flex justify-between items-start gap-3"
-											>
-												<div className="min-w-0">
-													<div className="text-gray-300 truncate">
-														{source.channelName} ({source.jkId})
-														{!isLive && ` ${sourceCount}件`}
-													</div>
-													{!isLive && (
-														<div className="text-gray-500">
-															{formatTimeRange(source.startAt, source.endAt)}
+					{!isLive && (
+						<div className="flex justify-between text-sm mx-2 mb-2">
+							<span className="text-gray-400">取得コメント数</span>
+							<span className="text-blue-300 tabular-nums">
+								{fetchedCommentCount}件
+							</span>
+						</div>
+					)}
+					<div className="min-h-0 overflow-y-auto pr-1">
+						{jkContext ? (
+							<div className="space-y-2 text-sm">
+								<div className="border-b border-gray-700 pb-1">
+									<div className="space-y-2 text-xs">
+										{jkContext.sources.map((source, index) => {
+											const sourceCount = sourceCommentCounts.get(index) || 0;
+											const isSourceActive = activeSourceKey === source.key;
+											return (
+												<div
+													key={source.key}
+													className={`flex items-center justify-between gap-3 rounded-md px-2.5 py-2 ${
+														isSourceActive
+															? "border border-blue-500/40 bg-blue-500/10"
+															: "bg-[#2a2a2a]"
+													}`}
+												>
+													<div className="min-w-0 flex-1">
+														<div className="flex min-w-0 items-center gap-2 text-gray-300">
+															<span
+																className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
+															>
+																{SOURCE_KIND_LABELS[source.kind]}
+															</span>
+															<span className="truncate">
+																{source.channelName} ({source.jkId})
+															</span>
+															{!isLive && (
+																<span className="shrink-0 text-gray-500">
+																	{sourceCount}件
+																</span>
+															)}
 														</div>
-													)}
+														{!isLive && (
+															<div className="text-gray-400">
+																{formatTimeRange(source.startAt, source.endAt)}
+															</div>
+														)}
+													</div>
+													<div className="flex shrink-0 items-center self-center">
+														<button
+															type="button"
+															onClick={() =>
+																onActiveSourceKeyChange(
+																	isSourceActive ? null : source.key,
+																)
+															}
+															className={`rounded px-2 py-1 text-[10px] transition-colors ${
+																isSourceActive
+																	? "bg-blue-600 text-white hover:bg-blue-500"
+																	: "bg-gray-700 text-gray-200 hover:bg-gray-600"
+															}`}
+														>
+															{isSourceActive ? "全て表示" : "絞り込む"}
+														</button>
+													</div>
 												</div>
-												<span className="text-gray-500 shrink-0">
-													{SOURCE_KIND_LABELS[source.kind]}
-												</span>
-											</div>
-										);
-									})}
+											);
+										})}
+									</div>
 								</div>
 							</div>
-							{!isLive && (
-								<div className="flex justify-between">
-									<span className="text-gray-400">取得コメント数</span>
-									<span className="text-blue-300 tabular-nums">
-										{fetchedCommentCount}件
-									</span>
-								</div>
-							)}
-						</div>
-					) : (
-						<p className="text-sm text-gray-500 italic">
-							情報が取得できませんでした
-						</p>
-					)}
+						) : (
+							<p className="text-sm text-gray-500 italic">
+								情報が取得できませんでした
+							</p>
+						)}
+					</div>
 				</div>
 			)}
 		</div>
@@ -1031,4 +1049,24 @@ function formatRelativeSeconds(value: number): string {
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
+}
+
+function getCommentSourceKey(
+	comment: NiconicoComment,
+	jkContext: NicoJKContext | null,
+) {
+	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
+	return jkContext?.sources[sourceOrdinal]?.key || null;
+}
+
+function isCommentVisibleForSource(
+	comment: NiconicoComment,
+	jkContext: NicoJKContext | null,
+	activeSourceKey: string | null,
+) {
+	if (!activeSourceKey) {
+		return true;
+	}
+
+	return getCommentSourceKey(comment, jkContext) === activeSourceKey;
 }

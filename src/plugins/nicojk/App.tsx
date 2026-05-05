@@ -33,6 +33,7 @@ const PLAYER_OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
 type PlayerData = {
 	playableId: string | null;
 	comments: NiconicoComment[];
+	activeSourceKey: string | null;
 	primaryChannel: NicoJKChannelDefinition | null;
 	liveSources: ResolvedCommentSource[];
 	replaySources: ResolvedCommentSource[];
@@ -55,6 +56,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
 		comments: [],
+		activeSourceKey: null,
 		primaryChannel: null,
 		liveSources: [],
 		replaySources: [],
@@ -141,6 +143,19 @@ function buildJkContext(
 	};
 }
 
+function normalizeActiveSourceKey(
+	activeSourceKey: string | null | undefined,
+	jkContext: NicoJKContext | null,
+) {
+	if (!activeSourceKey || !jkContext) {
+		return null;
+	}
+
+	return jkContext.sources.some((source) => source.key === activeSourceKey)
+		? activeSourceKey
+		: null;
+}
+
 function applyPrimarySource(
 	data: PlayerData,
 	primarySource: ResolvedCommentSource,
@@ -154,6 +169,10 @@ function applyPrimarySource(
 		[primarySource],
 		startAt,
 		duration,
+	);
+	data.activeSourceKey = normalizeActiveSourceKey(
+		data.activeSourceKey,
+		data.jkContext,
 	);
 }
 
@@ -173,6 +192,10 @@ function applyResolvedSources(
 		isSeekable ? data.replaySources : data.liveSources,
 		startAt,
 		duration,
+	);
+	data.activeSourceKey = normalizeActiveSourceKey(
+		data.activeSourceKey,
+		data.jkContext,
 	);
 }
 
@@ -423,6 +446,7 @@ interface PlayerOverlaySnapshot {
 	playerID: string;
 	playableId: string | null;
 	comments: NiconicoComment[];
+	activeSourceKey: string | null;
 	jkContext: NicoJKContext | null;
 	channelDisplayState: ChannelDisplayState;
 	wsStatus: ConnectionStatus;
@@ -431,6 +455,7 @@ interface PlayerOverlaySnapshot {
 
 type PlayerOverlayRelayMessage =
 	| { type: "requestSnapshot" }
+	| { type: "setActiveSourceKey"; payload: { sourceKey: string | null } }
 	| { type: "snapshot"; payload: PlayerOverlaySnapshot };
 
 function createPlayerOverlayRelayChannel(playerID: string) {
@@ -449,6 +474,7 @@ export default function App() {
 	const [targetPlayable, setTargetPlayable] = useState<Playable | null>(null);
 	const [area, setArea] = useState<DisplayArea | null>(null);
 	const [comments, setComments] = useState<NiconicoComment[]>([]);
+	const [activeSourceKey, setActiveSourceKey] = useState<string | null>(null);
 	const [jkContext, setJkContext] = useState<NicoJKContext | null>(null);
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
@@ -477,6 +503,7 @@ export default function App() {
 		playableId: null,
 	});
 	const commentsRef = useRef<NiconicoComment[]>([]);
+	const activeSourceKeyRef = useRef<string | null>(null);
 	const jkContextRef = useRef<NicoJKContext | null>(null);
 	const channelDisplayStateRef = useRef<ChannelDisplayState>(
 		EMPTY_CHANNEL_DISPLAY_STATE,
@@ -491,6 +518,10 @@ export default function App() {
 	useEffect(() => {
 		commentsRef.current = comments;
 	}, [comments]);
+
+	useEffect(() => {
+		activeSourceKeyRef.current = activeSourceKey;
+	}, [activeSourceKey]);
 
 	useEffect(() => {
 		jkContextRef.current = jkContext;
@@ -516,6 +547,7 @@ export default function App() {
 				playableId: snapshot.playableId,
 			};
 			setComments(snapshot.comments);
+			setActiveSourceKey(snapshot.activeSourceKey);
 			setJkContext(snapshot.jkContext);
 			setChannelDisplayState(snapshot.channelDisplayState);
 			setWsStatus(snapshot.wsStatus);
@@ -531,6 +563,7 @@ export default function App() {
 				playableId: null,
 			};
 			setComments([]);
+			setActiveSourceKey(null);
 			setJkContext(null);
 			setChannelDisplayState(displayState);
 			setWsStatus("disconnected");
@@ -576,6 +609,37 @@ export default function App() {
 		} satisfies PlayerOverlayRelayMessage);
 	}, []);
 
+	const handleActiveSourceKeyChange = useCallback(
+		(sourceKey: string | null) => {
+			const playerID = targetPlayableRef.current?.playerID;
+			if (!playerID) {
+				return;
+			}
+
+			const normalizedSourceKey = normalizeActiveSourceKey(
+				sourceKey,
+				jkContextRef.current,
+			);
+			setActiveSourceKey(normalizedSourceKey);
+
+			const snapshot = screenSnapshotsRef.current.get(playerID);
+			if (snapshot) {
+				screenSnapshotsRef.current.set(playerID, {
+					...snapshot,
+					activeSourceKey: normalizedSourceKey,
+				});
+			}
+
+			screenRelayChannelRef.current?.postMessage({
+				type: "setActiveSourceKey",
+				payload: {
+					sourceKey: normalizedSourceKey,
+				},
+			} satisfies PlayerOverlayRelayMessage);
+		},
+		[],
+	);
+
 	useEffect(() => {
 		if (area?.type !== "playerOverlay" || !area.playerID) return;
 		const playerID = area.playerID;
@@ -588,6 +652,7 @@ export default function App() {
 					playerID,
 					playableId: targetPlayableRef.current?.id || null,
 					comments: commentsRef.current,
+					activeSourceKey: activeSourceKeyRef.current,
 					jkContext: jkContextRef.current,
 					channelDisplayState: channelDisplayStateRef.current,
 					wsStatus: wsStatusRef.current,
@@ -597,6 +662,23 @@ export default function App() {
 		};
 		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
 			if (event.data.type === "requestSnapshot") {
+				postSnapshot();
+				return;
+			}
+
+			if (event.data.type === "setActiveSourceKey") {
+				const data = playersDataRef.current.get(playerID);
+				const normalizedSourceKey = normalizeActiveSourceKey(
+					event.data.payload.sourceKey,
+					data?.jkContext || jkContextRef.current,
+				);
+
+				if (data) {
+					data.activeSourceKey = normalizedSourceKey;
+				}
+				if (targetPlayableRef.current?.playerID === playerID) {
+					setActiveSourceKey(normalizedSourceKey);
+				}
 				postSnapshot();
 			}
 		};
@@ -623,6 +705,7 @@ export default function App() {
 				playerID: area.playerID,
 				playableId: targetPlayable?.id || null,
 				comments,
+				activeSourceKey,
 				jkContext,
 				channelDisplayState,
 				wsStatus,
@@ -633,6 +716,7 @@ export default function App() {
 		area?.type,
 		area?.playerID,
 		comments,
+		activeSourceKey,
 		jkContext,
 		channelDisplayState,
 		wsStatus,
@@ -742,6 +826,12 @@ export default function App() {
 			const currentPlayable = targetPlayableRef.current;
 			const isLive = !currentPlayable?.isSeekable;
 			setComments(data?.comments || []);
+			setActiveSourceKey(
+				normalizeActiveSourceKey(
+					data?.activeSourceKey || null,
+					data?.jkContext || null,
+				),
+			);
 			setJkContext(data?.jkContext || null);
 			setChannelDisplayState(getChannelDisplayState(currentPlayable, data));
 			setWsStatus(getPlayerWsStatus(data));
@@ -782,6 +872,12 @@ export default function App() {
 			if (currentArea.type === "playerOverlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
 				setComments(data?.comments || []);
+				setActiveSourceKey(
+					normalizeActiveSourceKey(
+						data?.activeSourceKey || null,
+						data?.jkContext || null,
+					),
+				);
 				setJkContext(data?.jkContext || null);
 				setChannelDisplayState(getChannelDisplayState(targetP, data));
 				setWsStatus(getPlayerWsStatus(data));
@@ -1350,6 +1446,7 @@ export default function App() {
 			{area.type === "playerOverlay" && (
 				<PlayerOverlay
 					comments={comments}
+					activeSourceKey={activeSourceKey}
 					width={area.width}
 					height={area.height}
 					playableId={targetPlayable?.id || null}
@@ -1365,6 +1462,8 @@ export default function App() {
 			{area.type === "pluginScreen" && (
 				<PluginScreen
 					comments={comments}
+					activeSourceKey={activeSourceKey}
+					onActiveSourceKeyChange={handleActiveSourceKeyChange}
 					isLive={screenIsLive}
 					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
