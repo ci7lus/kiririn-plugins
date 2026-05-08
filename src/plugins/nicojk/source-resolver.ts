@@ -1,5 +1,6 @@
 import type { NicoJKChannelDefinition } from "./definitions";
 import { getAllChannelDefinitions } from "./definitions";
+import { getSettings } from "./ng-settings";
 import {
 	haveSimilarDuration,
 	lookupChannelProgramAt,
@@ -9,7 +10,6 @@ import {
 	type SyobocalProgram,
 } from "./syobocal";
 
-const MAX_RECORDED_REPLAY_AIRINGS = 5;
 // ニコニコ実況サービス開始日
 const RECORDED_REPLAY_LOOKUP_START_AT = Math.floor(
 	new Date("2009-11-28T00:00:00+09:00").getTime() / 1000,
@@ -179,7 +179,10 @@ async function resolveRecordedReplaySources(
 		})
 		.filter((source): source is ResolvedCommentSource => !!source);
 
-	return dedupeSources(matches).slice(0, MAX_RECORDED_REPLAY_AIRINGS);
+	return dedupeSources(matches).slice(
+		0,
+		getSettings().maxRecordedReplayAirings,
+	);
 }
 
 export async function resolveCommentSources(params: {

@@ -6,9 +6,7 @@ import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import {
-	filterMail,
 	getSettings,
-	isNG,
 	type NicoJKSettings,
 	SETTINGS_UPDATED_EVENT,
 	STORAGE_KEY,
@@ -60,8 +58,42 @@ function getFilterSignature(
 		ngWords: settings.ngWords,
 		ngIds: settings.ngIds,
 		ngCommands: settings.ngCommands,
+		secondarySourceOpacity: settings.secondarySourceOpacity,
 		visibleSourceKeys,
 	});
+}
+
+function isCommentNGBySettings(
+	comment: string | undefined,
+	userId: string | undefined,
+	settings: NicoJKSettings,
+) {
+	if (userId && settings.ngIds.includes(userId)) {
+		return true;
+	}
+	if (comment && settings.ngWords.some((word) => comment.includes(word))) {
+		return true;
+	}
+	return false;
+}
+
+function filterMailBySettings(
+	mail: string[] | undefined,
+	settings: NicoJKSettings,
+) {
+	if (!mail) {
+		return [];
+	}
+	if (settings.ngCommands.length === 0) {
+		return [...mail];
+	}
+	return mail.filter((command) => {
+		return command != null && !settings.ngCommands.includes(command);
+	});
+}
+
+function formatOpacityMailValue(value: number) {
+	return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function getMaxCommentId(comments: NiconicoComment[]) {
@@ -82,8 +114,12 @@ function toFormattedComment(
 	comment: NiconicoComment,
 	visibleSourceKeys: string[] | null,
 	jkContext: NicoJKContext | null,
+	settings: NicoJKSettings,
 ): FormattedComment | null {
-	if (comment.content == null || isNG(comment.content, comment.user_id)) {
+	if (
+		comment.content == null ||
+		isCommentNGBySettings(comment.content, comment.user_id, settings)
+	) {
 		return null;
 	}
 
@@ -92,9 +128,11 @@ function toFormattedComment(
 	}
 
 	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-	const mail = filterMail(comment.mail);
+	const mail = filterMailBySettings(comment.mail, settings);
 	if (sourceOrdinal > 0) {
-		mail.push("nico:opacity:0.8");
+		mail.push(
+			`nico:opacity:${formatOpacityMailValue(settings.secondarySourceOpacity)}`,
+		);
 	}
 
 	return {
@@ -116,9 +154,12 @@ function toFormattedComments(
 	comments: NiconicoComment[],
 	visibleSourceKeys: string[] | null,
 	jkContext: NicoJKContext | null,
+	settings: NicoJKSettings,
 ) {
 	return sortComments(comments)
-		.map((comment) => toFormattedComment(comment, visibleSourceKeys, jkContext))
+		.map((comment) =>
+			toFormattedComment(comment, visibleSourceKeys, jkContext, settings),
+		)
 		.filter((comment): comment is FormattedComment => comment != null);
 }
 
@@ -149,9 +190,6 @@ export default function PlayerOverlay({
 	const visibleSourceKeysRef = useRef(visibleSourceKeys);
 	const lastCommentIdRef = useRef<number>(0);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
-	const [showDebugInfo, setShowDebugInfo] = useState(
-		getSettings().showDebugInfo,
-	);
 	const [filterVersion, setFilterVersion] = useState(0);
 	const [rendererInitialized, setRendererInitialized] = useState(false);
 
@@ -160,7 +198,6 @@ export default function PlayerOverlay({
 		const handleUpdate = () => {
 			const s = getSettings();
 			setOpacity(s.opacity);
-			setShowDebugInfo(s.showDebugInfo);
 			const nextFilterSignature = getFilterSignature(
 				s,
 				visibleSourceKeysRef.current,
@@ -270,12 +307,23 @@ export default function PlayerOverlay({
 		}
 
 		rendererRef.current?.clear();
+		const currentSettings = getSettings();
 		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
 		const initialComments = usesFormattedRenderer
-			? toFormattedComments(comments, visibleSourceKeys, jkContext)
+			? toFormattedComments(
+					comments,
+					visibleSourceKeys,
+					jkContext,
+					currentSettings,
+				)
 			: [];
 		const liveComments = isLive
-			? toFormattedComments(comments, visibleSourceKeys, jkContext)
+			? toFormattedComments(
+					comments,
+					visibleSourceKeys,
+					jkContext,
+					currentSettings,
+				)
 			: [];
 		const renderer = new NiconiComments(canvasRef.current, initialComments, {
 			format: usesFormattedRenderer ? "formatted" : "empty",
@@ -351,9 +399,15 @@ export default function PlayerOverlay({
 			return;
 		}
 
+		const currentSettings = getSettings();
 		const parsedComments = pendingComments
 			.map((comment) =>
-				toFormattedComment(comment, visibleSourceKeys, jkContext),
+				toFormattedComment(
+					comment,
+					visibleSourceKeys,
+					jkContext,
+					currentSettings,
+				),
 			)
 			.filter((comment): comment is FormattedComment => comment != null);
 		if (parsedComments.length > 0) {
@@ -375,14 +429,6 @@ export default function PlayerOverlay({
 		targetW = height * (16 / 9);
 	}
 
-	const formatTime = (unix: number) => {
-		if (!unix) return "--:--";
-		return new Date(unix * 1000).toLocaleString("ja-JP", {
-			hour: "2-digit",
-			minute: "2-digit",
-		});
-	};
-
 	return (
 		<div className="w-full h-full min-h-full flex flex-col items-center justify-center pointer-events-none bg-transparent overflow-hidden">
 			<canvas
@@ -395,28 +441,6 @@ export default function PlayerOverlay({
 					opacity,
 				}}
 			/>
-
-			{showDebugInfo && jkContext && (
-				<div className="absolute top-4 left-4 flex flex-col gap-1 p-2 bg-black/40 text-white rounded text-[10px] tabular-nums font-mono border border-white/20">
-					<div>
-						{jkContext.channelName} ({jkContext.jkId})
-						{jkContext.sources.length > 1
-							? ` +${jkContext.sources.length - 1} source${jkContext.sources.length === 2 ? "" : "s"}`
-							: ""}
-					</div>
-					<div>
-						{formatTime(jkContext.startAt)} - {formatTime(jkContext.endAt)}
-					</div>
-					{jkContext.sources.length > 1 && (
-						<div className="text-[9px] text-gray-200/90">
-							{jkContext.sources
-								.slice(1)
-								.map((source) => source.channelName)
-								.join(" / ")}
-						</div>
-					)}
-				</div>
-			)}
 		</div>
 	);
 }

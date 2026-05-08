@@ -27,11 +27,10 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_WINDOW_SECONDS = 10;
-const CHAPTER_COOLDOWN_SECONDS = 60;
-const CHAPTER_MINIMUM_COUNT = 3;
-const CHAPTER_SEEK_LEAD_SECONDS = 5;
 const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED"] as const;
+const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
+const TOOLTIP_MIN_HEIGHT = 160;
+const TOOLTIP_SAFE_MARGIN = 8;
 
 type ChapterLabel = (typeof CHAPTER_LABELS)[number];
 
@@ -108,6 +107,11 @@ export default function PluginScreen({
 	const [settings, setSettings] = useState(getSettings());
 	const [hoveredCommentId, setHoveredCommentId] = useState<number | null>(null);
 	const [pinnedCommentId, setPinnedCommentId] = useState<number | null>(null);
+	const chapterWindowSeconds = settings.chapterWindowSeconds;
+	const chapterCooldownSeconds = settings.chapterCooldownSeconds;
+	const chapterMinimumCount = settings.chapterMinimumCount;
+	const chapterSeekLeadSeconds = settings.chapterSeekLeadSeconds;
+	const secondarySourceOpacity = settings.secondarySourceOpacity;
 
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
@@ -118,9 +122,24 @@ export default function PluginScreen({
 
 	const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const val = parseFloat(e.target.value);
-		const newSettings = { ...settings, opacity: val };
-		setSettings(newSettings);
-		saveSettings(newSettings);
+		setSettings(
+			saveSettings({
+				...settings,
+				opacity: val,
+			}),
+		);
+	};
+
+	const handleSecondarySourceOpacityChange = (
+		e: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const val = parseFloat(e.target.value);
+		setSettings(
+			saveSettings({
+				...settings,
+				secondarySourceOpacity: val,
+			}),
+		);
 	};
 
 	const filteredComments = useMemo(() => {
@@ -184,7 +203,7 @@ export default function PluginScreen({
 				continue;
 			}
 
-			const bucketIndex = Math.floor(relativeSec / CHAPTER_WINDOW_SECONDS);
+			const bucketIndex = Math.floor(relativeSec / chapterWindowSeconds);
 			let bucket = buckets.get(bucketIndex);
 			if (!bucket) {
 				bucket = {
@@ -205,7 +224,7 @@ export default function PluginScreen({
 		const candidates = [...buckets.entries()]
 			.sort(([left], [right]) => left - right)
 			.flatMap(([bucketIndex, bucket]) => {
-				if (bucket.matches.length < CHAPTER_MINIMUM_COUNT) {
+				if (bucket.matches.length < chapterMinimumCount) {
 					return [];
 				}
 
@@ -243,11 +262,19 @@ export default function PluginScreen({
 			}
 
 			filtered.push(candidate);
-			nextAvailableSec = candidate.relativeSec + CHAPTER_COOLDOWN_SECONDS;
+			nextAvailableSec = candidate.relativeSec + chapterCooldownSeconds;
 		}
 
 		return filtered;
-	}, [chapterComments, duration, isLive, jkContext]);
+	}, [
+		chapterComments,
+		chapterCooldownSeconds,
+		chapterMinimumCount,
+		chapterWindowSeconds,
+		duration,
+		isLive,
+		jkContext,
+	]);
 	const canSeekToChapters = !isLive && duration > 0;
 	const playbackProgress = clamp(playbackState?.position ?? 0, 0, 1);
 
@@ -391,6 +418,7 @@ export default function PluginScreen({
 		setHoveredCommentId((current) => (current === commentId ? null : current));
 	}, []);
 
+	const canShowOnlySource = (jkContext?.sources.length || 0) > 1;
 	const allSourcesVisible = areAllSourcesVisible(visibleSourceKeys, jkContext);
 
 	const handleShowAllSources = useCallback(() => {
@@ -502,13 +530,18 @@ export default function PluginScreen({
 				return;
 			}
 			const seekPosition = clamp(
-				Math.max(0, chapter.relativeSec - CHAPTER_SEEK_LEAD_SECONDS) / duration,
+				Math.max(0, chapter.relativeSec - chapterSeekLeadSeconds) / duration,
 				0,
 				1,
 			);
 			window.kiririn.seek(seekPosition, playbackState?.playerID);
 		},
-		[canSeekToChapters, duration, playbackState?.playerID],
+		[
+			canSeekToChapters,
+			chapterSeekLeadSeconds,
+			duration,
+			playbackState?.playerID,
+		],
 	);
 
 	return (
@@ -662,8 +695,29 @@ export default function PluginScreen({
 							const isHoveredTooltip = hoveredCommentId === c.id;
 							const isPinnedTooltip = pinnedCommentId === c.id;
 							const isTooltipVisible = isHoveredTooltip || isPinnedTooltip;
+							const scrollTop = scrollContainerRef.current?.scrollTop || 0;
+							const containerHeight =
+								scrollContainerRef.current?.clientHeight || 0;
+							const visibleRowTop = virtualRow.start - scrollTop;
+							const rowHeight = virtualRow.size || 56;
+							const visibleRowBottom = visibleRowTop + rowHeight;
+							const spaceAbove = Math.max(
+								visibleRowTop - TOOLTIP_SAFE_MARGIN,
+								0,
+							);
+							const spaceBelow = Math.max(
+								containerHeight - visibleRowBottom - TOOLTIP_SAFE_MARGIN,
+								0,
+							);
+							const placeAbove =
+								spaceBelow < TOOLTIP_MIN_HEIGHT && spaceAbove > spaceBelow;
+							const availableHeight = Math.max(
+								(placeAbove ? spaceAbove : spaceBelow) - TOOLTIP_SAFE_MARGIN,
+								120,
+							);
 							const mailCommands = [...new Set(c.mail.filter(Boolean))].filter(
-								(mail) => mail !== "184" && !mail.startsWith("nico:"),
+								(mail) =>
+									!IGNORE_COMMANDS.includes(mail) && !mail.startsWith("nico:"),
 							);
 
 							return (
@@ -714,9 +768,12 @@ export default function PluginScreen({
 													)}
 												</div>
 												<div
-													className={`flex min-w-0 flex-1 items-center gap-2 self-center ${
-														isSecondarySource ? "opacity-70" : ""
-													}`}
+													className="flex min-w-0 flex-1 items-center gap-2 self-center"
+													style={
+														isSecondarySource
+															? { opacity: secondarySourceOpacity }
+															: undefined
+													}
 												>
 													<div className="min-w-0 flex-1 break-words leading-[1.5]">
 														{c.content}
@@ -731,7 +788,15 @@ export default function PluginScreen({
 												</div>
 											</button>
 											{isTooltipVisible && (
-												<div className="absolute inset-x-10 top-full z-10 mt-1 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl">
+												<div
+													className={`absolute inset-x-2 z-10 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl ${
+														placeAbove ? "bottom-full mb-1" : "top-full mt-1"
+													}`}
+													style={{
+														maxHeight: `${availableHeight}px`,
+														overflowY: "auto",
+													}}
+												>
 													<div className="flex items-center justify-between gap-2 text-gray-300">
 														<span>No.{c.no}</span>
 														<span>{formatCommentTimestamp(c)}</span>
@@ -940,6 +1005,23 @@ export default function PluginScreen({
 								onChange={handleOpacityChange}
 								className="mb-1 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-500"
 							/>
+							<div className="mb-2 mt-4 flex justify-between text-xs">
+								<span className="font-medium text-gray-400">
+									別/サイマルコメントの濃度
+								</span>
+								<span className="font-mono text-blue-400">
+									{Math.round(settings.secondarySourceOpacity * 100)}%
+								</span>
+							</div>
+							<input
+								type="range"
+								min="0.0"
+								max="1.0"
+								step="0.05"
+								value={settings.secondarySourceOpacity}
+								onChange={handleSecondarySourceOpacityChange}
+								className="mb-1 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-500"
+							/>
 						</div>
 					</div>
 				</div>
@@ -1032,28 +1114,30 @@ export default function PluginScreen({
 														)}
 													</div>
 													<div className="flex shrink-0 items-center gap-2 self-center">
-														<button
-															type="button"
-															onClick={() => handleShowOnlySource(source.key)}
-															disabled={isOnlySourceVisible}
-															className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
-																isOnlySourceVisible
-																	? "cursor-default border-blue-500/40 bg-blue-600 text-white"
-																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
-															}`}
-															title={
-																isOnlySourceVisible
-																	? "このソースのみ表示中"
-																	: "このソースのみ表示"
-															}
-															aria-label={
-																isOnlySourceVisible
-																	? `${source.channelName} はこのソースのみ表示中`
-																	: `${source.channelName} のみ表示`
-															}
-														>
-															<Filter size={14} />
-														</button>
+														{canShowOnlySource && (
+															<button
+																type="button"
+																onClick={() => handleShowOnlySource(source.key)}
+																disabled={isOnlySourceVisible}
+																className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
+																	isOnlySourceVisible
+																		? "cursor-default border-blue-500/40 bg-blue-600 text-white"
+																		: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
+																}`}
+																title={
+																	isOnlySourceVisible
+																		? "このソースのみ表示中"
+																		: "このソースのみ表示"
+																}
+																aria-label={
+																	isOnlySourceVisible
+																		? `${source.channelName} はこのソースのみ表示中`
+																		: `${source.channelName} のみ表示`
+																}
+															>
+																<Filter size={14} />
+															</button>
+														)}
 														<button
 															type="button"
 															onClick={() =>

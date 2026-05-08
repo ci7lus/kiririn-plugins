@@ -13,6 +13,64 @@ import {
 } from "../ng-settings";
 
 type RevealGroup = "word" | "id" | "command";
+type NumericSettingKey =
+	| "chapterWindowSeconds"
+	| "chapterCooldownSeconds"
+	| "chapterMinimumCount"
+	| "chapterSeekLeadSeconds"
+	| "maxRecordedReplayAirings";
+
+type NumericSettingDrafts = Record<NumericSettingKey, string>;
+
+const NUMERIC_SETTING_FIELDS: Array<{
+	key: NumericSettingKey;
+	label: string;
+	description: string;
+	min: number;
+	max: number;
+	step: number;
+}> = [
+	{
+		key: "maxRecordedReplayAirings",
+		label: "過去ログ候補数",
+		description: "別放送日程として表示する過去ログコメントソースの最大数",
+		min: 0,
+		max: 50,
+		step: 1,
+	},
+	{
+		key: "chapterWindowSeconds",
+		label: "チャプター判定幅",
+		description: "コメントを同じチャプター候補として束ねる秒数",
+		min: 1,
+		max: 120,
+		step: 1,
+	},
+	{
+		key: "chapterCooldownSeconds",
+		label: "チャプター間隔",
+		description: "連続したチャプター候補を抑制する最小秒数",
+		min: 0,
+		max: 1800,
+		step: 1,
+	},
+	{
+		key: "chapterMinimumCount",
+		label: "チャプター最小件数",
+		description: "1 つの候補として採用するための最小コメント数",
+		min: 1,
+		max: 50,
+		step: 1,
+	},
+	{
+		key: "chapterSeekLeadSeconds",
+		label: "チャプター余白秒数",
+		description: "チャプター移動時に余白として持たせる秒数",
+		min: 0,
+		max: 300,
+		step: 1,
+	},
+];
 
 function buildRevealKey(group: RevealGroup, value: string) {
 	return `${group}:${value}`;
@@ -29,16 +87,35 @@ function maskSettingValue(value: string) {
 	return `${chars[0]}${"*".repeat(chars.length - 2)}${chars[chars.length - 1]}`;
 }
 
+function buildNumericDrafts(settings: NicoJKSettings): NumericSettingDrafts {
+	return {
+		chapterWindowSeconds: String(settings.chapterWindowSeconds),
+		chapterCooldownSeconds: String(settings.chapterCooldownSeconds),
+		chapterMinimumCount: String(settings.chapterMinimumCount),
+		chapterSeekLeadSeconds: String(settings.chapterSeekLeadSeconds),
+		maxRecordedReplayAirings: String(settings.maxRecordedReplayAirings),
+	};
+}
+
 export default function PluginSettings() {
-	const [settings, setSettings] = useState<NicoJKSettings>(getSettings());
+	const initialSettings = getSettings();
+	const [settings, setSettings] = useState<NicoJKSettings>(initialSettings);
 	const [newWord, setNewWord] = useState("");
 	const [newId, setNewId] = useState("");
 	const [newCommand, setNewCommand] = useState("");
+	const [numericDrafts, setNumericDrafts] = useState<NumericSettingDrafts>(() =>
+		buildNumericDrafts(initialSettings),
+	);
 	const [revealedValues, setRevealedValues] = useState<Set<string>>(
 		() => new Set(),
 	);
 
-	const refresh = () => setSettings(getSettings());
+	const syncSettings = (nextSettings: NicoJKSettings) => {
+		setSettings(nextSettings);
+		setNumericDrafts(buildNumericDrafts(nextSettings));
+	};
+
+	const refresh = () => syncSettings(getSettings());
 
 	const toggleReveal = (group: RevealGroup, value: string) => {
 		const revealKey = buildRevealKey(group, value);
@@ -69,6 +146,43 @@ export default function PluginSettings() {
 		return revealedValues.has(buildRevealKey(group, value))
 			? value
 			: maskSettingValue(value);
+	};
+
+	const commitNumericSetting = (key: NumericSettingKey) => {
+		const draft = numericDrafts[key].trim();
+		if (draft === "") {
+			setNumericDrafts((prev) => ({
+				...prev,
+				[key]: String(settings[key]),
+			}));
+			return;
+		}
+
+		syncSettings(
+			saveSettings({
+				...settings,
+				[key]: Number(draft),
+			}),
+		);
+	};
+
+	const handleNumericDraftChange = (key: NumericSettingKey, value: string) => {
+		setNumericDrafts((prev) => ({
+			...prev,
+			[key]: value,
+		}));
+	};
+
+	const handleSecondarySourceOpacityChange = (
+		e: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const val = parseFloat(e.target.value);
+		syncSettings(
+			saveSettings({
+				...settings,
+				secondarySourceOpacity: val,
+			}),
+		);
 	};
 
 	const handleAddWord = (e: React.FormEvent) => {
@@ -123,36 +237,33 @@ export default function PluginSettings() {
 			</h2>
 
 			<div className="flex flex-col gap-6">
-				{/* Visual Settings */}
+				{/* Display Settings */}
 				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
 					<div className="flex items-center gap-2 mb-4 text-indigo-400">
 						<Sliders size={20} />
 						<h3 className="font-bold">表示設定</h3>
 					</div>
-					<div className="space-y-4">
-						<div className="flex items-center justify-between py-2">
-							<span className="text-sm text-gray-300">デバッグ情報を表示</span>
-							<button
-								type="button"
-								onClick={() => {
-									const newSettings = {
-										...settings,
-										showDebugInfo: !settings.showDebugInfo,
-									};
-									setSettings(newSettings);
-									saveSettings(newSettings);
-								}}
-								className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${
-									settings.showDebugInfo ? "bg-indigo-600" : "bg-gray-700"
-								}`}
-							>
-								<span
-									className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-										settings.showDebugInfo ? "translate-x-6" : "translate-x-1"
-									}`}
-								/>
-							</button>
+					<div className="rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<div className="mb-2 flex justify-between text-sm">
+							<span className="font-medium text-gray-100">
+								セカンダリコメントの濃度倍率
+							</span>
+							<span className="font-mono text-indigo-300">
+								{Math.round(settings.secondarySourceOpacity * 100)}%
+							</span>
 						</div>
+						<p className="mb-3 text-xs leading-relaxed text-gray-400">
+							別/サイマルコメントに追加で適用されます。
+						</p>
+						<input
+							type="range"
+							min="0.0"
+							max="1.0"
+							step="0.05"
+							value={settings.secondarySourceOpacity}
+							onChange={handleSecondarySourceOpacityChange}
+							className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-indigo-500"
+						/>
 					</div>
 				</div>
 
@@ -308,6 +419,55 @@ export default function PluginSettings() {
 									<Trash2 size={14} />
 								</button>
 							</div>
+						))}
+					</div>
+				</div>
+
+				{/* Tuning Settings */}
+				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
+					<div className="flex items-center gap-2 mb-4 text-indigo-400">
+						<Sliders size={20} />
+						<h3 className="font-bold">コメント取得設定</h3>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						{NUMERIC_SETTING_FIELDS.map((field) => (
+							<label
+								key={field.key}
+								className="flex flex-col gap-2 rounded-md border border-gray-700 bg-[#1f1f1f] p-3"
+							>
+								<div>
+									<div className="text-sm font-medium text-gray-100">
+										{field.label}
+									</div>
+									<div className="mt-1 text-xs leading-relaxed text-gray-400">
+										{field.description}
+									</div>
+								</div>
+								<input
+									type="number"
+									inputMode="numeric"
+									min={field.min}
+									max={field.max}
+									step={field.step}
+									value={numericDrafts[field.key]}
+									onChange={(e) =>
+										handleNumericDraftChange(field.key, e.target.value)
+									}
+									onBlur={() => commitNumericSetting(field.key)}
+									onKeyDown={(e) => {
+										if (e.key !== "Enter") {
+											return;
+										}
+										e.preventDefault();
+										commitNumericSetting(field.key);
+										e.currentTarget.blur();
+									}}
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
+								/>
+								<div className="text-[11px] text-gray-500">
+									範囲: {field.min} - {field.max}
+								</div>
+							</label>
 						))}
 					</div>
 				</div>
