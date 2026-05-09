@@ -12,6 +12,7 @@
 		"type": "tsc -b"
 	},
 	"dependencies": {
+		"@sentry/react": "^10.52.0",
 		"@tanstack/react-virtual": "^3.13.24",
 		"@xpadev-net/niconicomments": "0.2.76",
 		"lucide-react": "^0.577.0",
