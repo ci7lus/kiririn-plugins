@@ -111,7 +111,6 @@ export default function PluginScreen({
 	const chapterCooldownSeconds = settings.chapterCooldownSeconds;
 	const chapterMinimumCount = settings.chapterMinimumCount;
 	const chapterSeekLeadSeconds = settings.chapterSeekLeadSeconds;
-	const secondarySourceOpacity = settings.secondarySourceOpacity;
 
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
@@ -126,18 +125,6 @@ export default function PluginScreen({
 			saveSettings({
 				...settings,
 				opacity: val,
-			}),
-		);
-	};
-
-	const handleSecondarySourceOpacityChange = (
-		e: React.ChangeEvent<HTMLInputElement>,
-	) => {
-		const val = parseFloat(e.target.value);
-		setSettings(
-			saveSettings({
-				...settings,
-				secondarySourceOpacity: val,
 			}),
 		);
 	};
@@ -767,14 +754,7 @@ export default function PluginScreen({
 														</span>
 													)}
 												</div>
-												<div
-													className="flex min-w-0 flex-1 items-center gap-2 self-center"
-													style={
-														isSecondarySource
-															? { opacity: secondarySourceOpacity }
-															: undefined
-													}
-												>
+												<div className="flex min-w-0 flex-1 items-center gap-2 self-center">
 													<div className="min-w-0 flex-1 break-words leading-[1.5]">
 														{c.content}
 													</div>
@@ -806,6 +786,22 @@ export default function PluginScreen({
 													</div>
 													<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
 														<span>ID: {c.user_id || "-"}</span>
+														{c.user_id && (
+															<button
+																type="button"
+																onClick={(event) => {
+																	event.stopPropagation();
+																	handleNGId(c.user_id);
+																}}
+																className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 transition-colors hover:bg-red-500/20"
+																title={`ID: ${c.user_id} をNGに追加`}
+															>
+																<span className="inline-flex items-center gap-1">
+																	<UserX size={12} />
+																	ID を NG
+																</span>
+															</button>
+														)}
 														{!isLive && (
 															<span>
 																再生位置: {formatPlaybackTime(c.vpos)}
@@ -862,16 +858,6 @@ export default function PluginScreen({
 													</div>
 												</div>
 											)}
-										</div>
-										<div className="flex-shrink-0">
-											<button
-												type="button"
-												onClick={() => handleNGId(c.user_id)}
-												className="p-1 text-gray-400 hover:text-red-400"
-												title={`ID: ${c.user_id} をNGに追加`}
-											>
-												<UserX size={14} />
-											</button>
 										</div>
 									</div>
 								</div>
@@ -1003,23 +989,6 @@ export default function PluginScreen({
 								step="0.05"
 								value={settings.opacity}
 								onChange={handleOpacityChange}
-								className="mb-1 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-500"
-							/>
-							<div className="mb-2 mt-4 flex justify-between text-xs">
-								<span className="font-medium text-gray-400">
-									別/サイマルコメントの濃度
-								</span>
-								<span className="font-mono text-blue-400">
-									{Math.round(settings.secondarySourceOpacity * 100)}%
-								</span>
-							</div>
-							<input
-								type="range"
-								min="0.0"
-								max="1.0"
-								step="0.05"
-								value={settings.secondarySourceOpacity}
-								onChange={handleSecondarySourceOpacityChange}
 								className="mb-1 h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-500"
 							/>
 						</div>
