@@ -11,6 +11,7 @@ import {
 	Info,
 	MessageSquare,
 	MoreVertical,
+	Search,
 	UserX,
 	X,
 } from "lucide-react";
@@ -98,12 +99,17 @@ export default function PluginScreen({
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const activeTooltipRootRef = useRef<HTMLDivElement | null>(null);
+	const searchInputRef = useRef<HTMLInputElement>(null);
 	const [autoScroll, setAutoScroll] = useState(true);
 	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
 	const [showChapters, setShowChapters] = useState(false);
 	const [showInfo, setShowInfo] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
+	const [showSearch, setShowSearch] = useState(false);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [activeSearchMatchIndex, setActiveSearchMatchIndex] =
+		useState(-1);
 	const [settings, setSettings] = useState(getSettings());
 	const [hoveredCommentId, setHoveredCommentId] = useState<number | null>(null);
 	const [pinnedCommentId, setPinnedCommentId] = useState<number | null>(null);
@@ -139,6 +145,33 @@ export default function PluginScreen({
 	}, [comments, filterNG, jkContext, visibleSourceKeys]);
 
 	const displayComments = filteredComments;
+	const normalizedSearchQuery = useMemo(
+		() => searchQuery.trim().toLocaleLowerCase(),
+		[searchQuery],
+	);
+	const matchedCommentIndexes = useMemo(() => {
+		if (!normalizedSearchQuery) {
+			return [];
+		}
+
+		const indexes: number[] = [];
+		for (const [index, comment] of displayComments.entries()) {
+			if (comment.content.toLocaleLowerCase().includes(normalizedSearchQuery)) {
+				indexes.push(index);
+			}
+		}
+		return indexes;
+	}, [displayComments, normalizedSearchQuery]);
+	const matchedCommentIndexSet = useMemo(
+		() => new Set(matchedCommentIndexes),
+		[matchedCommentIndexes],
+	);
+	const activeSearchCommentIndex =
+		activeSearchMatchIndex >= 0
+			? (matchedCommentIndexes[activeSearchMatchIndex] ?? -1)
+			: -1;
+	const activeSearchResultNumber =
+		activeSearchCommentIndex >= 0 ? activeSearchMatchIndex + 1 : 0;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
 	const fetchedCommentCount = Math.max(
 		comments.length,
@@ -432,6 +465,41 @@ export default function PluginScreen({
 		[onVisibleSourceKeysChange],
 	);
 
+	const moveSearchMatch = useCallback(
+		(direction: -1 | 1) => {
+			if (matchedCommentIndexes.length === 0) {
+				return;
+			}
+
+			setActiveSearchMatchIndex((current) => {
+				const baseIndex =
+					current >= 0 && current < matchedCommentIndexes.length
+						? current
+						: direction > 0
+							? -1
+							: 0;
+				return wrapIndex(baseIndex + direction, matchedCommentIndexes.length);
+			});
+		},
+		[matchedCommentIndexes],
+	);
+
+	const handleSearchInputKeyDown = useCallback(
+		(event: React.KeyboardEvent<HTMLInputElement>) => {
+			if (event.key === "Enter") {
+				event.preventDefault();
+				moveSearchMatch(event.shiftKey ? -1 : 1);
+				return;
+			}
+
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setShowSearch(false);
+			}
+		},
+		[moveSearchMatch],
+	);
+
 	useEffect(() => {
 		setHoveredCommentId(null);
 		setPinnedCommentId((current) => {
@@ -445,10 +513,43 @@ export default function PluginScreen({
 	}, [displayComments]);
 
 	useEffect(() => {
+		setActiveSearchMatchIndex((current) => {
+			if (matchedCommentIndexes.length === 0) {
+				return -1;
+			}
+			if (current >= 0 && current < matchedCommentIndexes.length) {
+				return current;
+			}
+			return 0;
+		});
+	}, [matchedCommentIndexes]);
+
+	useEffect(() => {
 		if (isLive || !hasActivePlayer) {
 			setShowChapters(false);
 		}
 	}, [hasActivePlayer, isLive]);
+
+	useEffect(() => {
+		if (!showSearch) {
+			return;
+		}
+
+		searchInputRef.current?.focus();
+		searchInputRef.current?.select();
+	}, [showSearch]);
+
+	useEffect(() => {
+		if (!showSearch || activeSearchCommentIndex < 0) {
+			return;
+		}
+
+		setAutoScroll(false);
+		rowVirtualizer.scrollToIndex(activeSearchCommentIndex, {
+			align: "center",
+			behavior: "auto",
+		});
+	}, [activeSearchCommentIndex, rowVirtualizer, showSearch]);
 
 	useEffect(() => {
 		if (pinnedCommentId == null) {
@@ -542,6 +643,7 @@ export default function PluginScreen({
 								setShowInfo(!showInfo);
 								setShowChapters(false);
 								setShowMenu(false);
+								setShowSearch(false);
 							}}
 							className="rounded p-1 text-blue-400 transition-colors hover:bg-gray-700"
 							title="情報"
@@ -611,6 +713,22 @@ export default function PluginScreen({
 						</div>
 					</div>
 					<div className="flex shrink-0 gap-2">
+						<button
+							type="button"
+							onClick={() => {
+								setShowSearch(!showSearch);
+								setShowMenu(false);
+								setShowChapters(false);
+								setShowInfo(false);
+							}}
+							disabled={!hasActivePlayer}
+							className={`rounded p-1 transition-colors hover:bg-gray-700 ${
+								showSearch ? "bg-gray-700 text-blue-400" : "text-gray-400"
+							}`}
+							title="コメント検索"
+						>
+							<Search size={20} />
+						</button>
 						{hasActivePlayer && !isLive && (
 							<button
 								type="button"
@@ -618,6 +736,7 @@ export default function PluginScreen({
 									setShowChapters(!showChapters);
 									setShowMenu(false);
 									setShowInfo(false);
+									setShowSearch(false);
 								}}
 								className={`rounded p-1 transition-colors hover:bg-gray-700 ${
 									showChapters ? "bg-gray-700 text-blue-400" : "text-gray-400"
@@ -633,6 +752,7 @@ export default function PluginScreen({
 								setShowMenu(!showMenu);
 								setShowChapters(false);
 								setShowInfo(false);
+								setShowSearch(false);
 							}}
 							disabled={!hasActivePlayer}
 							className={`rounded p-1 transition-colors hover:bg-gray-700 ${
@@ -682,6 +802,11 @@ export default function PluginScreen({
 							const isHoveredTooltip = hoveredCommentId === c.id;
 							const isPinnedTooltip = pinnedCommentId === c.id;
 							const isTooltipVisible = isHoveredTooltip || isPinnedTooltip;
+							const isSearchMatched = matchedCommentIndexSet.has(
+								virtualRow.index,
+							);
+							const isActiveSearchMatch =
+								activeSearchCommentIndex === virtualRow.index;
 							const scrollTop = scrollContainerRef.current?.scrollTop || 0;
 							const containerHeight =
 								scrollContainerRef.current?.clientHeight || 0;
@@ -721,7 +846,15 @@ export default function PluginScreen({
 										zIndex: isHoveredTooltip ? 40 : isPinnedTooltip ? 30 : 0,
 									}}
 								>
-									<div className="group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors hover:bg-[#333]">
+									<div
+										className={`group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors ${
+											isActiveSearchMatch
+												? "bg-amber-500/20 ring-1 ring-amber-400/60 hover:bg-amber-500/25"
+												: isSearchMatched
+													? "bg-amber-500/10 hover:bg-amber-500/15"
+													: "hover:bg-[#333]"
+										}`}
+									>
 										<div
 											ref={(node) => {
 												if (pinnedCommentId === c.id) {
@@ -758,6 +891,17 @@ export default function PluginScreen({
 													<div className="min-w-0 flex-1 break-words leading-[1.5]">
 														{c.content}
 													</div>
+																		{isSearchMatched && (
+																			<span
+																				className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] ${
+																					isActiveSearchMatch
+																						? "bg-amber-400/25 text-amber-100"
+																						: "bg-amber-400/15 text-amber-200"
+																				}`}
+																			>
+																				検索
+																			</span>
+																		)}
 													{isSecondarySource && (
 														<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
 															{commentSource
@@ -876,6 +1020,96 @@ export default function PluginScreen({
 				>
 					<ArrowUp size={20} className="rotate-180" />
 				</button>
+			)}
+
+			{hasActivePlayer && showSearch && (
+				<div className="absolute right-2 top-12 z-50 w-[min(28rem,calc(100%-1rem))] rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+					<div className="mb-3 flex items-start justify-between gap-3">
+						<h4 className="flex items-center gap-2 font-bold text-gray-100">
+							<Search size={14} /> コメント検索
+						</h4>
+						<button
+							type="button"
+							onClick={() => setShowSearch(false)}
+							className="text-gray-400 hover:text-white"
+						>
+							<X size={16} />
+						</button>
+					</div>
+					<div className="flex items-center gap-2">
+						<div className="relative min-w-0 flex-1">
+							<Search
+								size={14}
+								className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+							/>
+							<input
+								ref={searchInputRef}
+								type="text"
+								value={searchQuery}
+								onChange={(event) => setSearchQuery(event.target.value)}
+								onKeyDown={handleSearchInputKeyDown}
+								placeholder="コメントを検索"
+								className="w-full rounded-md border border-gray-600 bg-[#1f1f1f] py-2 pl-9 pr-3 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-blue-500"
+							/>
+						</div>
+						<button
+							type="button"
+							onClick={() => moveSearchMatch(-1)}
+							disabled={matchedCommentIndexes.length === 0}
+							className={`flex h-9 w-9 items-center justify-center rounded border transition-colors ${
+								matchedCommentIndexes.length === 0
+									? "cursor-default border-gray-700 bg-[#2a2a2a] text-gray-600"
+									: "border-gray-600 bg-[#1f1f1f] text-gray-200 hover:bg-gray-700"
+							}`}
+							title="前の検索結果へ移動 (Shift+Enter)"
+						>
+							<ArrowUp size={16} />
+						</button>
+						<button
+							type="button"
+							onClick={() => moveSearchMatch(1)}
+							disabled={matchedCommentIndexes.length === 0}
+							className={`flex h-9 w-9 items-center justify-center rounded border transition-colors ${
+								matchedCommentIndexes.length === 0
+									? "cursor-default border-gray-700 bg-[#2a2a2a] text-gray-600"
+									: "border-gray-600 bg-[#1f1f1f] text-gray-200 hover:bg-gray-700"
+							}`}
+							title="次の検索結果へ移動 (Enter)"
+						>
+							<ArrowDown size={16} />
+						</button>
+					</div>
+					<div className="mt-3 flex items-center justify-between gap-3 text-xs">
+						<div className="min-w-0">
+							<div className="font-mono text-blue-300">
+								{activeSearchResultNumber}/{matchedCommentIndexes.length}件
+							</div>
+							<div className="truncate text-gray-400">
+								{normalizedSearchQuery
+									? matchedCommentIndexes.length > 0
+										? ""
+										: "検索結果がありません"
+									: "現在表示中のコメントを部分一致で検索します"}
+							</div>
+						</div>
+						<button
+							type="button"
+							onClick={() => {
+								setSearchQuery("");
+								setActiveSearchMatchIndex(-1);
+								searchInputRef.current?.focus();
+							}}
+							disabled={searchQuery.length === 0}
+							className={`shrink-0 rounded px-2 py-1 transition-colors ${
+								searchQuery.length === 0
+									? "cursor-default text-gray-600"
+									: "text-gray-300 hover:bg-gray-700 hover:text-white"
+							}`}
+						>
+							クリア
+						</button>
+					</div>
+				</div>
 			)}
 
 			{hasActivePlayer && !isLive && showChapters && (
@@ -1117,9 +1351,7 @@ export default function PluginScreen({
 																	? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500"
 																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
 															}`}
-															title={
-																isSourceVisible ? "非表示にする" : "表示する"
-															}
+															title={isSourceVisible ? "非表示にする" : "表示する"}
 															aria-label={
 																isSourceVisible
 																	? `${source.channelName} を非表示にする`
@@ -1262,4 +1494,12 @@ function toggleSourceVisibility(
 	return nextVisibleSourceKeys.length === sourceKeysInOrder.length
 		? null
 		: nextVisibleSourceKeys;
+}
+
+function wrapIndex(index: number, total: number) {
+	if (total <= 0) {
+		return -1;
+	}
+
+	return ((index % total) + total) % total;
 }
