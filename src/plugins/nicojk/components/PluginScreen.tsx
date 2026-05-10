@@ -285,7 +285,7 @@ export default function PluginScreen({
 			nextAvailableSec = candidate.relativeSec + chapterCooldownSeconds;
 		}
 
-		return filtered;
+		return filtered.reverse();
 	}, [
 		chapterComments,
 		chapterCooldownSeconds,
