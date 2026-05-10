@@ -108,8 +108,7 @@ export default function PluginScreen({
 	const [showMenu, setShowMenu] = useState(false);
 	const [showSearch, setShowSearch] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [activeSearchMatchIndex, setActiveSearchMatchIndex] =
-		useState(-1);
+	const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(-1);
 	const [settings, setSettings] = useState(getSettings());
 	const [hoveredCommentId, setHoveredCommentId] = useState<number | null>(null);
 	const [pinnedCommentId, setPinnedCommentId] = useState<number | null>(null);
@@ -891,17 +890,17 @@ export default function PluginScreen({
 													<div className="min-w-0 flex-1 break-words leading-[1.5]">
 														{c.content}
 													</div>
-																		{isSearchMatched && (
-																			<span
-																				className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] ${
-																					isActiveSearchMatch
-																						? "bg-amber-400/25 text-amber-100"
-																						: "bg-amber-400/15 text-amber-200"
-																				}`}
-																			>
-																				検索
-																			</span>
-																		)}
+													{isSearchMatched && (
+														<span
+															className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] ${
+																isActiveSearchMatch
+																	? "bg-amber-400/25 text-amber-100"
+																	: "bg-amber-400/15 text-amber-200"
+															}`}
+														>
+															検索
+														</span>
+													)}
 													{isSecondarySource && (
 														<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
 															{commentSource
@@ -1351,7 +1350,9 @@ export default function PluginScreen({
 																	? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500"
 																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
 															}`}
-															title={isSourceVisible ? "非表示にする" : "表示する"}
+															title={
+																isSourceVisible ? "非表示にする" : "表示する"
+															}
 															aria-label={
 																isSourceVisible
 																	? `${source.channelName} を非表示にする`
