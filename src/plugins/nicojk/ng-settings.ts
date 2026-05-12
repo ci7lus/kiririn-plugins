@@ -12,7 +12,7 @@ export interface NicoJKSettings {
 	hideSecondarySourceComments: boolean;
 }
 
-export const STORAGE_KEY = "nicojk_settings_v4";
+export const STORAGE_KEY = "nicojk_settings";
 export const SETTINGS_UPDATED_EVENT = "nicojk_settings_updated";
 
 const DEFAULT_SETTINGS: NicoJKSettings = {

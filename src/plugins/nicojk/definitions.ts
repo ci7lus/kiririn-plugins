@@ -55,6 +55,8 @@ async function loadDefinitions(): Promise<ChannelDefinition[]> {
 		return channels;
 	}
 
+	alert("キャッシュ切れてます");
+
 	try {
 		const response = await fetchJson<{ channels: ChannelDefinition[] }>(
 			DEFINITIONS_URL,

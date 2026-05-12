@@ -16,46 +16,52 @@ try {
 
 type AreaType = "playerOverlay" | "pluginScreen" | "pluginSettings";
 
-type KiririnPlugin = {
-	input: string;
+type KiririnPluginManifest = {
 	name: string;
-	title: string;
-	id: string;
+	identifier: string;
 	version: string;
 	author: string;
-	link: string;
-	areas: AreaType[];
-	allowedURLs: string[];
+	url: string;
+	displayAreas: AreaType[];
+	contextId?: string;
+	allowedURLPatterns?: string[];
+};
+
+type KiririnPlugin = {
+	input: string;
+	manifest: KiririnPluginManifest;
 };
 
 const plugins: KiririnPlugin[] = [
 	{
 		input: resolve(process.cwd(), "example.html"),
-		name: "example",
-		title: "Kiririn Plugin Example",
-		id: "io.github.ci7lus.kiririn-plugins.example",
-		version: "0.1.0",
-		author: "ci7lus",
-		link: "https://github.com/ci7lus/kiririn-plugins",
-		areas: ["playerOverlay", "pluginScreen", "pluginSettings"],
-		allowedURLs: ["https://o481625\\.ingest\\.us\\.sentry\\.io/.*"],
+		manifest: {
+			name: "Kiririn Plugin Example",
+			identifier: "io.github.ci7lus.kiririn-plugins.example",
+			version: "0.1.0",
+			author: "ci7lus",
+			url: "https://github.com/ci7lus/kiririn-plugins",
+			displayAreas: ["playerOverlay", "pluginScreen", "pluginSettings"],
+			allowedURLPatterns: ["https://o481625\\.ingest\\.us\\.sentry\\.io/.*"],
+		},
 	},
 	{
 		input: resolve(process.cwd(), "nicojk.html"),
-		name: "nicojk",
-		title: "NicoJK",
-		id: "io.github.ci7lus.kiririn-plugins.nicojk",
-		version: "0.1.0",
-		author: "ci7lus",
-		link: "https://github.com/ci7lus/kiririn-plugins",
-		areas: ["playerOverlay", "pluginScreen", "pluginSettings"],
-		allowedURLs: [
-			"https://o481625\\.ingest\\.us\\.sentry\\.io/.*",
-			"https://cdn\\.jsdelivr\\.net/gh/neneka/saya-definitions@master/definitions\\.json",
-			"https://cal\\.syoboi\\.jp/.*",
-			"https://jikkyo\\.tsukumijima\\.net/.*",
-			"wss://nx-jikkyo\\.tsukumijima\\.net/.*",
-		],
+		manifest: {
+			name: "NicoJK",
+			identifier: "io.github.ci7lus.kiririn-plugins.nicojk",
+			version: "0.1.0",
+			author: "ci7lus",
+			url: "https://github.com/ci7lus/kiririn-plugins",
+			displayAreas: ["playerOverlay", "pluginScreen", "pluginSettings"],
+			allowedURLPatterns: [
+				"https://o481625\\.ingest\\.us\\.sentry\\.io/.*",
+				"https://cdn\\.jsdelivr\\.net/gh/neneka/saya-definitions@master/definitions\\.json",
+				"https://cal\\.syoboi\\.jp/.*",
+				"https://jikkyo\\.tsukumijima\\.net/.*",
+				"wss://nx-jikkyo\\.tsukumijima\\.net/.*",
+			],
+		},
 	},
 ];
 
@@ -66,39 +72,17 @@ async function buildAll() {
 	} catch {}
 
 	for (const plugin of plugins) {
-		console.log(`Building plugin: ${plugin.name}...`);
+		console.log(`Building plugin: ${plugin.manifest.name}...`);
 
 		const tags: HtmlTagDescriptor[] = [
 			{
 				tag: "title",
-				children: plugin.title,
+				children: plugin.manifest.name,
 			},
 			{
-				tag: "meta",
-				attrs: { name: "kiririn:id", content: plugin.id },
-			},
-			{
-				tag: "meta",
-				attrs: { name: "kiririn:version", content: plugin.version },
-			},
-			{
-				tag: "meta",
-				attrs: { name: "kiririn:author", content: plugin.author },
-			},
-			{
-				tag: "meta",
-				attrs: { name: "kiririn:link", content: plugin.link },
-			},
-			{
-				tag: "meta",
-				attrs: { name: "kiririn:areas", content: plugin.areas.join(",") },
-			},
-			{
-				tag: "meta",
-				attrs: {
-					name: "kiririn:allowedURLs",
-					content: JSON.stringify(plugin.allowedURLs),
-				},
+				tag: "script",
+				attrs: { id: "kiririn-plugin-manifest", type: "application/json" },
+				children: JSON.stringify(plugin.manifest),
 			},
 		];
 		const pluginTagMeta: Plugin = {
@@ -120,11 +104,11 @@ async function buildAll() {
 			},
 			define: {
 				__REVISION__: revision,
-				__PLUGIN_ID__: JSON.stringify(plugin.id),
-				__PLUGIN_VERSION__: JSON.stringify(plugin.version),
+				__PLUGIN_ID__: JSON.stringify(plugin.manifest.identifier),
+				__PLUGIN_VERSION__: JSON.stringify(plugin.manifest.version),
 			},
 		});
-		console.log(`Plugin ${plugin.name} built successfully.`);
+		console.log(`Plugin ${plugin.manifest.name} built successfully.`);
 	}
 }
 
