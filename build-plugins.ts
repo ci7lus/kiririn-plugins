@@ -42,6 +42,7 @@ const plugins: KiririnPlugin[] = [
 			author: "ci7lus",
 			url: "https://github.com/ci7lus/kiririn-plugins",
 			displayAreas: ["playerOverlay", "pluginScreen", "pluginSettings"],
+			contextId: "example",
 			allowedURLPatterns: ["https://o481625\\.ingest\\.us\\.sentry\\.io/.*"],
 		},
 	},
@@ -54,6 +55,7 @@ const plugins: KiririnPlugin[] = [
 			author: "ci7lus",
 			url: "https://github.com/ci7lus/kiririn-plugins",
 			displayAreas: ["playerOverlay", "pluginScreen", "pluginSettings"],
+			contextId: "nicojk",
 			allowedURLPatterns: [
 				"https://o481625\\.ingest\\.us\\.sentry\\.io/.*",
 				"https://cdn\\.jsdelivr\\.net/gh/neneka/saya-definitions@master/definitions\\.json",
