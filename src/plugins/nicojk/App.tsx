@@ -219,7 +219,11 @@ function getHasDisplayCandidates(
 	data: PlayerData | undefined,
 	isLive: boolean,
 ) {
-	if (!data || !data.areSourcesResolved) {
+	if (!data) {
+		return false;
+	}
+	// 再取得中（isResolvingSources）は既存ソースがあれば描画を継続する
+	if (!data.areSourcesResolved && !data.isResolvingSources) {
 		return false;
 	}
 
