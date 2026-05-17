@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsx build-plugins.ts",
+		"build": "tsx scripts/build.ts",
 		"lint": "biome lint",
 		"preview": "vite preview",
 		"build-orig": "tsc -b && vite build",
