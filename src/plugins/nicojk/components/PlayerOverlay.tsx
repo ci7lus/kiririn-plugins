@@ -237,6 +237,7 @@ export default function PlayerOverlay({
 		receivedAt: number;
 		isPlaying: boolean;
 		playableID: string;
+		rate: number;
 	} | null>(null);
 
 	useEffect(() => {
@@ -245,7 +246,8 @@ export default function PlayerOverlay({
 				syncRef.current &&
 				syncRef.current.playableID === playbackState.playableID &&
 				syncRef.current.time === playbackState.time &&
-				syncRef.current.isPlaying === playbackState.isPlaying
+				syncRef.current.isPlaying === playbackState.isPlaying &&
+				syncRef.current.rate === playbackState.rate
 			) {
 				return;
 			}
@@ -253,6 +255,7 @@ export default function PlayerOverlay({
 				isPlaying: playbackState.isPlaying,
 				time: playbackState.time,
 				playableID: playbackState.playableID,
+				rate: playbackState.rate,
 				receivedAt: performance.now(),
 			};
 		} else {
@@ -361,7 +364,8 @@ export default function PlayerOverlay({
 					nowVpos = Math.floor(Date.now() / 10);
 				} else if (syncRef.current && jkContextRef.current) {
 					const elapsed = syncRef.current.isPlaying
-						? (performance.now() - syncRef.current.receivedAt) / 1000
+						? ((performance.now() - syncRef.current.receivedAt) / 1000) *
+							syncRef.current.rate
 						: 0;
 					// vpos は絶対 unixtime × 100。nowVpos = (startAt + playerTime) * 100 で一致する。
 					// startAt = initialNetworkTime（TOT/PMT 判明後に更新される）。
