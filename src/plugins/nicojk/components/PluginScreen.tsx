@@ -28,7 +28,7 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED"] as const;
+const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED", "ここ"] as const;
 const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
 const TOOLTIP_MIN_HEIGHT = 160;
 const TOOLTIP_SAFE_MARGIN = 8;

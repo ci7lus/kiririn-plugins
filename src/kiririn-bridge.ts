@@ -1,6 +1,9 @@
 import type {
+	CaptureBlobReference,
+	CaptureTakenPayload,
 	DisplayArea,
 	KiririnBridge,
+	OpenURLPayload,
 	Playable,
 	PlayerPlaybackState,
 } from "./Plugin.d.ts";
@@ -84,6 +87,7 @@ class MockBridge implements KiririnBridge {
 			isPlaying: true,
 			time: elapsed,
 			position: elapsed / 3600,
+			rate: 1,
 		}));
 	}
 
@@ -133,6 +137,10 @@ class MockBridge implements KiririnBridge {
 		setTimeout(() => callback(this.getDisplayArea()), 0);
 	}
 
+	onOpenURL(_callback: (payload: OpenURLPayload) => void): void {}
+
+	onCaptureTaken(_callback: (payload: CaptureTakenPayload) => void): void {}
+
 	play(_playerID?: string): void {}
 
 	pause(_playerID?: string): void {}
@@ -140,6 +148,10 @@ class MockBridge implements KiririnBridge {
 	togglePlayPause(_playerID?: string): void {}
 
 	seek(_position: number, _playerID?: string): void {}
+
+	getCaptureBlob(_ref: CaptureBlobReference): Promise<Blob | null> {
+		return Promise.resolve(null);
+	}
 
 	fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
 		return globalThis.fetch(input, init);

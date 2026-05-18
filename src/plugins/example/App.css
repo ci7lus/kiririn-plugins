@@ -1,0 +1,437 @@
+.example-root,
+.example-loading-shell {
+	--example-bg: rgba(7, 12, 23, 0.9);
+	--example-surface: rgba(12, 18, 33, 0.82);
+	--example-surface-strong: rgba(8, 14, 26, 0.94);
+	--example-fg: #eef6ff;
+	--example-sub: #b7c9da;
+	--example-accent: #7dd3fc;
+	--example-accent-strong: #38bdf8;
+	--example-border: rgba(148, 163, 184, 0.26);
+	--example-ok: #34d399;
+	--example-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+	color: var(--example-fg);
+	background: transparent;
+}
+
+.example-root.is-pluginScreen,
+.example-loading-shell {
+	background:
+		radial-gradient(
+			circle at top left,
+			rgba(56, 189, 248, 0.18),
+			transparent 34%
+		),
+		radial-gradient(
+			circle at top right,
+			rgba(59, 130, 246, 0.14),
+			transparent 28%
+		),
+		linear-gradient(180deg, #07111d 0%, #0f172a 100%);
+}
+
+.example-root.is-playerOverlay {
+	pointer-events: none;
+}
+
+.example-loading-shell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.example-loading-card {
+	padding: 16px 20px;
+	border-radius: 18px;
+	border: 1px solid var(--example-border);
+	background: var(--example-surface);
+	backdrop-filter: blur(14px);
+	box-shadow: var(--example-shadow);
+	font-size: 14px;
+	color: var(--example-sub);
+}
+
+.example-screen-scroll {
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.example-hero-card,
+.example-section,
+.example-settings-panel {
+	backdrop-filter: blur(14px);
+	background: var(--example-surface);
+	border: 1px solid var(--example-border);
+	border-radius: 18px;
+	box-shadow: var(--example-shadow);
+}
+
+.example-hero-card {
+	padding: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.example-hero-top,
+.example-section-header,
+.example-toggle-card {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.example-kicker {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--example-accent);
+}
+
+.example-hero-title {
+	margin: 6px 0 0;
+	font-size: 26px;
+	line-height: 1.1;
+	word-break: break-word;
+}
+
+.example-hero-subtitle,
+.example-section-note,
+.example-settings-copy,
+.example-toggle-note,
+.example-status-line,
+.example-empty-state {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--example-sub);
+}
+
+.example-chip-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.example-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	border-radius: 999px;
+	border: 1px solid var(--example-border);
+	background: rgba(6, 10, 20, 0.34);
+	font-size: 12px;
+	color: var(--example-sub);
+}
+
+.example-chip.is-on {
+	color: #d1fae5;
+	border-color: rgba(52, 211, 153, 0.35);
+	background: rgba(5, 46, 22, 0.34);
+}
+
+.example-chip.is-off {
+	color: #fee2e2;
+	border-color: rgba(248, 113, 113, 0.3);
+	background: rgba(69, 10, 10, 0.34);
+}
+
+.example-summary-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 10px 16px;
+}
+
+.example-summary-item {
+	padding-top: 10px;
+	border-top: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.example-summary-label {
+	font-size: 12px;
+	color: var(--example-sub);
+}
+
+.example-summary-value {
+	margin-top: 4px;
+	font-size: 14px;
+	line-height: 1.45;
+	word-break: break-word;
+}
+
+.example-section {
+	padding: 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.example-section-title,
+.example-settings-title,
+.example-toggle-label {
+	margin: 0;
+	font-weight: 700;
+}
+
+.example-section-title {
+	font-size: 16px;
+}
+
+.example-settings-title {
+	font-size: 20px;
+}
+
+.example-json-block {
+	margin: 0;
+	padding: 14px;
+	border-radius: 12px;
+	border: 1px solid rgba(148, 163, 184, 0.16);
+	background: var(--example-surface-strong);
+	color: #dbeafe;
+	font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow: auto;
+}
+
+.example-capture-preview-frame {
+	overflow: hidden;
+	border-radius: 16px;
+	border: 1px solid rgba(148, 163, 184, 0.18);
+	background: rgba(2, 6, 23, 0.86);
+}
+
+.example-capture-preview-image {
+	display: block;
+	width: 100%;
+	max-height: 520px;
+	object-fit: contain;
+	background: rgba(2, 6, 23, 0.92);
+}
+
+.example-carousel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.example-carousel-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.example-carousel-title,
+.example-carousel-subtitle,
+.example-carousel-indicator {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.example-carousel-title {
+	font-weight: 700;
+	color: var(--example-fg);
+}
+
+.example-carousel-subtitle,
+.example-carousel-indicator {
+	color: var(--example-sub);
+}
+
+.example-carousel-controls,
+.example-carousel-dots {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.example-carousel-button,
+.example-carousel-dot,
+.example-debug-button {
+	border: 1px solid var(--example-border);
+	background: rgba(8, 14, 26, 0.42);
+	color: var(--example-fg);
+	cursor: pointer;
+}
+
+.example-carousel-button {
+	padding: 7px 12px;
+	border-radius: 999px;
+	font-size: 12px;
+	line-height: 1;
+}
+
+.example-carousel-button:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.example-carousel-dot {
+	width: 10px;
+	height: 10px;
+	padding: 0;
+	border-radius: 999px;
+	opacity: 0.5;
+}
+
+.example-carousel-dot.is-active {
+	background: var(--example-accent-strong);
+	opacity: 1;
+}
+
+.example-empty-state {
+	padding: 18px;
+	border-radius: 16px;
+	border: 1px dashed rgba(148, 163, 184, 0.26);
+	background: rgba(7, 12, 23, 0.52);
+}
+
+.example-overlay-shell {
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	padding: 10px;
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-start;
+}
+
+.example-overlay-badge {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 4px;
+	max-width: min(260px, calc(100vw - 20px));
+	padding: 8px 12px;
+	border-radius: 14px;
+	background: rgba(8, 15, 28, 0.76);
+	border: 1px solid rgba(148, 163, 184, 0.22);
+	box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.example-overlay-line {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+}
+
+.example-overlay-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--example-ok);
+	box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.16);
+}
+
+.example-overlay-label {
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: #dff6ff;
+}
+
+.example-overlay-meta {
+	font-size: 12px;
+	color: var(--example-sub);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.example-settings-shell {
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	padding: 20px;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+}
+
+.example-settings-panel {
+	box-sizing: border-box;
+	width: min(420px, 100%);
+	padding: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.example-toggle-card {
+	padding: 14px 16px;
+	border-radius: 14px;
+	border: 1px solid var(--example-border);
+	background: rgba(8, 14, 26, 0.42);
+	align-items: center;
+	cursor: pointer;
+	gap: 16px;
+}
+
+.example-toggle-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.example-toggle-label {
+	font-size: 14px;
+}
+
+.example-toggle-input {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 auto;
+	accent-color: var(--example-accent-strong);
+}
+
+.example-debug-button {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	z-index: 50;
+	padding: 8px 12px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1;
+	pointer-events: auto;
+	box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+}
+
+@media (max-width: 640px) {
+	.example-screen-scroll {
+		padding: 16px;
+	}
+
+	.example-hero-title {
+		font-size: 22px;
+	}
+
+	.example-hero-card,
+	.example-section,
+	.example-settings-panel {
+		border-radius: 16px;
+	}
+}
