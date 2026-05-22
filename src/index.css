@@ -6,12 +6,12 @@
 
 body {
 	margin: 0;
-	background-color: transparent !important; /* 背景透過を強制 */
+	background-color: transparent; /* 背景透過を維持 */
 	height: 100%;
 }
 
 html,
 #root {
 	height: 100%;
-	background-color: transparent !important;
+	background-color: transparent;
 }

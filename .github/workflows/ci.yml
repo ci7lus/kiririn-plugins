@@ -1,0 +1,98 @@
+name: CI
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+    workflow_dispatch:
+        inputs:
+            release:
+                type: boolean
+                required: true
+                default: true
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+                  run_install: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Lint
+              run: pnpm lint
+
+            - name: Type check
+              run: pnpm type
+
+            - name: Build
+              run: pnpm build
+
+            - name: Upload dist artifact
+              uses: actions/upload-artifact@v7
+              with:
+                  name: dist
+                  path: dist
+                  if-no-files-found: error
+
+    release:
+        name: Release
+        needs: build
+        if: ${{ inputs.release }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            attestations: write
+            id-token: write
+        steps:
+            - name: Download dist artifact
+              uses: actions/download-artifact@v8
+              with:
+                  name: dist
+                  path: release-assets
+
+            - name: Prepare release metadata
+              id: release_meta
+              run: |
+                  release_tag="$(date -u +'%Y%m%d%H%M')"
+                  echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+            # - name: Generate artifact attestation
+            #   uses: actions/attest@v4
+            #   with:
+            #       subject-path: release-assets/*
+
+            - name: Create GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+              run: |
+                  gh release create --repo "$GH_REPO" "${{ steps.release_meta.outputs.tag }}" \
+                    --title "${{ steps.release_meta.outputs.tag }}" \
+                    --generate-notes \
+                    release-assets/*.html
