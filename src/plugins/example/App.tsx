@@ -225,7 +225,10 @@ function shortID(id: string | null | undefined) {
 }
 
 function normalizeGenre(
-	genre: NonNullable<NonNullable<Playable["program"]>["genres"]>[number] | null | undefined,
+	genre:
+		| NonNullable<NonNullable<Playable["program"]>["genres"]>[number]
+		| null
+		| undefined,
 ) {
 	if (!genre) {
 		return null;
@@ -264,24 +267,20 @@ function normalizeService(service: Playable["service"] | null | undefined) {
 
 	return {
 		name: service.name || null,
-		serviceId:
-			typeof service.serviceId === "number" ? service.serviceId : null,
-		networkId:
-			typeof service.networkId === "number" ? service.networkId : null,
+		serviceId: typeof service.serviceId === "number" ? service.serviceId : null,
+		networkId: typeof service.networkId === "number" ? service.networkId : null,
 		type: service.type
 			? {
-				value:
-					typeof service.type.value === "number"
-						? service.type.value
-						: null,
-				description: service.type.description || null,
-			}
+					value:
+						typeof service.type.value === "number" ? service.type.value : null,
+					description: service.type.description || null,
+				}
 			: null,
 		channel: service.channel
 			? {
-				id: service.channel.id || null,
-				type: service.channel.type || null,
-			}
+					id: service.channel.id || null,
+					type: service.channel.type || null,
+				}
 			: null,
 	};
 }
@@ -338,8 +337,7 @@ function normalizeDisplayArea(
 		type: area.type || "unknown",
 		playerID: area.playerID || null,
 		width: typeof area.width === "number" ? area.width : window.innerWidth,
-		height:
-			typeof area.height === "number" ? area.height : window.innerHeight,
+		height: typeof area.height === "number" ? area.height : window.innerHeight,
 	};
 }
 
@@ -392,13 +390,18 @@ function buildPreviewSnapshot(previewState: CapturePreviewState) {
 function collectRuntimeState(bridge: KiririnBridge): RuntimeState {
 	const area = bridge.getDisplayArea();
 	const focusedPlayerID = bridge.getFocusedPlayerID();
-	const targetPlayerID = getTargetPlayerID(area.playerID || null, focusedPlayerID);
+	const targetPlayerID = getTargetPlayerID(
+		area.playerID || null,
+		focusedPlayerID,
+	);
 
 	return {
 		area,
 		focusedPlayerID,
 		playable: targetPlayerID ? bridge.getPlayable(targetPlayerID) : null,
-		playbackState: targetPlayerID ? bridge.getPlayerStatus(targetPlayerID) : null,
+		playbackState: targetPlayerID
+			? bridge.getPlayerStatus(targetPlayerID)
+			: null,
 		playables: bridge.getPlayables(),
 		statuses: bridge.getPlayerStatuses(),
 	};
@@ -434,7 +437,10 @@ function buildFocusedSnapshot({
 	previewState: CapturePreviewState;
 }) {
 	const area = normalizeDisplayArea(runtime.area);
-	const targetPlayerID = getTargetPlayerID(area.playerID, runtime.focusedPlayerID);
+	const targetPlayerID = getTargetPlayerID(
+		area.playerID,
+		runtime.focusedPlayerID,
+	);
 
 	return {
 		settings: { showPlayerOverlay: settings.showPlayerOverlay },
@@ -466,7 +472,9 @@ function buildGlobalSnapshot({
 	};
 }
 
-function buildCaptureVariantLabel(capture: ReturnType<typeof normalizeCapture>) {
+function buildCaptureVariantLabel(
+	capture: ReturnType<typeof normalizeCapture>,
+) {
 	if (!capture || capture.references.length === 0) {
 		return "-";
 	}
@@ -479,7 +487,9 @@ function buildCaptureVariantLabel(capture: ReturnType<typeof normalizeCapture>) 
 	);
 }
 
-function buildCaptureOverlayLabel(capture: ReturnType<typeof normalizeCapture>) {
+function buildCaptureOverlayLabel(
+	capture: ReturnType<typeof normalizeCapture>,
+) {
 	if (!capture) {
 		return "-";
 	}
@@ -515,7 +525,9 @@ function buildServiceLabel(playable: ReturnType<typeof normalizePlayable>) {
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-	return <pre className="example-json-block">{JSON.stringify(value, null, 2)}</pre>;
+	return (
+		<pre className="example-json-block">{JSON.stringify(value, null, 2)}</pre>
+	);
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
@@ -599,10 +611,7 @@ function CapturePreviewSection({
 					label="合成オーバーレイ"
 					value={buildCaptureOverlayLabel(capture)}
 				/>
-				<SummaryItem
-					label="Blob 取得結果"
-					value={previewState.status || "-"}
-				/>
+				<SummaryItem label="Blob 取得結果" value={previewState.status || "-"} />
 				<SummaryItem
 					label="表示中 variant"
 					value={activePreview?.variant || "-"}
@@ -643,7 +652,10 @@ function CapturePreviewSection({
 										disabled={clampedIndex >= previewState.items.length - 1}
 										onClick={() =>
 											onPreviewIndexChange(
-												Math.min(previewState.items.length - 1, clampedIndex + 1),
+												Math.min(
+													previewState.items.length - 1,
+													clampedIndex + 1,
+												),
 											)
 										}
 									>
@@ -655,7 +667,7 @@ function CapturePreviewSection({
 							<div className="example-carousel-dots">
 								{previewState.items.map((item, index) => (
 									<button
-										key={`${item.variant || "preview"}-${index}`}
+										key={`${item.url}-${item.variant || "preview"}`}
 										className={`example-carousel-dot${index === clampedIndex ? " is-active" : ""}`}
 										type="button"
 										aria-label={`${index + 1}枚目を表示`}
@@ -700,7 +712,10 @@ function PluginScreenView({
 	onPreviewIndexChange: (index: number) => void;
 }) {
 	const area = normalizeDisplayArea(runtime.area);
-	const targetPlayerID = getTargetPlayerID(area.playerID, runtime.focusedPlayerID);
+	const targetPlayerID = getTargetPlayerID(
+		area.playerID,
+		runtime.focusedPlayerID,
+	);
 	const playable = normalizePlayable(runtime.playable);
 	const status = normalizeStatus(runtime.playbackState);
 
@@ -714,7 +729,8 @@ function PluginScreenView({
 							{playable?.title || "フォーカス中メディアなし"}
 						</h1>
 						<p className="example-hero-subtitle">
-							{playable?.subtitle || "フォーカス中プレイヤーのメディア情報をそのまま展開しています。"}
+							{playable?.subtitle ||
+								"フォーカス中プレイヤーのメディア情報をそのまま展開しています。"}
 						</p>
 					</div>
 
@@ -743,18 +759,9 @@ function PluginScreenView({
 						value={targetPlayerID || "(none)"}
 					/>
 					<SummaryItem label="コンテンツID" value={playable?.id || "-"} />
-					<SummaryItem
-						label="チャンネル"
-						value={buildServiceLabel(playable)}
-					/>
-					<SummaryItem
-						label="放送時間"
-						value={buildProgramWindow(playable)}
-					/>
-					<SummaryItem
-						label="長さ"
-						value={formatDuration(playable?.length)}
-					/>
+					<SummaryItem label="チャンネル" value={buildServiceLabel(playable)} />
+					<SummaryItem label="放送時間" value={buildProgramWindow(playable)} />
+					<SummaryItem label="長さ" value={formatDuration(playable?.length)} />
 					<SummaryItem
 						label="基準時刻 (iNT)"
 						value={formatTimestamp(playable?.initialNetworkTime)}
@@ -858,14 +865,14 @@ function PluginSettingsView({
 			<section className="example-settings-panel">
 				<h1 className="example-settings-title">PlayerOverlay 表示設定</h1>
 				<p className="example-settings-copy">
-					PlayerOverlay に小さな状態バッジを表示するかどうかを切り替えます。PluginScreen は常に表示され、同一プラグインの他の表示領域にも即時反映されます。
+					PlayerOverlay
+					に小さな状態バッジを表示するかどうかを切り替えます。PluginScreen
+					は常に表示され、同一プラグインの他の表示領域にも即時反映されます。
 				</p>
 
 				<label className="example-toggle-card" htmlFor="example-show-overlay">
 					<div className="example-toggle-copy">
-						<div className="example-toggle-label">
-							PlayerOverlay を表示する
-						</div>
+						<div className="example-toggle-label">PlayerOverlay を表示する</div>
 					</div>
 
 					<input
@@ -886,7 +893,9 @@ function PluginSettingsView({
 }
 
 function App() {
-	const [settings, setSettings] = useState<ExampleSettings>(() => loadSettings());
+	const [settings, setSettings] = useState<ExampleSettings>(() =>
+		loadSettings(),
+	);
 	const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME_STATE);
 	const [latestCapturePayload, setLatestCapturePayload] =
 		useState<CaptureTakenPayload | null>(null);
@@ -898,8 +907,8 @@ function App() {
 	const latestCaptureRequestTokenRef = useRef(0);
 	const debugKiririn = window.kiririn as
 		| (KiririnBridge & {
-			nextAreaPattern?: () => void;
-		})
+				nextAreaPattern?: () => void;
+		  })
 		| undefined;
 
 	const applySettings = (nextSettings: unknown, shouldPersist: boolean) => {
@@ -1034,8 +1043,7 @@ function App() {
 							return {
 								reference,
 								blob: null,
-								error:
-									error instanceof Error ? error.message : String(error),
+								error: error instanceof Error ? error.message : String(error),
 							};
 						}
 					}),

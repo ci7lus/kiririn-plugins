@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { initBridge } from "../../kiririn-bridge";
-import type { DisplayArea, Playable } from "../../Plugin.d.ts";
+import type { DisplayArea, KiririnBridge, Playable } from "../../Plugin.d.ts";
 
 function App() {
 	const [playable, setPlayable] = useState<Playable | null>(null);
@@ -32,6 +32,11 @@ function App() {
 
 	const isFullScreen = area.type === "pluginScreen";
 	const isOverlay = area.type === "playerOverlay";
+	const debugKiririn = window.kiririn as
+		| (KiririnBridge & {
+				nextAreaPattern?: () => void;
+		  })
+		| undefined;
 
 	// 配置の決定:
 	// - playerOverlay: 画面下部に配置。pointer-events-noneで外側をクリック可能に。
@@ -99,10 +104,10 @@ function App() {
 				</div>
 
 				{/* デバッグ用切り替えボタン */}
-				{typeof (window.kiririn as any).nextAreaPattern === "function" && (
+				{typeof debugKiririn?.nextAreaPattern === "function" && (
 					<button
 						type="button"
-						onClick={() => (window.kiririn as any).nextAreaPattern()}
+						onClick={() => debugKiririn.nextAreaPattern?.()}
 						className="absolute -top-3 -right-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] px-3 py-1.5 rounded-full shadow-xl font-bold uppercase transition-all hover:scale-110 active:scale-95 z-50 border border-white/20"
 					>
 						Switch
