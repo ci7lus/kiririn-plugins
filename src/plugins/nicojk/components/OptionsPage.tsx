@@ -96,7 +96,7 @@ function buildNumericDrafts(settings: NicoJKSettings): NumericSettingDrafts {
 	};
 }
 
-export default function PluginSettings() {
+export default function OptionsPage() {
 	const initialSettings = getSettings();
 	const [settings, setSettings] = useState<NicoJKSettings>(initialSettings);
 	const [newWord, setNewWord] = useState("");
@@ -443,7 +443,7 @@ export default function PluginSettings() {
 										commitNumericSetting(field.key);
 										e.currentTarget.blur();
 									}}
-									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
 								/>
 								<div className="text-[11px] text-gray-500">
 									範囲: {field.min} - {field.max}

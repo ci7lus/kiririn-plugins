@@ -16,7 +16,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
+import type { PlayerPlaybackState } from "../../../Plugin";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import {
@@ -85,7 +85,7 @@ const SOURCE_KIND_BADGE_CLASSES: Record<
 	replay: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
 };
 
-export default function PluginScreen({
+export default function PanelPage({
 	comments,
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
@@ -116,6 +116,29 @@ export default function PluginScreen({
 	const chapterCooldownSeconds = settings.chapterCooldownSeconds;
 	const chapterMinimumCount = settings.chapterMinimumCount;
 	const chapterSeekLeadSeconds = settings.chapterSeekLeadSeconds;
+	const [safeAreaInsetBottom, setSafeAreaInsetBottom] = useState(() =>
+		parseFloat(
+			getComputedStyle(document.documentElement).getPropertyValue(
+				"--kiririn-safe-area-inset-bottom",
+			) || "0",
+		),
+	);
+
+	useEffect(() => {
+		const update = () => {
+			setSafeAreaInsetBottom(
+				parseFloat(
+					getComputedStyle(document.documentElement).getPropertyValue(
+						"--kiririn-safe-area-inset-bottom",
+					) || "0",
+				),
+			);
+		};
+
+		const observer = new ResizeObserver(update);
+		observer.observe(document.documentElement);
+		return () => observer.disconnect();
+	}, []);
 
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
@@ -632,7 +655,7 @@ export default function PluginScreen({
 	);
 
 	return (
-		<div className="relative flex h-full flex-col overflow-hidden bg-[#1a1a1a] text-white">
+		<div className="relative flex h-screen flex-col overflow-hidden bg-[#1a1a1a] text-white">
 			<div className="shrink-0 border-b border-gray-700 bg-[#252525] p-2">
 				<div className="flex items-center justify-between gap-2">
 					<div className="flex min-w-0 flex-1 items-center gap-2">
@@ -768,6 +791,9 @@ export default function PluginScreen({
 			<div
 				ref={scrollContainerRef}
 				className="relative flex-1 overflow-y-auto p-2"
+				style={{
+					paddingBottom: "calc(0.5rem + var(--kiririn-safe-area-inset-bottom))",
+				}}
 				onScroll={handleScroll}
 			>
 				{!hasActivePlayer ? (
@@ -817,7 +843,10 @@ export default function PluginScreen({
 								0,
 							);
 							const spaceBelow = Math.max(
-								containerHeight - visibleRowBottom - TOOLTIP_SAFE_MARGIN,
+								containerHeight -
+									visibleRowBottom -
+									TOOLTIP_SAFE_MARGIN -
+									safeAreaInsetBottom,
 								0,
 							);
 							const placeAbove =
@@ -866,7 +895,10 @@ export default function PluginScreen({
 										>
 											<button
 												type="button"
-												onMouseEnter={() => setHoveredCommentId(c.id)}
+												onMouseEnter={() => {
+													setHoveredCommentId(c.id);
+													setPinnedCommentId(null);
+												}}
 												onMouseLeave={() => handleTooltipMouseLeave(c.id)}
 												onClick={() => {
 													if (pinnedCommentId === c.id) {
@@ -875,6 +907,7 @@ export default function PluginScreen({
 														return;
 													}
 													setPinnedCommentId(c.id);
+													setHoveredCommentId(null);
 												}}
 												className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none"
 											>
@@ -1014,7 +1047,10 @@ export default function PluginScreen({
 				<button
 					type="button"
 					onClick={scrollToBottom}
-					className="absolute bottom-4 right-4 z-10 rounded-full bg-blue-600 p-3 text-white shadow-2xl transition-all duration-200 hover:scale-110 hover:bg-blue-500 active:scale-95 animate-in fade-in zoom-in"
+					style={{
+						bottom: "calc(1rem + var(--kiririn-safe-area-inset-bottom))",
+					}}
+					className="absolute right-4 z-10 rounded-full bg-blue-600 p-3 text-white shadow-2xl transition-all duration-200 hover:scale-110 hover:bg-blue-500 active:scale-95 animate-in fade-in zoom-in"
 					title="最新へ戻る"
 				>
 					<ArrowUp size={20} className="rotate-180" />
@@ -1048,7 +1084,7 @@ export default function PluginScreen({
 								onChange={(event) => setSearchQuery(event.target.value)}
 								onKeyDown={handleSearchInputKeyDown}
 								placeholder="コメントを検索"
-								className="w-full rounded-md border border-gray-600 bg-[#1f1f1f] py-2 pl-9 pr-3 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-blue-500"
+								className="w-full rounded-md border border-gray-600 bg-[#1f1f1f] py-2 pl-9 pr-3 text-base text-white outline-none transition-colors placeholder:text-gray-500 focus:border-blue-500"
 							/>
 						</div>
 						<button
@@ -1184,6 +1220,26 @@ export default function PluginScreen({
 						</button>
 					</div>
 					<div className="space-y-2">
+						<button
+							type="button"
+							onClick={() =>
+								setSettings(
+									saveSettings({
+										...settings,
+										showComments: !settings.showComments,
+									}),
+								)
+							}
+							className="flex w-full items-center justify-between rounded p-2 text-sm transition-colors hover:bg-gray-700"
+						>
+							<div className="flex items-center gap-2">
+								<MessageSquare size={16} />
+								<span>コメントを表示する</span>
+							</div>
+							{settings.showComments && (
+								<Check size={16} className="text-blue-400" />
+							)}
+						</button>
 						<button
 							type="button"
 							onClick={() => setAutoScroll(!autoScroll)}

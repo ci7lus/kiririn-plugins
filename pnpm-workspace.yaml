@@ -1,6 +1,7 @@
 packages:
   - '.'
 allowBuilds:
+  '@sentry/cli': true
   esbuild: true
 patchedDependencies:
   "@xpadev-net/niconicomments@0.2.76": "patches/@xpadev-net__niconicomments.patch"

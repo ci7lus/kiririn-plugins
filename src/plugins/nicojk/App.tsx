@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { initBridge } from "../../kiririn-bridge";
 import type {
-	DisplayArea,
 	KiririnBridge,
+	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "../../Plugin.d.ts";
+} from "../../Plugin";
 import {
 	CommentClient,
 	type ConnectionStatus,
 	type NiconicoComment,
 } from "./comment-client";
 import { buildStableCommentId } from "./comment-id";
-import PlayerOverlay from "./components/PlayerOverlay";
-import PluginScreen from "./components/PluginScreen";
-import PluginSettings from "./components/PluginSettings";
+import OptionsPage from "./components/OptionsPage";
+import OverlayPage from "./components/OverlayPage";
+import PanelPage from "./components/PanelPage";
 import type { NicoJKContext, NicoJKSourceContext } from "./context";
 import {
 	getChannelDefinition,
@@ -28,7 +28,7 @@ import {
 } from "./source-resolver";
 
 const MAX_LIVE_COMMENTS = 1000;
-const PLAYER_OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
+const OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
 
 type PlayerData = {
 	playableId: string | null;
@@ -454,7 +454,7 @@ function mergeComments(
 	return typeof maxCount === "number" ? deduped.slice(-maxCount) : deduped;
 }
 
-interface PlayerOverlaySnapshot {
+interface OverlaySnapshot {
 	playerID: string;
 	playableId: string | null;
 	comments: NiconicoComment[];
@@ -465,26 +465,96 @@ interface PlayerOverlaySnapshot {
 	isLive: boolean;
 }
 
-type PlayerOverlayRelayMessage =
+type OverlayRelayMessage =
 	| { type: "requestSnapshot" }
 	| { type: "setVisibleSourceKeys"; payload: { sourceKeys: string[] | null } }
-	| { type: "snapshot"; payload: PlayerOverlaySnapshot };
+	| { type: "snapshot"; payload: OverlaySnapshot };
 
-function createPlayerOverlayRelayChannel(playerID: string) {
-	return new BroadcastChannel(`${PLAYER_OVERLAY_RELAY_PREFIX}${playerID}`);
+function createOverlayRelayChannel(playerID: string) {
+	return new BroadcastChannel(`${OVERLAY_RELAY_PREFIX}${playerID}`);
+}
+
+type PageArea =
+	| {
+			type: "overlay";
+			playerID: string | null;
+			width: number;
+			height: number;
+	  }
+	| {
+			type: "panel";
+			width: number;
+			height: number;
+	  }
+	| {
+			type: "options";
+			width: number;
+			height: number;
+	  };
+
+function getViewportSize() {
+	return {
+		width: window.innerWidth,
+		height: window.innerHeight,
+	};
+}
+
+function createDisplayArea(runtimeInfo: KiririnRuntimeInfo): PageArea {
+	const { width, height } = getViewportSize();
+
+	switch (runtimeInfo.displayAreaType) {
+		case "overlay":
+			return {
+				type: "overlay",
+				playerID: runtimeInfo.playerID,
+				width,
+				height,
+			};
+		case "options":
+			return {
+				type: "options",
+				width,
+				height,
+			};
+		default:
+			return {
+				type: "panel",
+				width,
+				height,
+			};
+	}
+}
+
+function getDisplayArea(bridge: KiririnBridge): PageArea {
+	return createDisplayArea(bridge.getRuntimeInfo());
+}
+
+function isSameDisplayArea(current: PageArea | null, next: PageArea) {
+	if (!current) {
+		return false;
+	}
+
+	const currentPlayerId = "playerID" in current ? current.playerID : null;
+	const nextPlayerId = "playerID" in next ? next.playerID : null;
+
+	return (
+		current.type === next.type &&
+		current.width === next.width &&
+		current.height === next.height &&
+		currentPlayerId === nextPlayerId
+	);
 }
 
 type DebugKiririnBridge = KiririnBridge & {
 	toggleSeekable?: () => void;
-	nextAreaPattern?: () => void;
-	focusPlayable?: (playerID: string) => void;
+	focusPlayable?: (playerID: string | null) => void;
 	closePlayer?: (playerID: string) => void;
 };
 
 export default function App() {
 	const [instanceId] = useState(() => Math.random().toString(36).substring(7));
 	const [targetPlayable, setTargetPlayable] = useState<Playable | null>(null);
-	const [area, setArea] = useState<DisplayArea | null>(null);
+	const [area, setArea] = useState<PageArea | null>(null);
 	const [comments, setComments] = useState<NiconicoComment[]>([]);
 	const [visibleSourceKeys, setVisibleSourceKeys] = useState<string[] | null>(
 		null,
@@ -493,23 +563,22 @@ export default function App() {
 	const [playbackState, setPlaybackState] =
 		useState<PlayerPlaybackState | null>(null);
 	const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
-	const [screenIsLive, setScreenIsLive] = useState(false);
+	const [panelIsLive, setPanelIsLive] = useState(false);
 	const [hasDisplayCandidates, setHasDisplayCandidates] = useState(false);
 	const [recordedCommentsReady, setRecordedCommentsReady] = useState(false);
 	const [isLoadingRecordedComments, setIsLoadingRecordedComments] =
 		useState(false);
 	const [channelDisplayState, setChannelDisplayState] =
 		useState<ChannelDisplayState>(EMPTY_CHANNEL_DISPLAY_STATE);
+	const overlayPlayerId = area?.type === "overlay" ? area.playerID : null;
 
-	const areaRef = useRef<DisplayArea | null>(null);
+	const areaRef = useRef<PageArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
 	const relayChannelRef = useRef<BroadcastChannel | null>(null);
-	const screenRelayChannelRef = useRef<BroadcastChannel | null>(null);
-	const screenRelayPlayerIdRef = useRef<string | null>(null);
-	const screenSnapshotsRef = useRef<Map<string, PlayerOverlaySnapshot>>(
-		new Map(),
-	);
-	const screenSnapshotMetaRef = useRef<{
+	const panelRelayChannelRef = useRef<BroadcastChannel | null>(null);
+	const panelRelayPlayerIdRef = useRef<string | null>(null);
+	const panelSnapshotsRef = useRef<Map<string, OverlaySnapshot>>(new Map());
+	const panelSnapshotMetaRef = useRef<{
 		playerID: string | null;
 		playableId: string | null;
 	}>({
@@ -553,26 +622,23 @@ export default function App() {
 		overlayIsLiveRef.current = !targetPlayable?.isSeekable;
 	}, [targetPlayable?.isSeekable]);
 
-	const applyPluginScreenSnapshot = useCallback(
-		(snapshot: PlayerOverlaySnapshot) => {
-			screenSnapshotsRef.current.set(snapshot.playerID, snapshot);
-			screenSnapshotMetaRef.current = {
-				playerID: snapshot.playerID,
-				playableId: snapshot.playableId,
-			};
-			setComments(snapshot.comments);
-			setVisibleSourceKeys(snapshot.visibleSourceKeys);
-			setJkContext(snapshot.jkContext);
-			setChannelDisplayState(snapshot.channelDisplayState);
-			setWsStatus(snapshot.wsStatus);
-			setScreenIsLive(snapshot.isLive);
-		},
-		[],
-	);
+	const applyPanelSnapshot = useCallback((snapshot: OverlaySnapshot) => {
+		panelSnapshotsRef.current.set(snapshot.playerID, snapshot);
+		panelSnapshotMetaRef.current = {
+			playerID: snapshot.playerID,
+			playableId: snapshot.playableId,
+		};
+		setComments(snapshot.comments);
+		setVisibleSourceKeys(snapshot.visibleSourceKeys);
+		setJkContext(snapshot.jkContext);
+		setChannelDisplayState(snapshot.channelDisplayState);
+		setWsStatus(snapshot.wsStatus);
+		setPanelIsLive(snapshot.isLive);
+	}, []);
 
-	const clearPluginScreenState = useCallback(
+	const clearPanelState = useCallback(
 		(displayState: ChannelDisplayState, isLive = false) => {
-			screenSnapshotMetaRef.current = {
+			panelSnapshotMetaRef.current = {
 				playerID: null,
 				playableId: null,
 			};
@@ -581,14 +647,14 @@ export default function App() {
 			setJkContext(null);
 			setChannelDisplayState(displayState);
 			setWsStatus("disconnected");
-			setScreenIsLive(isLive);
+			setPanelIsLive(isLive);
 		},
 		[],
 	);
 
-	const getCachedPluginScreenSnapshot = useCallback(
+	const getCachedPanelSnapshot = useCallback(
 		(playerID: string, playableId: string | null) => {
-			const snapshot = screenSnapshotsRef.current.get(playerID);
+			const snapshot = panelSnapshotsRef.current.get(playerID);
 			if (!snapshot) {
 				return null;
 			}
@@ -604,23 +670,23 @@ export default function App() {
 		[],
 	);
 
-	const hasCurrentPluginScreenSnapshot = useCallback(
+	const hasCurrentPanelSnapshot = useCallback(
 		(playerID: string, playableId: string | null) => {
 			return (
-				screenSnapshotMetaRef.current.playerID === playerID &&
-				screenSnapshotMetaRef.current.playableId === playableId
+				panelSnapshotMetaRef.current.playerID === playerID &&
+				panelSnapshotMetaRef.current.playableId === playableId
 			);
 		},
 		[],
 	);
 
-	const requestPluginScreenSnapshot = useCallback((playerID: string) => {
-		if (screenRelayPlayerIdRef.current !== playerID) {
+	const requestPanelSnapshot = useCallback((playerID: string) => {
+		if (panelRelayPlayerIdRef.current !== playerID) {
 			return;
 		}
-		screenRelayChannelRef.current?.postMessage({
+		panelRelayChannelRef.current?.postMessage({
 			type: "requestSnapshot",
-		} satisfies PlayerOverlayRelayMessage);
+		} satisfies OverlayRelayMessage);
 	}, []);
 
 	const handleVisibleSourceKeysChange = useCallback(
@@ -636,29 +702,29 @@ export default function App() {
 			);
 			setVisibleSourceKeys(normalizedSourceKeys);
 
-			const snapshot = screenSnapshotsRef.current.get(playerID);
+			const snapshot = panelSnapshotsRef.current.get(playerID);
 			if (snapshot) {
-				screenSnapshotsRef.current.set(playerID, {
+				panelSnapshotsRef.current.set(playerID, {
 					...snapshot,
 					visibleSourceKeys: normalizedSourceKeys,
 				});
 			}
 
-			screenRelayChannelRef.current?.postMessage({
+			panelRelayChannelRef.current?.postMessage({
 				type: "setVisibleSourceKeys",
 				payload: {
 					sourceKeys: normalizedSourceKeys,
 				},
-			} satisfies PlayerOverlayRelayMessage);
+			} satisfies OverlayRelayMessage);
 		},
 		[],
 	);
 
 	useEffect(() => {
-		if (area?.type !== "playerOverlay" || !area.playerID) return;
-		const playerID = area.playerID;
+		if (area?.type !== "overlay" || !overlayPlayerId) return;
+		const playerID = overlayPlayerId;
 
-		const channel = createPlayerOverlayRelayChannel(playerID);
+		const channel = createOverlayRelayChannel(playerID);
 		const postSnapshot = () => {
 			channel.postMessage({
 				type: "snapshot",
@@ -672,9 +738,9 @@ export default function App() {
 					wsStatus: wsStatusRef.current,
 					isLive: overlayIsLiveRef.current,
 				},
-			} satisfies PlayerOverlayRelayMessage);
+			} satisfies OverlayRelayMessage);
 		};
-		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
+		channel.onmessage = (event: MessageEvent<OverlayRelayMessage>) => {
 			if (event.data.type === "requestSnapshot") {
 				postSnapshot();
 				return;
@@ -706,17 +772,17 @@ export default function App() {
 				relayChannelRef.current = null;
 			}
 		};
-	}, [area?.type, area?.playerID]);
+	}, [area?.type, overlayPlayerId]);
 
 	useEffect(() => {
-		if (area?.type !== "playerOverlay" || !area.playerID) return;
+		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const channel = relayChannelRef.current;
 		if (!channel) return;
 
 		channel.postMessage({
 			type: "snapshot",
 			payload: {
-				playerID: area.playerID,
+				playerID: overlayPlayerId,
 				playableId: targetPlayable?.id || null,
 				comments,
 				visibleSourceKeys,
@@ -725,10 +791,10 @@ export default function App() {
 				wsStatus,
 				isLive: !targetPlayable?.isSeekable,
 			},
-		} satisfies PlayerOverlayRelayMessage);
+		} satisfies OverlayRelayMessage);
 	}, [
 		area?.type,
-		area?.playerID,
+		overlayPlayerId,
 		comments,
 		visibleSourceKeys,
 		jkContext,
@@ -739,20 +805,20 @@ export default function App() {
 	]);
 
 	useEffect(() => {
-		if (area?.type !== "pluginScreen") return;
+		if (area?.type !== "panel") return;
 
 		const playerID = targetPlayable?.playerID;
 		const expectedPlayableId = targetPlayable?.id || null;
 
 		if (!playerID) {
-			clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
+			clearPanelState(EMPTY_CHANNEL_DISPLAY_STATE);
 			return;
 		}
 
-		const channel = createPlayerOverlayRelayChannel(playerID);
-		screenRelayChannelRef.current = channel;
-		screenRelayPlayerIdRef.current = playerID;
-		channel.onmessage = (event: MessageEvent<PlayerOverlayRelayMessage>) => {
+		const channel = createOverlayRelayChannel(playerID);
+		panelRelayChannelRef.current = channel;
+		panelRelayPlayerIdRef.current = playerID;
+		channel.onmessage = (event: MessageEvent<OverlayRelayMessage>) => {
 			if (event.data.type !== "snapshot") return;
 			if (
 				expectedPlayableId &&
@@ -762,26 +828,23 @@ export default function App() {
 				return;
 			}
 
-			applyPluginScreenSnapshot(event.data.payload);
+			applyPanelSnapshot(event.data.payload);
 		};
 
-		const cachedSnapshot = getCachedPluginScreenSnapshot(
-			playerID,
-			expectedPlayableId,
-		);
+		const cachedSnapshot = getCachedPanelSnapshot(playerID, expectedPlayableId);
 		if (cachedSnapshot) {
-			applyPluginScreenSnapshot(cachedSnapshot);
-		} else if (!hasCurrentPluginScreenSnapshot(playerID, expectedPlayableId)) {
-			clearPluginScreenState(
+			applyPanelSnapshot(cachedSnapshot);
+		} else if (!hasCurrentPanelSnapshot(playerID, expectedPlayableId)) {
+			clearPanelState(
 				getRelayPendingChannelDisplayState(),
 				!targetPlayable?.isSeekable,
 			);
 		}
 
-		requestPluginScreenSnapshot(playerID);
+		requestPanelSnapshot(playerID);
 		const retryTimer = window.setTimeout(() => {
-			if (!hasCurrentPluginScreenSnapshot(playerID, expectedPlayableId)) {
-				requestPluginScreenSnapshot(playerID);
+			if (!hasCurrentPanelSnapshot(playerID, expectedPlayableId)) {
+				requestPanelSnapshot(playerID);
 			}
 		}, 500);
 
@@ -789,18 +852,18 @@ export default function App() {
 			window.clearTimeout(retryTimer);
 			channel.onmessage = null;
 			channel.close();
-			if (screenRelayChannelRef.current === channel) {
-				screenRelayChannelRef.current = null;
-				screenRelayPlayerIdRef.current = null;
+			if (panelRelayChannelRef.current === channel) {
+				panelRelayChannelRef.current = null;
+				panelRelayPlayerIdRef.current = null;
 			}
 		};
 	}, [
 		area?.type,
-		applyPluginScreenSnapshot,
-		clearPluginScreenState,
-		getCachedPluginScreenSnapshot,
-		hasCurrentPluginScreenSnapshot,
-		requestPluginScreenSnapshot,
+		applyPanelSnapshot,
+		clearPanelState,
+		getCachedPanelSnapshot,
+		hasCurrentPanelSnapshot,
+		requestPanelSnapshot,
 		targetPlayable?.id,
 		targetPlayable?.isSeekable,
 		targetPlayable?.playerID,
@@ -814,13 +877,21 @@ export default function App() {
 			return;
 		}
 
+		const syncArea = () => {
+			const nextArea = getDisplayArea(bridge);
+			if (!isSameDisplayArea(areaRef.current, nextArea)) {
+				setArea(nextArea);
+			}
+			areaRef.current = nextArea;
+			return nextArea;
+		};
+
 		console.log(
-			`[NicoJK][#${instanceId}] Initial area:`,
-			bridge.getDisplayArea(),
+			`[NicoJK][#${instanceId}] Runtime info:`,
+			bridge.getRuntimeInfo(),
 		);
-		const initialArea = bridge.getDisplayArea();
-		setArea(initialArea);
-		areaRef.current = initialArea;
+		const initialArea = syncArea();
+		console.log(`[NicoJK][#${instanceId}] Initial area:`, initialArea);
 
 		const getPlayerWsStatus = (data?: PlayerData): ConnectionStatus => {
 			if (!data || data.liveSources.length === 0) {
@@ -861,10 +932,10 @@ export default function App() {
 			let targetP: Playable | null = null;
 			let targetS: PlayerPlaybackState | null = null;
 
-			if (currentArea.type === "playerOverlay" && currentArea.playerID) {
+			if (currentArea.type === "overlay" && currentArea.playerID) {
 				targetP = bridge.getPlayable(currentArea.playerID);
 				targetS = bridge.getPlayerStatus(currentArea.playerID);
-			} else if (currentArea.type === "pluginScreen") {
+			} else if (currentArea.type === "panel") {
 				const activeId = bridge.getFocusedPlayerID();
 				targetP = activeId ? bridge.getPlayable(activeId) : null;
 				targetS = activeId ? bridge.getPlayerStatus(activeId) : null;
@@ -872,7 +943,7 @@ export default function App() {
 				setTargetPlayable(null);
 				targetPlayableRef.current = null;
 				setPlaybackState(null);
-				clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
+				clearPanelState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
 				setIsLoadingRecordedComments(false);
@@ -883,7 +954,7 @@ export default function App() {
 			targetPlayableRef.current = targetP;
 			setPlaybackState(targetS);
 
-			if (currentArea.type === "playerOverlay" && targetP) {
+			if (currentArea.type === "overlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
 				setComments(data?.comments || []);
 				setVisibleSourceKeys(
@@ -901,28 +972,26 @@ export default function App() {
 				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 				setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
 			} else if (targetP) {
-				const cachedSnapshot = getCachedPluginScreenSnapshot(
+				const cachedSnapshot = getCachedPanelSnapshot(
 					targetP.playerID,
 					targetP.id,
 				);
 				if (cachedSnapshot) {
-					applyPluginScreenSnapshot(cachedSnapshot);
-				} else if (
-					!hasCurrentPluginScreenSnapshot(targetP.playerID, targetP.id)
-				) {
-					clearPluginScreenState(
+					applyPanelSnapshot(cachedSnapshot);
+				} else if (!hasCurrentPanelSnapshot(targetP.playerID, targetP.id)) {
+					clearPanelState(
 						getRelayPendingChannelDisplayState(),
 						!targetP.isSeekable,
 					);
 				} else {
-					setScreenIsLive(!targetP.isSeekable);
+					setPanelIsLive(!targetP.isSeekable);
 				}
-				requestPluginScreenSnapshot(targetP.playerID);
+				requestPanelSnapshot(targetP.playerID);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
 				setIsLoadingRecordedComments(false);
 			} else {
-				clearPluginScreenState(EMPTY_CHANNEL_DISPLAY_STATE);
+				clearPanelState(EMPTY_CHANNEL_DISPLAY_STATE);
 				setHasDisplayCandidates(false);
 				setRecordedCommentsReady(false);
 				setIsLoadingRecordedComments(false);
@@ -931,23 +1000,25 @@ export default function App() {
 
 		bridge.onFocusedPlayerIDChange((id) => {
 			console.log(`[NicoJK][#${instanceId}] Focus event:`, id);
+			syncArea();
 			updateTarget();
 		});
 
 		bridge.onPlayablesChange(() => {
 			console.log(`[NicoJK][#${instanceId}] Playables change event`);
+			syncArea();
 			updateTarget();
 		});
 
 		bridge.onPlayerStatusesChange((statuses) => {
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
-			if (currentArea.type === "pluginSettings") {
+			if (currentArea.type === "options") {
 				setPlaybackState(null);
 				return;
 			}
 			let s: PlayerPlaybackState | null = null;
-			if (currentArea.type === "playerOverlay" && currentArea.playerID) {
+			if (currentArea.type === "overlay" && currentArea.playerID) {
 				s = statuses.find((it) => it.playerID === currentArea.playerID) || null;
 			} else {
 				const activeId = bridge.getFocusedPlayerID();
@@ -958,23 +1029,22 @@ export default function App() {
 			setPlaybackState(s);
 		});
 
-		bridge.onDisplayAreaChange((newArea) => {
-			console.log(`[NicoJK][#${instanceId}] Area change event:`, newArea.type);
-			setArea(newArea);
-			areaRef.current = newArea;
-			updateTarget();
-		});
+		const handleResize = () => {
+			syncArea();
+		};
+		window.addEventListener("resize", handleResize);
 
 		bridge.onPlayerClosed((pid) => {
 			console.log(`[NicoJK][#${instanceId}] Player closed: ${pid}`);
 			playersDataRef.current.delete(pid);
-			screenSnapshotsRef.current.delete(pid);
-			if (screenSnapshotMetaRef.current.playerID === pid) {
-				screenSnapshotMetaRef.current = {
+			panelSnapshotsRef.current.delete(pid);
+			if (panelSnapshotMetaRef.current.playerID === pid) {
+				panelSnapshotMetaRef.current = {
 					playerID: null,
 					playableId: null,
 				};
 			}
+			syncArea();
 			updateTarget();
 		});
 
@@ -984,7 +1054,7 @@ export default function App() {
 			const playables = bridge.getPlayables();
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
-			if (currentArea.type !== "playerOverlay" || !currentArea.playerID) {
+			if (currentArea.type !== "overlay" || !currentArea.playerID) {
 				return;
 			}
 
@@ -1433,17 +1503,18 @@ export default function App() {
 
 		return () => {
 			console.log(`[NicoJK][#${instanceId}] App lifecycle cleanup.`);
+			window.removeEventListener("resize", handleResize);
 			clearInterval(interval);
 			for (const client of clientsRef.current.values()) client.disconnect();
 			clientsRef.current.clear();
 		};
 	}, [
-		applyPluginScreenSnapshot,
-		clearPluginScreenState,
-		getCachedPluginScreenSnapshot,
-		hasCurrentPluginScreenSnapshot,
+		applyPanelSnapshot,
+		clearPanelState,
+		getCachedPanelSnapshot,
+		hasCurrentPanelSnapshot,
 		instanceId,
-		requestPluginScreenSnapshot,
+		requestPanelSnapshot,
 	]);
 
 	if (!area) return null;
@@ -1455,10 +1526,10 @@ export default function App() {
 
 	return (
 		<div
-			className={`w-full h-full relative font-sans ${area.type === "playerOverlay" ? "overflow-hidden" : ""}`}
+			className={`w-full h-full relative font-sans ${area.type === "overlay" ? "overflow-hidden" : ""}`}
 		>
-			{area.type === "playerOverlay" && (
-				<PlayerOverlay
+			{area.type === "overlay" && (
+				<OverlayPage
 					comments={comments}
 					visibleSourceKeys={visibleSourceKeys}
 					width={area.width}
@@ -1473,12 +1544,12 @@ export default function App() {
 				/>
 			)}
 
-			{area.type === "pluginScreen" && (
-				<PluginScreen
+			{area.type === "panel" && (
+				<PanelPage
 					comments={comments}
 					visibleSourceKeys={visibleSourceKeys}
 					onVisibleSourceKeysChange={handleVisibleSourceKeysChange}
-					isLive={screenIsLive}
+					isLive={panelIsLive}
 					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
@@ -1488,7 +1559,7 @@ export default function App() {
 				/>
 			)}
 
-			{area.type === "pluginSettings" && <PluginSettings />}
+			{area.type === "options" && <OptionsPage />}
 
 			{debugKiririn?.toggleSeekable && (
 				<div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm max-w-sm">
@@ -1505,13 +1576,6 @@ export default function App() {
 							className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] rounded"
 						>
 							Toggle Seekable
-						</button>
-						<button
-							type="button"
-							onClick={() => debugKiririn.nextAreaPattern?.()}
-							className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[10px] rounded"
-						>
-							Next Area
 						</button>
 					</div>
 					<div className="flex flex-col gap-1 b border-t border-gray-700 pt-1">

@@ -2,14 +2,13 @@ import NiconiComments, {
 	type FormattedComment,
 } from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
-import type { PlayerPlaybackState } from "../../../Plugin.d.ts";
+import type { PlayerPlaybackState } from "../../../Plugin";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import {
 	getSettings,
 	type NicoJKSettings,
 	SETTINGS_UPDATED_EVENT,
-	STORAGE_KEY,
 } from "../ng-settings";
 
 interface Props {
@@ -163,7 +162,7 @@ function toFormattedComments(
 		.filter((comment): comment is FormattedComment => comment != null);
 }
 
-export default function PlayerOverlay({
+export default function OverlayPage({
 	comments,
 	visibleSourceKeys,
 	width,
@@ -189,6 +188,7 @@ export default function PlayerOverlay({
 	);
 	const visibleSourceKeysRef = useRef(visibleSourceKeys);
 	const lastCommentIdRef = useRef<number>(0);
+	const [showComments, setShowComments] = useState(getSettings().showComments);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
 	const [filterVersion, setFilterVersion] = useState(0);
 	const [rendererInitialized, setRendererInitialized] = useState(false);
@@ -197,6 +197,7 @@ export default function PlayerOverlay({
 	useEffect(() => {
 		const handleUpdate = () => {
 			const s = getSettings();
+			setShowComments(s.showComments);
 			setOpacity(s.opacity);
 			const nextFilterSignature = getFilterSignature(
 				s,
@@ -207,16 +208,9 @@ export default function PlayerOverlay({
 				setFilterVersion((version) => version + 1);
 			}
 		};
-		const handleStorage = (e: StorageEvent) => {
-			if (e.key === STORAGE_KEY) {
-				handleUpdate();
-			}
-		};
 		window.addEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
-		window.addEventListener("storage", handleStorage);
 		return () => {
 			window.removeEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
-			window.removeEventListener("storage", handleStorage);
 		};
 	}, []);
 
@@ -285,7 +279,7 @@ export default function PlayerOverlay({
 			: isLoadingRecordedComments
 				? "partial"
 				: "complete";
-		const shouldCreateRenderer = hasDisplayCandidates;
+		const shouldCreateRenderer = hasDisplayCandidates && showComments;
 		if (!shouldCreateRenderer) {
 			if (rendererRef.current) {
 				rendererRef.current.clear();
@@ -352,6 +346,7 @@ export default function PlayerOverlay({
 		jkContext,
 		playableId,
 		recordedCommentsReady,
+		showComments,
 		visibleSourceKeys,
 	]);
 
@@ -442,7 +437,7 @@ export default function PlayerOverlay({
 				style={{
 					width: targetW,
 					height: targetH,
-					opacity,
+					opacity: showComments ? opacity : 0,
 				}}
 			/>
 		</div>

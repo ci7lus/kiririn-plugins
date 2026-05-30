@@ -1,7 +1,14 @@
+import {
+	readStoredJsonWithFallback,
+	subscribeStoredJsonChanges,
+	writeStoredJsonWithFallback,
+} from "./storage";
+
 export interface NicoJKSettings {
 	ngWords: string[];
 	ngIds: string[];
 	ngCommands: string[];
+	showComments: boolean;
 	opacity: number;
 	secondarySourceOpacity: number;
 	chapterWindowSeconds: number;
@@ -19,6 +26,7 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	ngWords: [],
 	ngIds: [],
 	ngCommands: [],
+	showComments: true,
 	opacity: 0.8,
 	secondarySourceOpacity: 1,
 	chapterWindowSeconds: 10,
@@ -28,6 +36,12 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	maxRecordedReplayAirings: 5,
 	hideSecondarySourceComments: false,
 };
+
+let settingsCache = DEFAULT_SETTINGS;
+let settingsSignature = JSON.stringify(DEFAULT_SETTINGS);
+let settingsInitialized = false;
+let settingsInitialization: Promise<NicoJKSettings> | null = null;
+let settingsSubscriptionAttached = false;
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
@@ -82,6 +96,10 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 		ngWords: normalizeStringArray(stored.ngWords),
 		ngIds: normalizeStringArray(stored.ngIds),
 		ngCommands: normalizeStringArray(stored.ngCommands),
+		showComments:
+			typeof stored.showComments === "boolean"
+				? stored.showComments
+				: DEFAULT_SETTINGS.showComments,
 		opacity: normalizeOpacity(stored.opacity, DEFAULT_SETTINGS.opacity),
 		secondarySourceOpacity: normalizeOpacity(
 			stored.secondarySourceOpacity,
@@ -124,23 +142,79 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 	};
 }
 
-export function getSettings(): NicoJKSettings {
-	const stored = localStorage.getItem(STORAGE_KEY);
-	if (stored) {
-		try {
-			return normalizeSettings(JSON.parse(stored));
-		} catch (e) {
-			console.error("Failed to parse settings", e);
-		}
+function emitSettingsUpdated() {
+	window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
+}
+
+function updateSettingsCache(value: unknown) {
+	const normalized = normalizeSettings(value);
+	const nextSignature = JSON.stringify(normalized);
+	const didChange = nextSignature !== settingsSignature;
+
+	settingsCache = normalized;
+	settingsSignature = nextSignature;
+	settingsInitialized = true;
+
+	return didChange;
+}
+
+function ensureSettingsSubscription() {
+	if (settingsSubscriptionAttached || typeof window === "undefined") {
+		return;
 	}
-	return DEFAULT_SETTINGS;
+
+	settingsSubscriptionAttached = true;
+	subscribeStoredJsonChanges(STORAGE_KEY, (value) => {
+		const didChange = updateSettingsCache(value);
+		if (didChange) {
+			emitSettingsUpdated();
+		}
+	});
+}
+
+export function initializeSettings(): Promise<NicoJKSettings> {
+	ensureSettingsSubscription();
+
+	if (!settingsInitialization) {
+		settingsInitialization = (async () => {
+			try {
+				const { value } =
+					await readStoredJsonWithFallback<unknown>(STORAGE_KEY);
+				const didChange = updateSettingsCache(value);
+
+				if (didChange) {
+					emitSettingsUpdated();
+				}
+			} catch (error) {
+				console.error("Failed to initialize settings", error);
+			}
+
+			return settingsCache;
+		})();
+	}
+
+	return settingsInitialization;
+}
+
+export function getSettings(): NicoJKSettings {
+	ensureSettingsSubscription();
+	if (!settingsInitialized) {
+		updateSettingsCache(DEFAULT_SETTINGS);
+		void initializeSettings();
+	}
+	return settingsCache;
 }
 
 export function saveSettings(settings: NicoJKSettings) {
-	const normalized = normalizeSettings(settings);
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-	window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
-	return normalized;
+	ensureSettingsSubscription();
+	updateSettingsCache(settings);
+	void writeStoredJsonWithFallback(STORAGE_KEY, settingsCache).catch(
+		(error) => {
+			console.error("Failed to persist settings", error);
+		},
+	);
+	emitSettingsUpdated();
+	return settingsCache;
 }
 
 export function addNGWord(word: string) {
