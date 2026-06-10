@@ -1,29 +1,19 @@
-function resolveHostFetchImpl() {
-	if (typeof window !== "undefined" && window.kiririn?.fetch) {
-		return window.kiririn.fetch.bind(window.kiririn);
-	}
+function resolveFetchImpl() {
 	if (typeof globalThis.fetch === "function") {
 		return globalThis.fetch.bind(globalThis);
 	}
 	throw new Error("No fetch implementation available");
 }
 
-function resolveNativeFetchImpl() {
-	if (typeof globalThis.fetch === "function") {
-		return globalThis.fetch.bind(globalThis);
-	}
-	throw new Error("No native fetch implementation available");
-}
-
 export async function hostFetch(input: RequestInfo | URL, init?: RequestInit) {
-	return resolveHostFetchImpl()(input, init);
+	return resolveFetchImpl()(input, init);
 }
 
 export async function nativeFetch(
 	input: RequestInfo | URL,
 	init?: RequestInit,
 ) {
-	return resolveNativeFetchImpl()(input, init);
+	return resolveFetchImpl()(input, init);
 }
 
 export async function hostFetchText(

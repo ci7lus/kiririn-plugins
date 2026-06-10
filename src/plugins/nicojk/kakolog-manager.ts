@@ -29,7 +29,8 @@ export interface KakologFetchProgress {
 	fetchedComments: number;
 }
 
-const KAKOLOG_CHUNK_SIZE = 1800;
+// 1860 秒（31分）ごとに区切って取得する
+const KAKOLOG_CHUNK_SIZE = 1860;
 
 function sortAndDedupeComments(comments: NiconicoComment[]) {
 	const sorted = [...comments].sort(

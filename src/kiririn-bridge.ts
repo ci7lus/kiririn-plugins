@@ -1,12 +1,12 @@
 import type {
-	CaptureBlobReference,
 	CaptureTakenPayload,
-	DisplayArea,
+	CaptureVariant,
+	DeeplinkOpenedPayload,
 	KiririnBridge,
-	OpenURLPayload,
+	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "./Plugin.d.ts";
+} from "./Plugin";
 
 const mockPlayable: Playable = {
 	playerID: "mock-player",
@@ -31,70 +31,91 @@ const mockPlayable: Playable = {
 	},
 };
 
-const AREA_PATTERNS: DisplayArea[] = [
-	{ type: "playerOverlay", playerID: "mock-player", width: 1280, height: 720 },
-	{ type: "pluginSettings", width: 600, height: 400 },
-	{
-		type: "pluginScreen",
-		width: window.innerWidth,
-		height: window.innerHeight,
-	},
-];
+function detectDisplayAreaType(): KiririnRuntimeInfo["displayAreaType"] {
+	const fileName = window.location.pathname.split("/").pop() ?? "";
+
+	if (fileName === "overlay.html") {
+		return "overlay";
+	}
+
+	if (fileName === "options.html") {
+		return "options";
+	}
+
+	return "panel";
+}
+
+function clonePlayables(playables: Playable[]) {
+	return structuredClone(playables);
+}
+
+function cloneStatuses(statuses: Map<string, PlayerPlaybackState>) {
+	return Array.from(statuses.values(), (status) => ({ ...status }));
+}
+
+function createStatus(playable: Playable): PlayerPlaybackState {
+	const initialTime = playable.isSeekable ? 180 : 0;
+	const initialPosition = playable.length ? initialTime / playable.length : 0;
+
+	return {
+		playerID: playable.playerID,
+		playableID: playable.id,
+		isPlaying: true,
+		time: initialTime,
+		position: initialPosition,
+		rate: 1,
+	};
+}
 
 class MockBridge implements KiririnBridge {
 	private playables: Playable[] = [mockPlayable];
-	private focusedPlayerId: string | null = "mock-player";
+	private statuses = new Map<string, PlayerPlaybackState>(
+		this.playables.map((playable) => [
+			playable.playerID,
+			createStatus(playable),
+		]),
+	);
+	private focusedPlayerId: string | null = this.playables[0]?.playerID ?? null;
 
 	private playablesCallbacks: ((p: Playable[]) => void)[] = [];
 	private playerStatusesCallbacks: ((s: PlayerPlaybackState[]) => void)[] = [];
 	private focusedIdCallbacks: ((id: string | null) => void)[] = [];
-	private areaCallbacks: ((a: DisplayArea) => void)[] = [];
 	private closeCallbacks: ((id: string) => void)[] = [];
+	private deeplinkCallbacks: ((payload: DeeplinkOpenedPayload) => void)[] = [];
+	private captureCallbacks: ((payload: CaptureTakenPayload) => void)[] = [];
 
-	private currentAreaIndex = 0;
-	private startTime = Date.now();
+	private timerId = window.setInterval(() => {
+		this.tick();
+	}, 1000);
 
 	constructor() {
-		window.addEventListener("resize", () => {
-			if (AREA_PATTERNS[this.currentAreaIndex].type === "pluginScreen") {
-				const newArea = this.getDisplayArea();
-				this.notifyAreaUpdate(newArea);
-			}
-		});
-
-		// Simulate playback
-		setInterval(() => {
-			for (const cb of this.playerStatusesCallbacks) {
-				cb(this.getPlayerStatuses());
-			}
-		}, 1000);
+		window.addEventListener(
+			"beforeunload",
+			() => {
+				window.clearInterval(this.timerId);
+			},
+			{ once: true },
+		);
 	}
 
 	getPlayables(): Playable[] {
-		return this.playables;
+		return clonePlayables(this.playables);
 	}
 
 	onPlayablesChange(callback: (playables: Playable[]) => void): void {
 		this.playablesCallbacks.push(callback);
-		setTimeout(() => callback(this.playables), 0);
+		queueMicrotask(() => callback(this.getPlayables()));
 	}
 
 	getPlayerStatuses(): PlayerPlaybackState[] {
-		const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-		return this.playables.map((p) => ({
-			playerID: p.playerID,
-			playableID: p.id,
-			isPlaying: true,
-			time: elapsed,
-			position: elapsed / 3600,
-			rate: 1,
-		}));
+		return cloneStatuses(this.statuses);
 	}
 
 	onPlayerStatusesChange(
 		callback: (statuses: PlayerPlaybackState[]) => void,
 	): void {
 		this.playerStatusesCallbacks.push(callback);
+		queueMicrotask(() => callback(this.getPlayerStatuses()));
 	}
 
 	getFocusedPlayerID(): string | null {
@@ -103,7 +124,7 @@ class MockBridge implements KiririnBridge {
 
 	onFocusedPlayerIDChange(callback: (id: string | null) => void): void {
 		this.focusedIdCallbacks.push(callback);
-		setTimeout(() => callback(this.focusedPlayerId), 0);
+		queueMicrotask(() => callback(this.focusedPlayerId));
 	}
 
 	onPlayerClosed(callback: (playerID: string) => void): void {
@@ -112,79 +133,131 @@ class MockBridge implements KiririnBridge {
 
 	getPlayable(playerID: string): Playable | null {
 		return (
-			this.playables.find((p) => p.playerID === playerID) ||
-			this.playables[0] ||
+			this.getPlayables().find((p) => p.playerID === playerID) ||
+			this.getPlayables()[0] ||
 			null
 		);
 	}
 
 	getPlayerStatus(playerID: string): PlayerPlaybackState | null {
 		const statuses = this.getPlayerStatuses();
-		const s = statuses.find((s) => s.playerID === playerID);
-		return s || statuses[0] || null;
+		const status = statuses.find(
+			(candidate) => candidate.playerID === playerID,
+		);
+		return status || statuses[0] || null;
 	}
 
-	getDisplayArea(): DisplayArea {
-		const area = AREA_PATTERNS[this.currentAreaIndex];
-		if (area.type === "pluginScreen") {
-			return { ...area, width: window.innerWidth, height: window.innerHeight };
+	getRuntimeInfo(): KiririnRuntimeInfo {
+		const displayAreaType = detectDisplayAreaType();
+
+		return {
+			platform: "macOS",
+			osVersion: "15.0",
+			appVersion: "0.1.0-dev",
+			buildVersion: "nicojk-dev",
+			bundleIdentifier: "io.github.ci7lus.kiririn.dev",
+			bridgeVersion: 1,
+			displayAreaType,
+			playerID: displayAreaType === "overlay" ? this.focusedPlayerId : null,
+		};
+	}
+
+	onDeeplinkOpened(callback: (payload: DeeplinkOpenedPayload) => void): void {
+		this.deeplinkCallbacks.push(callback);
+	}
+
+	onCaptureTaken(callback: (payload: CaptureTakenPayload) => void): void {
+		this.captureCallbacks.push(callback);
+	}
+
+	play(playerID?: string): void {
+		const status = this.resolveStatus(playerID);
+		if (!status) {
+			return;
 		}
-		return area;
+
+		status.isPlaying = true;
+		this.notifyStatuses();
 	}
 
-	onDisplayAreaChange(callback: (area: DisplayArea) => void): void {
-		this.areaCallbacks.push(callback);
-		setTimeout(() => callback(this.getDisplayArea()), 0);
+	pause(playerID?: string): void {
+		const status = this.resolveStatus(playerID);
+		if (!status) {
+			return;
+		}
+
+		status.isPlaying = false;
+		this.notifyStatuses();
 	}
 
-	onOpenURL(_callback: (payload: OpenURLPayload) => void): void {}
+	togglePlayPause(playerID?: string): void {
+		const status = this.resolveStatus(playerID);
+		if (!status) {
+			return;
+		}
 
-	onCaptureTaken(_callback: (payload: CaptureTakenPayload) => void): void {}
+		status.isPlaying = !status.isPlaying;
+		this.notifyStatuses();
+	}
 
-	play(_playerID?: string): void {}
+	seek(position: number, playerID?: string): void {
+		const status = this.resolveStatus(playerID);
+		if (!status) {
+			return;
+		}
 
-	pause(_playerID?: string): void {}
+		const playable = this.playables.find(
+			(candidate) => candidate.playerID === status.playerID,
+		);
+		if (!playable?.isSeekable || typeof playable.length !== "number") {
+			return;
+		}
 
-	togglePlayPause(_playerID?: string): void {}
+		const nextPosition = Math.max(0, Math.min(position, 1));
+		status.position = nextPosition;
+		status.time = Math.round(playable.length * nextPosition);
+		this.notifyStatuses();
+	}
 
-	seek(_position: number, _playerID?: string): void {}
-
-	getCaptureBlob(_ref: CaptureBlobReference): Promise<Blob | null> {
+	getCaptureBlob(
+		_captureID: string,
+		_variant: CaptureVariant,
+	): Promise<Blob | null> {
 		return Promise.resolve(null);
-	}
-
-	fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-		return globalThis.fetch(input, init);
 	}
 
 	sendMessage(type: string, data: unknown): void {
 		console.log(`[MockBridge] sendMessage: ${type}`, data);
 	}
 
-	public nextAreaPattern(): DisplayArea {
-		this.currentAreaIndex = (this.currentAreaIndex + 1) % AREA_PATTERNS.length;
-		const newArea = this.getDisplayArea();
-		this.notifyAreaUpdate(newArea);
-		return newArea;
-	}
-
 	public toggleSeekable(): void {
-		for (const p of this.playables) {
-			p.isSeekable = !p.isSeekable;
-		}
-		this.notifyPlayablesUpdate();
-	}
-
-	public addPlayable(): void {
-		const newPlayerId = `player-${this.playables.length + 1}`;
-		const newId = `id-${this.playables.length + 1}`;
-		this.playables.push({
-			...mockPlayable,
-			playerID: newPlayerId,
-			id: newId,
-			title: `Title ${this.playables.length + 1}`,
+		this.playables = this.playables.map((playable) => {
+			const nextIsSeekable = !playable.isSeekable;
+			return {
+				...playable,
+				isSeekable: nextIsSeekable,
+				length: nextIsSeekable
+					? (playable.length ?? playable.program?.duration ?? 3600)
+					: undefined,
+			};
 		});
+
+		for (const playable of this.playables) {
+			const status = this.statuses.get(playable.playerID);
+			if (!status) {
+				continue;
+			}
+
+			status.position =
+				playable.isSeekable &&
+				typeof playable.length === "number" &&
+				playable.length > 0
+					? status.time / playable.length
+					: 0;
+		}
+
 		this.notifyPlayablesUpdate();
+		this.notifyStatuses();
 	}
 
 	public focusPlayable(playerID: string | null): void {
@@ -194,23 +267,60 @@ class MockBridge implements KiririnBridge {
 
 	public closePlayer(playerID: string): void {
 		this.playables = this.playables.filter((p) => p.playerID !== playerID);
+		this.statuses.delete(playerID);
 		if (this.focusedPlayerId === playerID) {
 			this.focusedPlayerId = this.playables[0]?.playerID || null;
 		}
 		this.notifyPlayablesUpdate();
+		this.notifyFocusedIdUpdate();
+		this.notifyStatuses();
 		for (const cb of this.closeCallbacks) cb(playerID);
 	}
 
+	private resolveStatus(playerID?: string) {
+		const targetId = playerID ?? this.focusedPlayerId;
+		return targetId ? (this.statuses.get(targetId) ?? null) : null;
+	}
+
+	private tick() {
+		let didChange = false;
+
+		for (const playable of this.playables) {
+			const status = this.statuses.get(playable.playerID);
+			if (!status?.isPlaying) {
+				continue;
+			}
+
+			status.time += status.rate;
+			if (playable.isSeekable && typeof playable.length === "number") {
+				status.time = Math.min(status.time, playable.length);
+				status.position =
+					playable.length > 0 ? status.time / playable.length : 0;
+				if (status.time >= playable.length) {
+					status.isPlaying = false;
+				}
+			}
+
+			didChange = true;
+		}
+
+		if (didChange) {
+			this.notifyStatuses();
+		}
+	}
+
 	private notifyPlayablesUpdate() {
-		for (const cb of this.playablesCallbacks) cb([...this.playables]);
+		const nextPlayables = this.getPlayables();
+		for (const cb of this.playablesCallbacks) cb(nextPlayables);
 	}
 
 	private notifyFocusedIdUpdate() {
 		for (const cb of this.focusedIdCallbacks) cb(this.focusedPlayerId);
 	}
 
-	private notifyAreaUpdate(area: DisplayArea) {
-		for (const cb of this.areaCallbacks) cb(area);
+	private notifyStatuses() {
+		const nextStatuses = this.getPlayerStatuses();
+		for (const cb of this.playerStatusesCallbacks) cb(nextStatuses);
 	}
 }
 

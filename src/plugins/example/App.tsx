@@ -1,198 +1,184 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { initBridge } from "../../kiririn-bridge";
+import {
+	startTransition,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+} from "react";
 import type {
 	CaptureTakenPayload,
-	DisplayArea,
-	KiririnBridge,
+	CaptureVariant,
+	DeeplinkOpenedPayload,
+	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "../../Plugin.d.ts";
+} from "../../Plugin";
+import { type ExampleBridge, getExampleBridge } from "./mock-bridge";
 import "./App.css";
 
-const SETTINGS_STORAGE_KEY = "kiririn.example.settings";
-const SETTINGS_CHANNEL_NAME = "kiririn.example.settings";
+const SETTINGS_STORAGE_KEY = "kiririn.example.settings.v2";
+const MAX_CAPTURE_PREVIEWS = 6;
+const MAX_EVENT_LOG_ITEMS = 18;
 
 type ExampleSettings = {
-	showPlayerOverlay: boolean;
+	overlayEnabled: boolean;
+	jumpSeconds: number;
 };
 
-type SettingsCandidate = Partial<ExampleSettings> & {
-	showOverlay?: boolean;
-	showPluginScreen?: boolean;
-};
-
-type CapturePreviewItem = {
+type CapturePreview = {
+	key: string;
+	captureID: string;
+	type: CaptureVariant;
 	url: string;
-	variant: string | null;
-	sizeText: string;
 	overlayPluginManifestIDs: string[];
+	capturedAt: string;
 };
 
-type CapturePreviewState = {
-	items: CapturePreviewItem[];
-	status: string;
-	currentIndex: number;
+type EventLogItem = {
+	id: string;
+	label: string;
+	detail: string;
+	at: string;
 };
 
-type RuntimeState = {
-	area: DisplayArea | null;
-	focusedPlayerID: string | null;
-	playable: Playable | null;
-	playbackState: PlayerPlaybackState | null;
-	playables: Playable[];
-	statuses: PlayerPlaybackState[];
+type ExampleComFetchResult = {
+	status: number;
+	statusText: string;
+	contentType: string | null;
+	url: string;
+	text: string;
+	fetchedAt: string;
 };
 
-type NormalizedDisplayArea = {
-	type: DisplayArea["type"] | "unknown";
-	playerID: string | null;
-	width: number;
-	height: number;
+type ExampleComFetchState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "success"; result: ExampleComFetchResult }
+	| { status: "error"; message: string };
+
+type StorageChangeLike = {
+	newValue?: unknown;
+};
+
+type BrowserStorageLike = {
+	local?: {
+		get: (key: string) => Promise<Record<string, unknown>>;
+		set: (items: Record<string, unknown>) => Promise<void>;
+	};
+	onChanged?: {
+		addListener: (
+			listener: (
+				changes: Record<string, StorageChangeLike>,
+				areaName: string,
+			) => void,
+		) => void;
+		removeListener: (
+			listener: (
+				changes: Record<string, StorageChangeLike>,
+				areaName: string,
+			) => void,
+		) => void;
+	};
 };
 
 const DEFAULT_SETTINGS = Object.freeze<ExampleSettings>({
-	showPlayerOverlay: true,
+	overlayEnabled: true,
+	jumpSeconds: 15,
 });
 
-const INITIAL_RUNTIME_STATE: RuntimeState = {
-	area: null,
-	focusedPlayerID: null,
-	playable: null,
-	playbackState: null,
-	playables: [],
-	statuses: [],
-};
-
-const INITIAL_CAPTURE_PREVIEW_STATE: CapturePreviewState = {
-	items: [],
-	status: "キャプチャ待機中",
-	currentIndex: 0,
-};
-
-function getTargetPlayerID(
-	areaPlayerID: string | null | undefined,
-	focusedPlayerID: string | null,
-) {
-	return focusedPlayerID || areaPlayerID || null;
-}
-
-function clampPreviewIndex(index: number, itemCount: number) {
-	if (itemCount === 0) {
-		return 0;
-	}
-
-	return Math.max(0, Math.min(index, itemCount - 1));
-}
-
-function cleanupCapturePreviewItems(items: CapturePreviewItem[]) {
-	for (const item of items) {
-		if (item.url) {
-			URL.revokeObjectURL(item.url);
+function getBrowserStorage(): BrowserStorageLike | undefined {
+	return (
+		globalThis as typeof globalThis & {
+			browser?: {
+				storage?: BrowserStorageLike;
+			};
 		}
-	}
+	).browser?.storage;
 }
 
 function normalizeSettings(candidate: unknown): ExampleSettings {
 	const value =
-		typeof candidate === "object" && candidate !== null
-			? (candidate as SettingsCandidate)
+		typeof candidate === "object" && candidate != null
+			? (candidate as Partial<ExampleSettings>)
 			: null;
 
 	return {
-		showPlayerOverlay:
-			typeof value?.showPlayerOverlay === "boolean"
-				? value.showPlayerOverlay
-				: typeof value?.showOverlay === "boolean"
-					? value.showOverlay
-					: typeof value?.showPluginScreen === "boolean"
-						? value.showPluginScreen
-						: DEFAULT_SETTINGS.showPlayerOverlay,
+		overlayEnabled:
+			typeof value?.overlayEnabled === "boolean"
+				? value.overlayEnabled
+				: DEFAULT_SETTINGS.overlayEnabled,
+		jumpSeconds:
+			typeof value?.jumpSeconds === "number" &&
+			[5, 10, 15, 30, 60].includes(value.jumpSeconds)
+				? value.jumpSeconds
+				: DEFAULT_SETTINGS.jumpSeconds,
 	};
 }
 
-function loadSettings(): ExampleSettings {
+async function loadSettings() {
 	try {
+		const storage = getBrowserStorage();
+		if (storage?.local) {
+			const stored = await storage.local.get(SETTINGS_STORAGE_KEY);
+			return normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
+		}
+
 		const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
 		return normalizeSettings(raw ? JSON.parse(raw) : null);
 	} catch {
-		return normalizeSettings(null);
+		return DEFAULT_SETTINGS;
 	}
 }
 
-function formatTimestamp(seconds: number | null | undefined) {
-	if (seconds == null) {
-		return "-";
+async function saveSettings(settings: ExampleSettings) {
+	const storage = getBrowserStorage();
+	if (storage?.local) {
+		await storage.local.set({
+			[SETTINGS_STORAGE_KEY]: settings,
+		});
+		return;
 	}
 
-	return new Date(seconds * 1000).toLocaleString("ja-JP", {
-		year: "numeric",
-		month: "numeric",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
+	localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
 }
 
-function formatDuration(seconds: number | null | undefined) {
-	if (seconds == null) {
-		return "-";
+function subscribeSettings(onChange: (settings: ExampleSettings) => void) {
+	const storage = getBrowserStorage();
+	if (storage?.onChanged) {
+		const listener = (
+			changes: Record<string, StorageChangeLike>,
+			areaName: string,
+		) => {
+			if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) {
+				return;
+			}
+
+			onChange(normalizeSettings(changes[SETTINGS_STORAGE_KEY]?.newValue));
+		};
+
+		storage.onChanged.addListener(listener);
+		return () => storage.onChanged?.removeListener(listener);
 	}
 
-	const total = Math.max(0, Math.floor(seconds));
-	const hours = Math.floor(total / 3600);
-	const minutes = Math.floor(total / 60);
-	const remainSeconds = total % 60;
+	const listener = (event: StorageEvent) => {
+		if (event.key !== SETTINGS_STORAGE_KEY) {
+			return;
+		}
 
-	if (hours > 0) {
-		return `${hours}時間${minutes % 60}分${remainSeconds}秒`;
-	}
+		try {
+			onChange(
+				normalizeSettings(event.newValue ? JSON.parse(event.newValue) : null),
+			);
+		} catch {
+			onChange(DEFAULT_SETTINGS);
+		}
+	};
 
-	return minutes > 0 ? `${minutes}分${remainSeconds}秒` : `${remainSeconds}秒`;
+	window.addEventListener("storage", listener);
+	return () => window.removeEventListener("storage", listener);
 }
 
-function toAreaLabel(type: DisplayArea["type"] | "unknown") {
-	switch (type) {
-		case "playerOverlay":
-			return "playerOverlay";
-		case "pluginSettings":
-			return "pluginSettings";
-		case "pluginScreen":
-			return "pluginScreen";
-		default:
-			return String(type || "unknown");
-	}
-}
-
-function formatPlaybackTime(seconds: number | null | undefined) {
-	if (seconds == null) {
-		return "-";
-	}
-
-	const hours = Math.floor(seconds / 3600);
-	const minutes = Math.floor((seconds % 3600) / 60);
-	const remainSeconds = Math.floor(seconds % 60);
-
-	if (hours > 0) {
-		return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
-	}
-
-	return `${minutes}:${String(remainSeconds).padStart(2, "0")}`;
-}
-
-function formatPosition(value: number | null | undefined) {
-	if (value == null) {
-		return "-";
-	}
-
-	return `${Number(value).toFixed(4)} (${(Number(value) * 100).toFixed(2)}%)`;
-}
-
-function formatBoolean(value: boolean) {
-	return value ? "true" : "false";
-}
-
-function formatDateLike(value: Date | string | null | undefined) {
+function formatTimestamp(value: string | Date | null | undefined) {
 	if (!value) {
 		return "-";
 	}
@@ -204,330 +190,99 @@ function formatDateLike(value: Date | string | null | undefined) {
 
 	return date.toLocaleString("ja-JP", {
 		year: "numeric",
-		month: "numeric",
-		day: "numeric",
+		month: "2-digit",
+		day: "2-digit",
 		hour: "2-digit",
 		minute: "2-digit",
 		second: "2-digit",
 	});
 }
 
-function shortID(id: string | null | undefined) {
-	if (!id) {
-		return "(none)";
-	}
-
-	if (id.length <= 10) {
-		return id;
-	}
-
-	return `${id.slice(0, 8)}…`;
-}
-
-function normalizeGenre(
-	genre:
-		| NonNullable<NonNullable<Playable["program"]>["genres"]>[number]
-		| null
-		| undefined,
-) {
-	if (!genre) {
-		return null;
-	}
-
-	return {
-		lv1: typeof genre.lv1 === "number" ? genre.lv1 : null,
-		lv2: typeof genre.lv2 === "number" ? genre.lv2 : null,
-		name: genre.name || null,
-	};
-}
-
-function normalizeProgram(program: Playable["program"] | null | undefined) {
-	if (!program) {
-		return null;
-	}
-
-	return {
-		name: program.name || null,
-		description: program.description || null,
-		startAt: typeof program.startAt === "number" ? program.startAt : null,
-		endAt: typeof program.endAt === "number" ? program.endAt : null,
-		duration: typeof program.duration === "number" ? program.duration : null,
-		eventId: typeof program.eventId === "number" ? program.eventId : null,
-		extended: Array.isArray(program.extended) ? program.extended.slice() : [],
-		genres: Array.isArray(program.genres)
-			? program.genres.map(normalizeGenre)
-			: [],
-	};
-}
-
-function normalizeService(service: Playable["service"] | null | undefined) {
-	if (!service) {
-		return null;
-	}
-
-	return {
-		name: service.name || null,
-		serviceId: typeof service.serviceId === "number" ? service.serviceId : null,
-		networkId: typeof service.networkId === "number" ? service.networkId : null,
-		type: service.type
-			? {
-					value:
-						typeof service.type.value === "number" ? service.type.value : null,
-					description: service.type.description || null,
-				}
-			: null,
-		channel: service.channel
-			? {
-					id: service.channel.id || null,
-					type: service.channel.type || null,
-				}
-			: null,
-	};
-}
-
-function normalizePlayable(playable: Playable | null | undefined) {
-	if (!playable) {
-		return null;
-	}
-
-	return {
-		playerID: playable.playerID || null,
-		id: playable.id || null,
-		title: playable.title || null,
-		subtitle: playable.subtitle || null,
-		initialNetworkTime:
-			typeof playable.initialNetworkTime === "number"
-				? playable.initialNetworkTime
-				: null,
-		isSeekable: Boolean(playable.isSeekable),
-		length: typeof playable.length === "number" ? playable.length : null,
-		program: normalizeProgram(playable.program),
-		service: normalizeService(playable.service),
-	};
-}
-
-function normalizeStatus(status: PlayerPlaybackState | null | undefined) {
-	if (!status) {
-		return null;
-	}
-
-	return {
-		playerID: status.playerID || null,
-		playableID: status.playableID || null,
-		isPlaying: Boolean(status.isPlaying),
-		time: typeof status.time === "number" ? status.time : null,
-		position: typeof status.position === "number" ? status.position : null,
-		rate: typeof status.rate === "number" ? status.rate : null,
-	};
-}
-
-function normalizeDisplayArea(
-	area: DisplayArea | null | undefined,
-): NormalizedDisplayArea {
-	if (!area) {
-		return {
-			type: "unknown",
-			playerID: null,
-			width: window.innerWidth,
-			height: window.innerHeight,
-		};
-	}
-
-	return {
-		type: area.type || "unknown",
-		playerID: area.playerID || null,
-		width: typeof area.width === "number" ? area.width : window.innerWidth,
-		height: typeof area.height === "number" ? area.height : window.innerHeight,
-	};
-}
-
-function normalizeCapture(capture: CaptureTakenPayload | null | undefined) {
-	if (!capture) {
-		return null;
-	}
-
-	return {
-		playerID: capture.playerID || null,
-		captureID: capture.captureID || null,
-		capturedAt:
-			capture.capturedAt instanceof Date
-				? capture.capturedAt.toISOString()
-				: capture.capturedAt || null,
-		references: Array.isArray(capture.references)
-			? capture.references.map((reference) => ({
-					playerID: reference.playerID || null,
-					captureID: reference.captureID || null,
-					variant: reference.variant || null,
-					overlayPluginManifestIDs: Array.isArray(
-						reference.overlayPluginManifestIDs,
-					)
-						? reference.overlayPluginManifestIDs.slice()
-						: [],
-				}))
-			: [],
-	};
-}
-
-function buildPreviewSnapshot(previewState: CapturePreviewState) {
-	const currentIndex = clampPreviewIndex(
-		previewState.currentIndex,
-		previewState.items.length,
-	);
-
-	return {
-		hasImage: previewState.items.length > 0,
-		status: previewState.status,
-		itemCount: previewState.items.length,
-		currentIndex,
-		items: previewState.items.map((item) => ({
-			variant: item.variant,
-			sizeText: item.sizeText,
-			overlayPluginManifestIDs: item.overlayPluginManifestIDs,
-		})),
-	};
-}
-
-function collectRuntimeState(bridge: KiririnBridge): RuntimeState {
-	const area = bridge.getDisplayArea();
-	const focusedPlayerID = bridge.getFocusedPlayerID();
-	const targetPlayerID = getTargetPlayerID(
-		area.playerID || null,
-		focusedPlayerID,
-	);
-
-	return {
-		area,
-		focusedPlayerID,
-		playable: targetPlayerID ? bridge.getPlayable(targetPlayerID) : null,
-		playbackState: targetPlayerID
-			? bridge.getPlayerStatus(targetPlayerID)
-			: null,
-		playables: bridge.getPlayables(),
-		statuses: bridge.getPlayerStatuses(),
-	};
-}
-
-function buildCaptureLoadStatus(
-	nextItems: CapturePreviewItem[],
-	referenceCount: number,
-	failures: string[],
-) {
-	if (nextItems.length === 0) {
-		return failures[0] || "Blob unavailable";
-	}
-
-	if (failures.length === 0) {
-		return nextItems.length === 1
-			? `${nextItems[0].variant || "image"} / ${nextItems[0].sizeText}`
-			: `${nextItems.length} variants を読み込みました`;
-	}
-
-	return `${nextItems.length}/${referenceCount} variants を読み込みました`;
-}
-
-function buildFocusedSnapshot({
-	settings,
-	runtime,
-	latestCapture,
-	previewState,
-}: {
-	settings: ExampleSettings;
-	runtime: RuntimeState;
-	latestCapture: CaptureTakenPayload | null;
-	previewState: CapturePreviewState;
-}) {
-	const area = normalizeDisplayArea(runtime.area);
-	const targetPlayerID = getTargetPlayerID(
-		area.playerID,
-		runtime.focusedPlayerID,
-	);
-
-	return {
-		settings: { showPlayerOverlay: settings.showPlayerOverlay },
-		focusedPlayerID: runtime.focusedPlayerID,
-		targetPlayerID,
-		displayArea: area,
-		playable: normalizePlayable(runtime.playable),
-		playerStatus: normalizeStatus(runtime.playbackState),
-		latestCapture: normalizeCapture(latestCapture),
-		latestCapturePreview: buildPreviewSnapshot(previewState),
-	};
-}
-
-function buildGlobalSnapshot({
-	runtime,
-	latestCapture,
-	previewState,
-}: {
-	runtime: RuntimeState;
-	latestCapture: CaptureTakenPayload | null;
-	previewState: CapturePreviewState;
-}) {
-	return {
-		focusedPlayerID: runtime.focusedPlayerID,
-		playables: runtime.playables.map(normalizePlayable),
-		playerStatuses: runtime.statuses.map(normalizeStatus),
-		latestCapture: normalizeCapture(latestCapture),
-		latestCapturePreview: buildPreviewSnapshot(previewState),
-	};
-}
-
-function buildCaptureVariantLabel(
-	capture: ReturnType<typeof normalizeCapture>,
-) {
-	if (!capture || capture.references.length === 0) {
+function formatPlaybackTime(seconds: number | null | undefined) {
+	if (seconds == null) {
 		return "-";
 	}
 
-	return (
-		capture.references
-			.map((reference) => reference.variant)
-			.filter(Boolean)
-			.join(", ") || "-"
-	);
+	const safeSeconds = Math.max(0, Math.floor(seconds));
+	const hours = Math.floor(safeSeconds / 3600);
+	const minutes = Math.floor((safeSeconds % 3600) / 60);
+	const remainSeconds = safeSeconds % 60;
+
+	if (hours > 0) {
+		return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+	}
+
+	return `${minutes}:${String(remainSeconds).padStart(2, "0")}`;
 }
 
-function buildCaptureOverlayLabel(
-	capture: ReturnType<typeof normalizeCapture>,
+function normalizeCapturedAtISO(value: unknown) {
+	if (value instanceof Date) {
+		return Number.isNaN(value.getTime())
+			? new Date().toISOString()
+			: value.toISOString();
+	}
+
+	if (typeof value === "string" || typeof value === "number") {
+		const parsed = new Date(value);
+		if (!Number.isNaN(parsed.getTime())) {
+			return parsed.toISOString();
+		}
+	}
+
+	return new Date().toISOString();
+}
+
+function formatProgramRange(playable: Playable | null) {
+	const startAt = playable?.program?.startAt;
+	const endAt = playable?.program?.endAt;
+
+	if (typeof startAt !== "number" || typeof endAt !== "number") {
+		return "-";
+	}
+
+	return `${formatTimestamp(new Date(startAt * 1000))} - ${formatTimestamp(
+		new Date(endAt * 1000),
+	)}`;
+}
+
+function formatPercent(value: number | null | undefined) {
+	if (value == null) {
+		return "-";
+	}
+
+	return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatRuntimeTarget(runtimeInfo: KiririnRuntimeInfo) {
+	return runtimeInfo.playerID ?? "global";
+}
+
+function getActivePlayerID(
+	runtimeInfo: KiririnRuntimeInfo,
+	focusedPlayerID: string | null,
 ) {
-	if (!capture) {
-		return "-";
-	}
-
-	const overlayIDs = Array.from(
-		new Set(
-			capture.references.flatMap((reference) =>
-				Array.isArray(reference.overlayPluginManifestIDs)
-					? reference.overlayPluginManifestIDs
-					: [],
-			),
-		),
-	);
-
-	return overlayIDs.length > 0 ? overlayIDs.join(", ") : "-";
+	return runtimeInfo.playerID ?? focusedPlayerID;
 }
 
-function buildProgramWindow(playable: ReturnType<typeof normalizePlayable>) {
-	if (!playable?.program) {
-		return "-";
-	}
-
-	return `${formatTimestamp(playable.program.startAt)} - ${formatTimestamp(playable.program.endAt)}`;
+function getPlayableByPlayerID(playables: Playable[], playerID: string | null) {
+	return playerID
+		? (playables.find((playable) => playable.playerID === playerID) ?? null)
+		: null;
 }
 
-function buildServiceLabel(playable: ReturnType<typeof normalizePlayable>) {
-	if (!playable?.service) {
-		return "-";
-	}
-
-	const service = playable.service;
-	return `${service.name || "-"} / SID ${service.serviceId ?? "-"} / NID ${service.networkId ?? "-"}`;
+function getStatusByPlayerID(
+	statuses: PlayerPlaybackState[],
+	playerID: string | null,
+) {
+	return playerID
+		? (statuses.find((status) => status.playerID === playerID) ?? null)
+		: null;
 }
 
-function JsonBlock({ value }: { value: unknown }) {
-	return (
-		<pre className="example-json-block">{JSON.stringify(value, null, 2)}</pre>
-	);
+function releaseCapturePreviews(previews: CapturePreview[]) {
+	for (const preview of previews) {
+		URL.revokeObjectURL(preview.url);
+	}
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
@@ -546,641 +301,728 @@ function Section({
 }: {
 	title: string;
 	note?: string;
-	children: ReactNode;
+	children: React.ReactNode;
 }) {
 	return (
 		<section className="example-section">
 			<div className="example-section-header">
-				<h2 className="example-section-title">{title}</h2>
-				{note ? <p className="example-section-note">{note}</p> : null}
+				<div>
+					<h2 className="example-section-title">{title}</h2>
+					{note ? <p className="example-section-note">{note}</p> : null}
+				</div>
 			</div>
 			{children}
 		</section>
 	);
 }
 
-function JsonSection({
-	title,
-	note,
-	data,
+function PlayerBadge({
+	playable,
+	status,
 }: {
-	title: string;
-	note: string;
-	data: unknown;
+	playable: Playable | null;
+	status: PlayerPlaybackState | null;
 }) {
-	return (
-		<Section title={title} note={note}>
-			<JsonBlock value={data} />
-		</Section>
-	);
-}
-
-function CapturePreviewSection({
-	latestCapture,
-	previewState,
-	onPreviewIndexChange,
-}: {
-	latestCapture: CaptureTakenPayload | null;
-	previewState: CapturePreviewState;
-	onPreviewIndexChange: (index: number) => void;
-}) {
-	const capture = normalizeCapture(latestCapture);
-	const clampedIndex = clampPreviewIndex(
-		previewState.currentIndex,
-		previewState.items.length,
-	);
-	const activePreview = previewState.items[clampedIndex] || null;
-
-	return (
-		<Section
-			title="最新キャプチャプレビュー"
-			note="onCaptureTaken で受けた最新 1 件だけを保持し、新しいイベント到着時に前回分を破棄します。"
-		>
-			<div className="example-summary-grid">
-				<SummaryItem label="キャプチャID" value={capture?.captureID || "-"} />
-				<SummaryItem label="プレイヤーID" value={capture?.playerID || "-"} />
-				<SummaryItem
-					label="撮影時刻"
-					value={capture ? formatDateLike(capture.capturedAt) : "-"}
-				/>
-				<SummaryItem
-					label="受信 variants"
-					value={buildCaptureVariantLabel(capture)}
-				/>
-				<SummaryItem
-					label="合成オーバーレイ"
-					value={buildCaptureOverlayLabel(capture)}
-				/>
-				<SummaryItem label="Blob 取得結果" value={previewState.status || "-"} />
-				<SummaryItem
-					label="表示中 variant"
-					value={activePreview?.variant || "-"}
-				/>
-			</div>
-
-			{previewState.items.length > 0 ? (
-				<>
-					{previewState.items.length > 1 ? (
-						<>
-							<div className="example-carousel-header">
-								<div className="example-carousel-meta">
-									<p className="example-carousel-title">
-										{activePreview?.variant || "preview"}
-									</p>
-									<p className="example-carousel-subtitle">
-										{`${clampedIndex + 1} / ${previewState.items.length}${activePreview?.sizeText ? ` / ${activePreview.sizeText}` : ""}`}
-									</p>
-								</div>
-
-								<div className="example-carousel-controls">
-									<button
-										className="example-carousel-button"
-										type="button"
-										disabled={clampedIndex === 0}
-										onClick={() =>
-											onPreviewIndexChange(Math.max(0, clampedIndex - 1))
-										}
-									>
-										前へ
-									</button>
-									<span className="example-carousel-indicator">
-										{`${clampedIndex + 1} / ${previewState.items.length}`}
-									</span>
-									<button
-										className="example-carousel-button"
-										type="button"
-										disabled={clampedIndex >= previewState.items.length - 1}
-										onClick={() =>
-											onPreviewIndexChange(
-												Math.min(
-													previewState.items.length - 1,
-													clampedIndex + 1,
-												),
-											)
-										}
-									>
-										次へ
-									</button>
-								</div>
-							</div>
-
-							<div className="example-carousel-dots">
-								{previewState.items.map((item, index) => (
-									<button
-										key={`${item.url}-${item.variant || "preview"}`}
-										className={`example-carousel-dot${index === clampedIndex ? " is-active" : ""}`}
-										type="button"
-										aria-label={`${index + 1}枚目を表示`}
-										title={item.variant || `${index + 1}`}
-										onClick={() => onPreviewIndexChange(index)}
-									/>
-								))}
-							</div>
-						</>
-					) : null}
-
-					<div className="example-capture-preview-frame">
-						<img
-							className="example-capture-preview-image"
-							src={activePreview?.url}
-							alt="Latest capture preview"
-						/>
-					</div>
-				</>
-			) : (
-				<div className="example-empty-state">
-					{capture
-						? previewState.status || "Blob 取得待機中です。"
-						: "キャプチャイベント待機中です。"}
-				</div>
-			)}
-		</Section>
-	);
-}
-
-function PluginScreenView({
-	settings,
-	runtime,
-	latestCapture,
-	previewState,
-	onPreviewIndexChange,
-}: {
-	settings: ExampleSettings;
-	runtime: RuntimeState;
-	latestCapture: CaptureTakenPayload | null;
-	previewState: CapturePreviewState;
-	onPreviewIndexChange: (index: number) => void;
-}) {
-	const area = normalizeDisplayArea(runtime.area);
-	const targetPlayerID = getTargetPlayerID(
-		area.playerID,
-		runtime.focusedPlayerID,
-	);
-	const playable = normalizePlayable(runtime.playable);
-	const status = normalizeStatus(runtime.playbackState);
-
-	return (
-		<main className="example-screen-scroll">
-			<section className="example-hero-card">
-				<div className="example-hero-top">
-					<div>
-						<p className="example-kicker">Plugin Screen</p>
-						<h1 className="example-hero-title">
-							{playable?.title || "フォーカス中メディアなし"}
-						</h1>
-						<p className="example-hero-subtitle">
-							{playable?.subtitle ||
-								"フォーカス中プレイヤーのメディア情報をそのまま展開しています。"}
-						</p>
-					</div>
-
-					<div className="example-chip-row">
-						<div
-							className={`example-chip ${settings.showPlayerOverlay ? "is-on" : "is-off"}`}
-						>
-							{`PlayerOverlay: ${settings.showPlayerOverlay ? "ON" : "OFF"}`}
-						</div>
-						<div className="example-chip">
-							{`表示領域: ${toAreaLabel(area.type)}`}
-						</div>
-						<div className="example-chip">
-							{`フォーカス: ${shortID(runtime.focusedPlayerID)}`}
-						</div>
-					</div>
-				</div>
-
-				<div className="example-summary-grid">
-					<SummaryItem
-						label="フォーカスプレイヤーID"
-						value={runtime.focusedPlayerID || "(none)"}
-					/>
-					<SummaryItem
-						label="参照プレイヤーID"
-						value={targetPlayerID || "(none)"}
-					/>
-					<SummaryItem label="コンテンツID" value={playable?.id || "-"} />
-					<SummaryItem label="チャンネル" value={buildServiceLabel(playable)} />
-					<SummaryItem label="放送時間" value={buildProgramWindow(playable)} />
-					<SummaryItem label="長さ" value={formatDuration(playable?.length)} />
-					<SummaryItem
-						label="基準時刻 (iNT)"
-						value={formatTimestamp(playable?.initialNetworkTime)}
-					/>
-					<SummaryItem
-						label="シーク可否"
-						value={playable ? formatBoolean(playable.isSeekable) : "-"}
-					/>
-					<SummaryItem
-						label="再生中"
-						value={status ? formatBoolean(status.isPlaying) : "-"}
-					/>
-					<SummaryItem
-						label="再生時刻"
-						value={formatPlaybackTime(status?.time)}
-					/>
-					<SummaryItem
-						label="再生位置"
-						value={formatPosition(status?.position)}
-					/>
-					<SummaryItem
-						label="再生速度"
-						value={status?.rate != null ? `${status.rate.toFixed(2)}x` : "-"}
-					/>
-					<SummaryItem
-						label="最新キャプチャID"
-						value={latestCapture?.captureID || "-"}
-					/>
-					<SummaryItem
-						label="表示領域サイズ"
-						value={`${Math.round(area.width)} x ${Math.round(area.height)}`}
-					/>
-				</div>
-			</section>
-
-			{!targetPlayerID ? (
-				<div className="example-empty-state">
-					フォーカス中のプレイヤーがないため、表示できるメディア情報はありません。プレイヤーをフォーカスするとここに反映されます。
-				</div>
-			) : null}
-
-			<JsonSection
-				title="フォーカス中メディアの取得結果"
-				note="Playable / PlayerStatus / DisplayArea / Capture をまとめて表示します。"
-				data={buildFocusedSnapshot({
-					settings,
-					runtime,
-					latestCapture,
-					previewState,
-				})}
-			/>
-			<JsonSection
-				title="現在参照できる全プレイヤー状態"
-				note="getPlayables() / getPlayerStatuses() の全件です。"
-				data={buildGlobalSnapshot({
-					runtime,
-					latestCapture,
-					previewState,
-				})}
-			/>
-			<CapturePreviewSection
-				latestCapture={latestCapture}
-				previewState={previewState}
-				onPreviewIndexChange={onPreviewIndexChange}
-			/>
-		</main>
-	);
-}
-
-function PlayerOverlayView({
-	title,
-	focusedPlayerID,
-}: {
-	title: string | null;
-	focusedPlayerID: string | null;
-}) {
-	const label = title || `focus ${shortID(focusedPlayerID)}`;
-
-	return (
-		<div className="example-overlay-shell">
-			<div className="example-overlay-badge">
-				<div className="example-overlay-line">
-					<span className="example-overlay-dot" />
-					<span className="example-overlay-label">Kiririn Plugin</span>
-				</div>
-				<div className="example-overlay-meta">{`overlay / ${label}`}</div>
-			</div>
-		</div>
-	);
-}
-
-function PluginSettingsView({
-	settings,
-	onToggleOverlay,
-}: {
-	settings: ExampleSettings;
-	onToggleOverlay: (checked: boolean) => void;
-}) {
-	return (
-		<div className="example-settings-shell">
-			<section className="example-settings-panel">
-				<h1 className="example-settings-title">PlayerOverlay 表示設定</h1>
-				<p className="example-settings-copy">
-					PlayerOverlay
-					に小さな状態バッジを表示するかどうかを切り替えます。PluginScreen
-					は常に表示され、同一プラグインの他の表示領域にも即時反映されます。
-				</p>
-
-				<label className="example-toggle-card" htmlFor="example-show-overlay">
-					<div className="example-toggle-copy">
-						<div className="example-toggle-label">PlayerOverlay を表示する</div>
-					</div>
-
-					<input
-						id="example-show-overlay"
-						className="example-toggle-input"
-						type="checkbox"
-						checked={settings.showPlayerOverlay}
-						onChange={(event) => onToggleOverlay(event.target.checked)}
-					/>
-				</label>
-
-				<p className="example-status-line">
-					{`現在の値: ${settings.showPlayerOverlay ? "true" : "false"}`}
-				</p>
-			</section>
-		</div>
-	);
-}
-
-function App() {
-	const [settings, setSettings] = useState<ExampleSettings>(() =>
-		loadSettings(),
-	);
-	const [runtime, setRuntime] = useState<RuntimeState>(INITIAL_RUNTIME_STATE);
-	const [latestCapturePayload, setLatestCapturePayload] =
-		useState<CaptureTakenPayload | null>(null);
-	const [capturePreviewState, setCapturePreviewState] =
-		useState<CapturePreviewState>(INITIAL_CAPTURE_PREVIEW_STATE);
-	const settingsChannelRef = useRef<BroadcastChannel | null>(null);
-	const previewItemsRef = useRef<CapturePreviewItem[]>([]);
-	const latestCapturePayloadRef = useRef<CaptureTakenPayload | null>(null);
-	const latestCaptureRequestTokenRef = useRef(0);
-	const debugKiririn = window.kiririn as
-		| (KiririnBridge & {
-				nextAreaPattern?: () => void;
-		  })
-		| undefined;
-
-	const applySettings = (nextSettings: unknown, shouldPersist: boolean) => {
-		const normalized = normalizeSettings(nextSettings);
-		setSettings(normalized);
-
-		if (!shouldPersist) {
-			return;
-		}
-
-		try {
-			localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
-		} catch {}
-
-		try {
-			settingsChannelRef.current?.postMessage(normalized);
-		} catch {}
-	};
-
-	useEffect(() => {
-		setSettings(loadSettings());
-
-		const handleStorage = (event: StorageEvent) => {
-			if (event.key !== SETTINGS_STORAGE_KEY) {
-				return;
-			}
-
-			try {
-				setSettings(
-					normalizeSettings(event.newValue ? JSON.parse(event.newValue) : null),
-				);
-			} catch {
-				setSettings(normalizeSettings(null));
-			}
-		};
-
-		let channel: BroadcastChannel | null = null;
-		if (typeof BroadcastChannel === "function") {
-			try {
-				channel = new BroadcastChannel(SETTINGS_CHANNEL_NAME);
-				settingsChannelRef.current = channel;
-				channel.addEventListener("message", (event) => {
-					setSettings(normalizeSettings(event.data));
-				});
-			} catch {
-				settingsChannelRef.current = null;
-			}
-		}
-
-		window.addEventListener("storage", handleStorage);
-
-		return () => {
-			window.removeEventListener("storage", handleStorage);
-			channel?.close();
-			if (settingsChannelRef.current === channel) {
-				settingsChannelRef.current = null;
-			}
-		};
-	}, []);
-
-	useEffect(() => {
-		const bridge = initBridge();
-
-		const update = () => {
-			setRuntime(collectRuntimeState(bridge));
-		};
-
-		const resetCapturePreview = (status: string) => {
-			cleanupCapturePreviewItems(previewItemsRef.current);
-			previewItemsRef.current = [];
-			setCapturePreviewState({
-				items: [],
-				status,
-				currentIndex: 0,
-			});
-		};
-
-		const setCapturePreviewItems = (
-			nextItems: CapturePreviewItem[],
-			status: string,
-		) => {
-			cleanupCapturePreviewItems(previewItemsRef.current);
-			previewItemsRef.current = nextItems;
-			setCapturePreviewState({
-				items: nextItems,
-				status,
-				currentIndex: 0,
-			});
-		};
-
-		const handlePlayerClosed = (playerID: string) => {
-			if (latestCapturePayloadRef.current?.playerID === playerID) {
-				latestCaptureRequestTokenRef.current += 1;
-				latestCapturePayloadRef.current = null;
-				setLatestCapturePayload(null);
-				resetCapturePreview("キャプチャ待機中");
-			}
-
-			update();
-		};
-
-		const handleCaptureTaken = async (payload: CaptureTakenPayload) => {
-			latestCapturePayloadRef.current = payload;
-			setLatestCapturePayload(payload);
-
-			const references = Array.isArray(payload.references)
-				? payload.references
-				: [];
-			// Ignore stale async completions when a newer capture replaces this request.
-			const requestToken = latestCaptureRequestTokenRef.current + 1;
-			latestCaptureRequestTokenRef.current = requestToken;
-
-			resetCapturePreview(
-				references.length > 0 ? "Blob 取得中..." : "取得可能な参照なし",
-			);
-
-			if (references.length === 0) {
-				return;
-			}
-
-			try {
-				const results = await Promise.all(
-					references.map(async (reference) => {
-						try {
-							const blob = await bridge.getCaptureBlob(reference);
-							return {
-								reference,
-								blob,
-								error: null as string | null,
-							};
-						} catch (error) {
-							return {
-								reference,
-								blob: null,
-								error: error instanceof Error ? error.message : String(error),
-							};
-						}
-					}),
-				);
-
-				if (requestToken !== latestCaptureRequestTokenRef.current) {
-					return;
-				}
-
-				const nextItems: CapturePreviewItem[] = [];
-				const failures: string[] = [];
-
-				for (const result of results) {
-					if (!result.blob) {
-						failures.push(
-							result.error ||
-								`${result.reference.variant || "unknown"} unavailable`,
-						);
-						continue;
-					}
-
-					nextItems.push({
-						url: URL.createObjectURL(result.blob),
-						variant: result.reference.variant || null,
-						sizeText: `${(result.blob.size / 1024).toFixed(1)} KiB`,
-						overlayPluginManifestIDs: Array.isArray(
-							result.reference.overlayPluginManifestIDs,
-						)
-							? result.reference.overlayPluginManifestIDs.slice()
-							: [],
-					});
-				}
-
-				if (requestToken !== latestCaptureRequestTokenRef.current) {
-					cleanupCapturePreviewItems(nextItems);
-					return;
-				}
-
-				if (nextItems.length === 0) {
-					setCapturePreviewItems(
-						[],
-						buildCaptureLoadStatus(nextItems, references.length, failures),
-					);
-					return;
-				}
-
-				setCapturePreviewItems(
-					nextItems,
-					buildCaptureLoadStatus(nextItems, references.length, failures),
-				);
-			} catch (error) {
-				if (requestToken !== latestCaptureRequestTokenRef.current) {
-					return;
-				}
-
-				setCapturePreviewState((current) => ({
-					...current,
-					status: error instanceof Error ? error.message : String(error),
-				}));
-			}
-		};
-
-		update();
-		bridge.onDisplayAreaChange(update);
-		bridge.onPlayablesChange(update);
-		bridge.onPlayerStatusesChange(update);
-		bridge.onFocusedPlayerIDChange(update);
-		bridge.onPlayerClosed(handlePlayerClosed);
-		bridge.onCaptureTaken((payload) => {
-			void handleCaptureTaken(payload);
-		});
-		window.addEventListener("resize", update);
-
-		return () => {
-			window.removeEventListener("resize", update);
-			latestCaptureRequestTokenRef.current += 1;
-			cleanupCapturePreviewItems(previewItemsRef.current);
-			previewItemsRef.current = [];
-		};
-	}, []);
-
-	if (!runtime.area) {
+	if (!playable || !status) {
 		return (
-			<div className="example-loading-shell">
-				<div className="example-loading-card">読み込み中...</div>
+			<div className="example-empty-state">
+				対象プレイヤーが見つかりません。
 			</div>
 		);
 	}
 
-	const area = normalizeDisplayArea(runtime.area);
-
 	return (
-		<div className={`example-root is-${area.type}`}>
-			{area.type === "pluginScreen" ? (
-				<PluginScreenView
-					settings={settings}
-					runtime={runtime}
-					latestCapture={latestCapturePayload}
-					previewState={capturePreviewState}
-					onPreviewIndexChange={(index) => {
-						setCapturePreviewState((current) => {
-							return {
-								...current,
-								currentIndex: clampPreviewIndex(index, current.items.length),
-							};
-						});
-					}}
-				/>
-			) : null}
-
-			{area.type === "playerOverlay" && settings.showPlayerOverlay ? (
-				<PlayerOverlayView
-					title={runtime.playable?.title || null}
-					focusedPlayerID={runtime.focusedPlayerID}
-				/>
-			) : null}
-
-			{area.type === "pluginSettings" ? (
-				<PluginSettingsView
-					settings={settings}
-					onToggleOverlay={(checked) => {
-						applySettings({ showPlayerOverlay: checked }, true);
-					}}
-				/>
-			) : null}
-
-			{typeof debugKiririn?.nextAreaPattern === "function" ? (
-				<button
-					type="button"
-					onClick={() => debugKiririn.nextAreaPattern?.()}
-					className="example-debug-button"
-				>
-					Switch Area
-				</button>
-			) : null}
+		<div className="example-overlay-card">
+			<p className="example-overlay-kicker">Overlay Example</p>
+			<h1 className="example-overlay-title">{playable.title}</h1>
+			<p className="example-overlay-copy">
+				{status.isPlaying ? "再生中" : "一時停止中"} /{" "}
+				{formatPlaybackTime(status.time)}
+			</p>
+			<div className="example-chip-row">
+				<span className="example-chip">player: {playable.playerID}</span>
+				<span className="example-chip">
+					progress: {formatPercent(status.position)}
+				</span>
+			</div>
 		</div>
 	);
 }
 
-export default App;
+function ActionRow({ children }: { children: React.ReactNode }) {
+	return <div className="example-action-row">{children}</div>;
+}
+
+function ActionButton({
+	label,
+	onClick,
+	disabled = false,
+	variant = "default",
+}: {
+	label: string;
+	onClick: () => void;
+	disabled?: boolean;
+	variant?: "default" | "accent" | "ghost";
+}) {
+	return (
+		<button
+			type="button"
+			disabled={disabled}
+			onClick={onClick}
+			className={`example-button is-${variant}`}
+		>
+			{label}
+		</button>
+	);
+}
+
+function PanelView({
+	runtimeInfo,
+	activePlayerID,
+	activePlayable,
+	activeStatus,
+	playables,
+	statuses,
+	lastOpenURL,
+	captures,
+	eventLog,
+	settings,
+	onTogglePlayPause,
+	onSeekRelative,
+	exampleComFetch,
+	onFetchExampleCom,
+	devControls,
+}: {
+	runtimeInfo: KiririnRuntimeInfo;
+	activePlayerID: string | null;
+	activePlayable: Playable | null;
+	activeStatus: PlayerPlaybackState | null;
+	playables: Playable[];
+	statuses: PlayerPlaybackState[];
+	lastOpenURL: DeeplinkOpenedPayload | null;
+	captures: CapturePreview[];
+	eventLog: EventLogItem[];
+	settings: ExampleSettings;
+	onTogglePlayPause: () => void;
+	onSeekRelative: (deltaSeconds: number) => void;
+	exampleComFetch: ExampleComFetchState;
+	onFetchExampleCom: () => void;
+	devControls: ExampleBridge["__example"] | undefined;
+}) {
+	const canSeek =
+		Boolean(activePlayable?.isSeekable) &&
+		typeof activePlayable?.length === "number";
+
+	return (
+		<div className="example-shell is-panel">
+			<div className="example-scroll-area">
+				<section className="example-hero-card">
+					<div className="example-hero-top">
+						<div>
+							<p className="example-kicker">Kiririn Safari Web Extension</p>
+							<h1 className="example-hero-title">Panel Page</h1>
+							<p className="example-hero-subtitle">
+								新しい bridge API を使って runtime / playables / capture /
+								deeplink を表示します。
+							</p>
+						</div>
+						<div className="example-chip-row">
+							<span className="example-chip">
+								target: {formatRuntimeTarget(runtimeInfo)}
+							</span>
+							<span className="example-chip">
+								bridge v{runtimeInfo.bridgeVersion}
+							</span>
+							<span className="example-chip">
+								overlay: {settings.overlayEnabled ? "on" : "off"}
+							</span>
+						</div>
+					</div>
+					<div className="example-summary-grid">
+						<SummaryItem
+							label="Platform"
+							value={`${runtimeInfo.platform} ${runtimeInfo.osVersion}`}
+						/>
+						<SummaryItem
+							label="App"
+							value={runtimeInfo.appVersion ?? runtimeInfo.buildVersion}
+						/>
+						<SummaryItem
+							label="Bundle"
+							value={runtimeInfo.bundleIdentifier ?? "-"}
+						/>
+						<SummaryItem label="Area" value={runtimeInfo.displayAreaType} />
+					</div>
+				</section>
+
+				<Section
+					title="Active Player"
+					note="play / pause / seek は focused player か overlay の playerID に対して送ります。"
+				>
+					<div className="example-summary-grid">
+						<SummaryItem label="PlayerID" value={activePlayerID ?? "-"} />
+						<SummaryItem
+							label="PlayableID"
+							value={activeStatus?.playableID ?? activePlayable?.id ?? "-"}
+						/>
+						<SummaryItem label="Title" value={activePlayable?.title ?? "-"} />
+						<SummaryItem
+							label="Subtitle"
+							value={activePlayable?.subtitle ?? "-"}
+						/>
+						<SummaryItem
+							label="Playback"
+							value={
+								activeStatus
+									? activeStatus.isPlaying
+										? "playing"
+										: "paused"
+									: "-"
+							}
+						/>
+						<SummaryItem
+							label="Time"
+							value={formatPlaybackTime(activeStatus?.time)}
+						/>
+						<SummaryItem
+							label="Position"
+							value={formatPercent(activeStatus?.position)}
+						/>
+						<SummaryItem
+							label="Rate"
+							value={
+								typeof activeStatus?.rate === "number"
+									? `${activeStatus.rate.toFixed(2)}x`
+									: "-"
+							}
+						/>
+						<SummaryItem
+							label="Seekable"
+							value={activePlayable ? String(activePlayable.isSeekable) : "-"}
+						/>
+						<SummaryItem
+							label="Length"
+							value={formatPlaybackTime(activePlayable?.length)}
+						/>
+						<SummaryItem
+							label="Program"
+							value={activePlayable?.program?.name ?? "-"}
+						/>
+						<SummaryItem
+							label="Program Time"
+							value={formatProgramRange(activePlayable)}
+						/>
+						<SummaryItem
+							label="Service"
+							value={activePlayable?.service?.name ?? "-"}
+						/>
+						<SummaryItem
+							label="Channel"
+							value={activePlayable?.service?.channel?.id ?? "-"}
+						/>
+					</div>
+					<ActionRow>
+						<ActionButton
+							label={activeStatus?.isPlaying ? "Pause" : "Play"}
+							onClick={onTogglePlayPause}
+							variant="accent"
+							disabled={!activePlayable}
+						/>
+						<ActionButton
+							label={`-${settings.jumpSeconds}s`}
+							onClick={() => onSeekRelative(-settings.jumpSeconds)}
+							disabled={!canSeek}
+						/>
+						<ActionButton
+							label={`+${settings.jumpSeconds}s`}
+							onClick={() => onSeekRelative(settings.jumpSeconds)}
+							disabled={!canSeek}
+						/>
+					</ActionRow>
+				</Section>
+
+				{devControls ? (
+					<Section
+						title="Dev Controls"
+						note="host bridge が無いときだけ mock bridge のイベントを発火できます。"
+					>
+						<ActionRow>
+							<ActionButton
+								label="Deep Link"
+								onClick={() => devControls.simulateDeeplink()}
+							/>
+							<ActionButton
+								label="Capture"
+								onClick={() => devControls.simulateCapture()}
+							/>
+							<ActionButton
+								label="Focus Player"
+								onClick={() => devControls.cycleFocusedPlayer()}
+								variant="ghost"
+							/>
+						</ActionRow>
+					</Section>
+				) : null}
+
+				<Section
+					title="Playables"
+					note="getPlayables() の内容をそのまま列挙します。"
+				>
+					<div className="example-list-grid">
+						{playables.map((playable) => {
+							const status = statuses.find(
+								(candidate) => candidate.playerID === playable.playerID,
+							);
+
+							return (
+								<div key={playable.playerID} className="example-list-card">
+									<h3 className="example-list-title">{playable.title}</h3>
+									<p className="example-list-copy">
+										playerID: {playable.playerID}
+									</p>
+									<p className="example-list-copy">id: {playable.id}</p>
+									<p className="example-list-copy">
+										subtitle: {playable.subtitle ?? "-"}
+									</p>
+									<p className="example-list-copy">
+										{status?.isPlaying ? "再生中" : "停止中"} /{" "}
+										{formatPlaybackTime(status?.time)}
+									</p>
+									<p className="example-list-copy">
+										seekable: {String(playable.isSeekable)} / length:{" "}
+										{formatPlaybackTime(playable.length)}
+									</p>
+									<p className="example-list-copy">
+										position: {formatPercent(status?.position)} / rate:{" "}
+										{typeof status?.rate === "number"
+											? `${status.rate.toFixed(2)}x`
+											: "-"}
+									</p>
+									<p className="example-list-copy">
+										service: {playable.service?.name ?? "-"}
+									</p>
+									<p className="example-list-copy">
+										program: {playable.program?.name ?? "-"}
+									</p>
+								</div>
+							);
+						})}
+					</div>
+				</Section>
+
+				<Section
+					title="Capture"
+					note="onCaptureTaken() と getCaptureBlob() の結果です。"
+				>
+					{captures.length === 0 ? (
+						<p className="example-empty-state">
+							まだ capture event はありません。
+						</p>
+					) : (
+						<div className="example-capture-grid">
+							{captures.map((capture) => (
+								<figure key={capture.key} className="example-capture-card">
+									<img
+										src={capture.url}
+										alt={capture.type}
+										className="example-capture-image"
+									/>
+									<figcaption className="example-capture-caption">
+										<div>{capture.type}</div>
+										<div>{formatTimestamp(capture.capturedAt)}</div>
+									</figcaption>
+								</figure>
+							))}
+						</div>
+					)}
+				</Section>
+
+				<Section
+					title="Deep Link"
+					note="最後に受け取った onDeeplinkOpened payload です。"
+				>
+					<p className="example-json-block">
+						{lastOpenURL ? lastOpenURL.url : "まだ deeplink は届いていません。"}
+					</p>
+				</Section>
+
+				<Section
+					title="External Fetch"
+					note="https://example.com/ を取得します。"
+				>
+					<ActionRow>
+						<ActionButton
+							label={
+								exampleComFetch.status === "loading"
+									? "Fetching..."
+									: "Fetch example.com"
+							}
+							onClick={onFetchExampleCom}
+							variant="accent"
+							disabled={exampleComFetch.status === "loading"}
+						/>
+					</ActionRow>
+					{exampleComFetch.status === "idle" ? (
+						<p className="example-empty-state">取得結果はまだありません。</p>
+					) : null}
+					{exampleComFetch.status === "error" ? (
+						<p className="example-json-block">{exampleComFetch.message}</p>
+					) : null}
+					{exampleComFetch.status === "success" ? (
+						<div className="example-external-fetch-result">
+							<div className="example-summary-grid">
+								<SummaryItem
+									label="Status"
+									value={`${exampleComFetch.result.status} ${exampleComFetch.result.statusText}`}
+								/>
+								<SummaryItem
+									label="Content-Type"
+									value={exampleComFetch.result.contentType ?? "-"}
+								/>
+								<SummaryItem
+									label="Fetched At"
+									value={formatTimestamp(exampleComFetch.result.fetchedAt)}
+								/>
+							</div>
+							<p className="example-json-block">
+								{exampleComFetch.result.text}
+							</p>
+						</div>
+					) : null}
+				</Section>
+
+				<Section title="Event Log" note="bridge callback の到着順ログです。">
+					<div className="example-log-list">
+						{eventLog.length === 0 ? (
+							<p className="example-empty-state">イベントはまだありません。</p>
+						) : (
+							eventLog.map((item) => (
+								<div key={item.id} className="example-log-item">
+									<div className="example-log-meta">{item.at}</div>
+									<div className="example-log-label">{item.label}</div>
+									<div className="example-log-detail">{item.detail}</div>
+								</div>
+							))
+						)}
+					</div>
+				</Section>
+
+				<button
+					type="button"
+					onClick={() => {
+						// @ts-expect-error
+						window.kiririn.invalidAPI();
+					}}
+				>
+					kiririn.invalidAPI()
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function OptionsView({
+	runtimeInfo,
+	settings,
+	onUpdateSettings,
+}: {
+	runtimeInfo: KiririnRuntimeInfo;
+	settings: ExampleSettings;
+	onUpdateSettings: (patch: Partial<ExampleSettings>) => void;
+}) {
+	return (
+		<div className="example-shell is-options">
+			<div className="example-settings-panel">
+				<p className="example-kicker">Plugin Settings</p>
+				<h1 className="example-settings-title">Example Options</h1>
+				<p className="example-settings-copy">
+					browser.storage.local が使えるときはそちらへ、無いときは localStorage
+					へ保存します。
+				</p>
+
+				<label className="example-setting-card">
+					<div>
+						<div className="example-setting-title">Overlay を表示する</div>
+						<div className="example-setting-copy">
+							overlay page で状態カードを描画するかを切り替えます。
+						</div>
+					</div>
+					<input
+						type="checkbox"
+						checked={settings.overlayEnabled}
+						onChange={(event) =>
+							onUpdateSettings({ overlayEnabled: event.currentTarget.checked })
+						}
+					/>
+				</label>
+
+				<label className="example-setting-card">
+					<div>
+						<div className="example-setting-title">Seek Step</div>
+						<div className="example-setting-copy">
+							panel page の ±seek ボタンで使う秒数です。
+						</div>
+					</div>
+					<select
+						className="example-select"
+						value={settings.jumpSeconds}
+						onChange={(event) =>
+							onUpdateSettings({
+								jumpSeconds: Number(event.currentTarget.value),
+							})
+						}
+					>
+						{[5, 10, 15, 30, 60].map((value) => (
+							<option key={value} value={value}>
+								{value} sec
+							</option>
+						))}
+					</select>
+				</label>
+
+				<div className="example-summary-grid">
+					<SummaryItem label="Area" value={runtimeInfo.displayAreaType} />
+					<SummaryItem
+						label="Player Target"
+						value={formatRuntimeTarget(runtimeInfo)}
+					/>
+					<SummaryItem label="Platform" value={runtimeInfo.platform} />
+					<SummaryItem
+						label="Bundle"
+						value={runtimeInfo.bundleIdentifier ?? "-"}
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export default function App() {
+	const bridgeRef = useRef<ExampleBridge | null>(null);
+	const captureRef = useRef<CapturePreview[]>([]);
+
+	if (bridgeRef.current == null) {
+		bridgeRef.current = getExampleBridge();
+	}
+
+	const bridge = bridgeRef.current;
+	const [runtimeInfo] = useState(() => bridge.getRuntimeInfo());
+	const [playables, setPlayables] = useState(() => bridge.getPlayables());
+	const [statuses, setStatuses] = useState(() => bridge.getPlayerStatuses());
+	const [focusedPlayerID, setFocusedPlayerID] = useState(() =>
+		bridge.getFocusedPlayerID(),
+	);
+	const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+	const [lastOpenURL, setLastOpenURL] = useState<DeeplinkOpenedPayload | null>(
+		null,
+	);
+	const [captures, setCaptures] = useState<CapturePreview[]>([]);
+	const [eventLog, setEventLog] = useState<EventLogItem[]>([]);
+	const [exampleComFetch, setExampleComFetch] = useState<ExampleComFetchState>({
+		status: "idle",
+	});
+
+	const appendEvent = useEffectEvent((label: string, detail: string) => {
+		startTransition(() => {
+			setEventLog((current) =>
+				[
+					{
+						id: crypto.randomUUID(),
+						label,
+						detail,
+						at: formatTimestamp(new Date()),
+					},
+					...current,
+				].slice(0, MAX_EVENT_LOG_ITEMS),
+			);
+		});
+	});
+
+	const appendCapturePreview = useEffectEvent(
+		async (payload: CaptureTakenPayload) => {
+			const capturedAtISO = normalizeCapturedAtISO(
+				(payload as { capturedAt?: unknown }).capturedAt,
+			);
+			const items = (
+				await Promise.all(
+					payload.variants.map(async (variant) => {
+						const blob = await bridge.getCaptureBlob(
+							payload.captureID,
+							variant.type,
+						);
+						if (!blob) {
+							appendEvent(
+								"capture missing blob",
+								`${payload.captureID}:${variant.type}`,
+							);
+							return null;
+						}
+
+						return {
+							key: `${payload.captureID}:${variant.type}`,
+							captureID: payload.captureID,
+							type: variant.type,
+							url: URL.createObjectURL(blob),
+							overlayPluginManifestIDs: variant.overlayPluginManifestIDs,
+							capturedAt: capturedAtISO,
+						} satisfies CapturePreview;
+					}),
+				)
+			).filter((item) => item != null);
+
+			startTransition(() => {
+				setCaptures((current) => {
+					const next = [...items, ...current].slice(0, MAX_CAPTURE_PREVIEWS);
+					const keep = new Set(next.map((item) => item.key));
+					const removed = current.filter((item) => !keep.has(item.key));
+					releaseCapturePreviews(removed);
+					captureRef.current = next;
+					return next;
+				});
+			});
+		},
+	);
+
+	useEffect(() => {
+		void loadSettings().then(setSettings);
+
+		return subscribeSettings((nextSettings) => {
+			setSettings(nextSettings);
+		});
+	}, []);
+
+	useEffect(() => {
+		setPlayables(bridge.getPlayables());
+		setStatuses(bridge.getPlayerStatuses());
+		setFocusedPlayerID(bridge.getFocusedPlayerID());
+
+		bridge.onPlayablesChange((nextPlayables) => {
+			setPlayables(nextPlayables);
+			appendEvent("playables", `${nextPlayables.length} item(s)`);
+		});
+
+		bridge.onPlayerStatusesChange((nextStatuses) => {
+			setStatuses(nextStatuses);
+		});
+
+		bridge.onFocusedPlayerIDChange((nextPlayerID) => {
+			setFocusedPlayerID(nextPlayerID);
+			appendEvent("focus", nextPlayerID ?? "null");
+		});
+
+		bridge.onPlayerClosed((playerID) => {
+			appendEvent("player closed", playerID);
+		});
+
+		bridge.onDeeplinkOpened((payload) => {
+			setLastOpenURL(payload);
+			appendEvent("deeplink", payload.url);
+		});
+
+		bridge.onCaptureTaken((payload) => {
+			appendEvent(
+				"capture",
+				`${payload.captureID} (${payload.variants.length} variants)`,
+			);
+			void appendCapturePreview(payload);
+		});
+
+		return () => {
+			releaseCapturePreviews(captureRef.current);
+		};
+	}, [bridge]);
+
+	const activePlayerID = getActivePlayerID(runtimeInfo, focusedPlayerID);
+	const activePlayable = getPlayableByPlayerID(playables, activePlayerID);
+	const activeStatus = getStatusByPlayerID(statuses, activePlayerID);
+
+	const updateSettings = useEffectEvent((patch: Partial<ExampleSettings>) => {
+		const nextSettings = normalizeSettings({ ...settings, ...patch });
+		setSettings(nextSettings);
+		void saveSettings(nextSettings);
+		appendEvent("settings", JSON.stringify(nextSettings));
+	});
+
+	const handleTogglePlayPause = useEffectEvent(() => {
+		bridge.togglePlayPause(activePlayerID ?? undefined);
+	});
+
+	const handleSeekRelative = useEffectEvent((deltaSeconds: number) => {
+		if (
+			!activePlayable?.isSeekable ||
+			typeof activePlayable.length !== "number" ||
+			!activeStatus
+		) {
+			return;
+		}
+
+		const nextTime = Math.max(
+			0,
+			Math.min(activePlayable.length, activeStatus.time + deltaSeconds),
+		);
+		const nextPosition =
+			activePlayable.length > 0 ? nextTime / activePlayable.length : 0;
+
+		bridge.seek(nextPosition, activePlayerID ?? undefined);
+	});
+
+	const handleFetchExampleCom = useEffectEvent(() => {
+		setExampleComFetch({ status: "loading" });
+		fetch("https://example.com/", { mode: "cors" })
+			.then(async (response) => {
+				setExampleComFetch({
+					status: "success",
+					result: {
+						status: response.status,
+						statusText: response.statusText,
+						contentType: response.headers.get("content-type"),
+						url: response.url,
+						text: await response.text(),
+						fetchedAt: new Date().toISOString(),
+					},
+				});
+			})
+			.catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				setExampleComFetch({ status: "error", message });
+			});
+	});
+
+	if (runtimeInfo.displayAreaType === "overlay") {
+		return settings.overlayEnabled ? (
+			<div className="example-shell is-overlay">
+				<PlayerBadge playable={activePlayable} status={activeStatus} />
+			</div>
+		) : null;
+	}
+
+	if (runtimeInfo.displayAreaType === "options") {
+		return (
+			<OptionsView
+				runtimeInfo={runtimeInfo}
+				settings={settings}
+				onUpdateSettings={updateSettings}
+			/>
+		);
+	}
+
+	return (
+		<PanelView
+			runtimeInfo={runtimeInfo}
+			activePlayerID={activePlayerID}
+			activePlayable={activePlayable}
+			activeStatus={activeStatus}
+			playables={playables}
+			statuses={statuses}
+			lastOpenURL={lastOpenURL}
+			captures={captures}
+			eventLog={eventLog}
+			settings={settings}
+			onTogglePlayPause={handleTogglePlayPause}
+			onSeekRelative={handleSeekRelative}
+			exampleComFetch={exampleComFetch}
+			onFetchExampleCom={handleFetchExampleCom}
+			devControls={bridge.__example}
+		/>
+	);
+}

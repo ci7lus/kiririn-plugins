@@ -51,6 +51,15 @@ jobs:
               run: pnpm type
 
             - name: Build
+              if: ${{ !inputs.release }}
+              run: pnpm build
+
+            - name: Build (with uploading source maps to Sentry)
+              if: ${{ inputs.release }}
+              env:
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+                  SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+                  SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
               run: pnpm build
 
             - name: Upload dist artifact
@@ -95,4 +104,4 @@ jobs:
                   gh release create --repo "$GH_REPO" "${{ steps.release_meta.outputs.tag }}" \
                     --title "${{ steps.release_meta.outputs.tag }}" \
                     --generate-notes \
-                    release-assets/*.html
+                    release-assets/*.kppx
