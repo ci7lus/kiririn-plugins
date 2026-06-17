@@ -107,7 +107,7 @@ export default defineConfig(({ mode }) => {
 		build: {
 			emptyOutDir: false,
 			outDir: targetPlugin ? `dist/${targetPlugin.id}` : "dist",
-			sourcemap: process.env.SENTRY_AUTH_TOKEN ? "hidden" : false,
+			sourcemap: true,
 			...(kiririnPageInputs
 				? {
 						rollupOptions: {
