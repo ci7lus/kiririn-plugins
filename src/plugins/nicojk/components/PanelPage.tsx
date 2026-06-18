@@ -25,7 +25,6 @@ import {
 	addNGCommand,
 	addNGId,
 	getSettings,
-	isNG,
 	SETTINGS_UPDATED_EVENT,
 	saveSettings,
 } from "../ng-settings";
@@ -168,12 +167,30 @@ export default function PanelPage({
 
 	const filteredComments = useMemo(() => {
 		const ngFiltered = filterNG
-			? comments.filter((comment) => !isNG(comment.content, comment.user_id))
+			? comments.filter((comment) => {
+					if (comment.user_id && settings.ngIds.includes(comment.user_id)) {
+						return false;
+					}
+					if (
+						comment.content &&
+						settings.ngWords.some((word) => comment.content.includes(word))
+					) {
+						return false;
+					}
+					return true;
+				})
 			: comments;
 		return ngFiltered.filter((comment) =>
 			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
 		);
-	}, [comments, filterNG, jkContext, visibleSourceKeys]);
+	}, [
+		comments,
+		filterNG,
+		jkContext,
+		settings.ngIds,
+		settings.ngWords,
+		visibleSourceKeys,
+	]);
 
 	const displayComments = filteredComments;
 	const normalizedSearchQuery = useMemo(
