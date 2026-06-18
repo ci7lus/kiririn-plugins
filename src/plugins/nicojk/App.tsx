@@ -36,6 +36,7 @@ const OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
 
 type PlayerData = {
 	playableId: string | null;
+	wasSeekable: boolean;
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	primaryChannel: NicoJKChannelDefinition | null;
@@ -60,6 +61,7 @@ type PlayerData = {
 function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
+		wasSeekable: false,
 		comments: [],
 		visibleSourceKeys: null,
 		primaryChannel: null,
@@ -255,6 +257,34 @@ function getHasDisplayCandidates(
 	}
 
 	return isLive ? data.liveSources.length > 0 : data.replaySources.length > 0;
+}
+
+function getEffectiveIsLive(
+	playable: Playable | null,
+	data: PlayerData | undefined,
+) {
+	return getEffectiveIsLiveBySeekable(playable?.isSeekable, data);
+}
+
+function getEffectiveIsLiveBySeekable(
+	isSeekable: boolean | null | undefined,
+	data: PlayerData | undefined,
+) {
+	if (isSeekable == null) {
+		return false;
+	}
+
+	if (isSeekable) {
+		return false;
+	}
+
+	// 録画の再生終了後に isSeekable が false へ落ちても、
+	// 同一 playable で seekable を観測済みなら録画モードを維持する。
+	if (data?.wasSeekable) {
+		return false;
+	}
+
+	return true;
 }
 
 interface ChannelDisplayState {
@@ -602,6 +632,9 @@ export default function App() {
 	const [channelDisplayState, setChannelDisplayState] =
 		useState<ChannelDisplayState>(EMPTY_CHANNEL_DISPLAY_STATE);
 	const overlayPlayerId = area?.type === "overlay" ? area.playerID : null;
+	const targetPlayableId = targetPlayable?.id || null;
+	const targetPlayablePlayerId = targetPlayable?.playerID || null;
+	const targetPlayableIsSeekable = targetPlayable?.isSeekable;
 
 	const areaRef = useRef<PageArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
@@ -655,10 +688,6 @@ export default function App() {
 	useEffect(() => {
 		interruptedSourcesRef.current = interruptedSources;
 	}, [interruptedSources]);
-
-	useEffect(() => {
-		overlayIsLiveRef.current = !targetPlayable?.isSeekable;
-	}, [targetPlayable?.isSeekable]);
 
 	const applyPanelSnapshot = useCallback((snapshot: OverlaySnapshot) => {
 		panelSnapshotsRef.current.set(snapshot.playerID, snapshot);
@@ -825,18 +854,24 @@ export default function App() {
 		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const channel = relayChannelRef.current;
 		if (!channel) return;
+		const targetData = targetPlayablePlayerId
+			? playersDataRef.current.get(targetPlayablePlayerId)
+			: undefined;
 
 		channel.postMessage({
 			type: "snapshot",
 			payload: {
 				playerID: overlayPlayerId,
-				playableId: targetPlayable?.id || null,
+				playableId: targetPlayableId,
 				comments,
 				visibleSourceKeys,
 				jkContext,
 				channelDisplayState,
 				wsStatus,
-				isLive: !targetPlayable?.isSeekable,
+				isLive: getEffectiveIsLiveBySeekable(
+					targetPlayableIsSeekable,
+					targetData,
+				),
 				interruptedSources,
 			},
 		} satisfies OverlayRelayMessage);
@@ -849,15 +884,16 @@ export default function App() {
 		channelDisplayState,
 		wsStatus,
 		interruptedSources,
-		targetPlayable?.id,
-		targetPlayable?.isSeekable,
+		targetPlayableId,
+		targetPlayableIsSeekable,
+		targetPlayablePlayerId,
 	]);
 
 	useEffect(() => {
 		if (area?.type !== "panel") return;
 
-		const playerID = targetPlayable?.playerID;
-		const expectedPlayableId = targetPlayable?.id || null;
+		const playerID = targetPlayablePlayerId;
+		const expectedPlayableId = targetPlayableId;
 
 		if (!playerID) {
 			clearPanelState(EMPTY_CHANNEL_DISPLAY_STATE);
@@ -884,9 +920,12 @@ export default function App() {
 		if (cachedSnapshot) {
 			applyPanelSnapshot(cachedSnapshot);
 		} else if (!hasCurrentPanelSnapshot(playerID, expectedPlayableId)) {
+			const targetData = targetPlayablePlayerId
+				? playersDataRef.current.get(targetPlayablePlayerId)
+				: undefined;
 			clearPanelState(
 				getRelayPendingChannelDisplayState(),
-				!targetPlayable?.isSeekable,
+				getEffectiveIsLiveBySeekable(targetPlayableIsSeekable, targetData),
 			);
 		}
 
@@ -913,9 +952,9 @@ export default function App() {
 		getCachedPanelSnapshot,
 		hasCurrentPanelSnapshot,
 		requestPanelSnapshot,
-		targetPlayable?.id,
-		targetPlayable?.isSeekable,
-		targetPlayable?.playerID,
+		targetPlayableId,
+		targetPlayableIsSeekable,
+		targetPlayablePlayerId,
 	]);
 
 	useEffect(() => {
@@ -958,7 +997,8 @@ export default function App() {
 			if (targetPlayableRef.current?.playerID !== playerID) return;
 			const data = playersDataRef.current.get(playerID);
 			const currentPlayable = targetPlayableRef.current;
-			const isLive = !currentPlayable?.isSeekable;
+			const isLive = getEffectiveIsLive(currentPlayable, data);
+			overlayIsLiveRef.current = isLive;
 			setComments(data?.comments || []);
 			setVisibleSourceKeys(
 				normalizeVisibleSourceKeys(
@@ -1090,6 +1130,10 @@ export default function App() {
 			setTargetPlayable(targetP);
 			targetPlayableRef.current = targetP;
 			setPlaybackState(targetS);
+			overlayIsLiveRef.current = getEffectiveIsLive(
+				targetP,
+				targetP ? playersDataRef.current.get(targetP.playerID) : undefined,
+			);
 
 			if (currentArea.type === "overlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
@@ -1104,12 +1148,14 @@ export default function App() {
 				setChannelDisplayState(getChannelDisplayState(targetP, data));
 				setWsStatus(getPlayerWsStatus(data));
 				setHasDisplayCandidates(
-					getHasDisplayCandidates(data, !targetP.isSeekable),
+					getHasDisplayCandidates(data, getEffectiveIsLive(targetP, data)),
 				);
 				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 				setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
 				setInterruptedSources(data?.interruptedSources || []);
 			} else if (targetP) {
+				const targetData = playersDataRef.current.get(targetP.playerID);
+				const targetIsLive = getEffectiveIsLive(targetP, targetData);
 				const cachedSnapshot = getCachedPanelSnapshot(
 					targetP.playerID,
 					targetP.id,
@@ -1117,12 +1163,9 @@ export default function App() {
 				if (cachedSnapshot) {
 					applyPanelSnapshot(cachedSnapshot);
 				} else if (!hasCurrentPanelSnapshot(targetP.playerID, targetP.id)) {
-					clearPanelState(
-						getRelayPendingChannelDisplayState(),
-						!targetP.isSeekable,
-					);
+					clearPanelState(getRelayPendingChannelDisplayState(), targetIsLive);
 				} else {
-					setPanelIsLive(!targetP.isSeekable);
+					setPanelIsLive(targetIsLive);
 				}
 				requestPanelSnapshot(targetP.playerID);
 				setHasDisplayCandidates(false);
@@ -1229,6 +1272,11 @@ export default function App() {
 				const dataObject = playersDataRef.current.get(p.playerID);
 				if (!dataObject) continue;
 				let data = dataObject;
+				if (p.isSeekable) {
+					data.wasSeekable = true;
+				}
+				const effectiveIsLive = getEffectiveIsLive(p, data);
+				const effectiveIsSeekable = !effectiveIsLive;
 
 				if (data.playableId !== p.id) {
 					console.log(
@@ -1256,7 +1304,7 @@ export default function App() {
 					data.jkContext = null;
 					data.areSourcesResolved = true;
 					data.isLookingUpChannel = false;
-					if (p.isSeekable) {
+					if (effectiveIsSeekable) {
 						resetRecordedCommentsState(data);
 					} else {
 						data.comments = [];
@@ -1347,7 +1395,7 @@ export default function App() {
 						duration,
 					);
 					if (fallbackPrimary) {
-						if (!p.isSeekable) {
+						if (effectiveIsLive) {
 							if (data.liveSources.length === 0) {
 								data.liveSources = [fallbackPrimary];
 							}
@@ -1395,7 +1443,7 @@ export default function App() {
 				}
 
 				const sourceResolutionKey = data.primaryChannel?.jkId
-					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
+					? `${p.id}:${effectiveIsSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
 					: null;
 				if (
 					data.primaryChannel?.jkId &&
@@ -1404,16 +1452,16 @@ export default function App() {
 					!data.isResolvingSources
 				) {
 					data.areSourcesResolved = false;
-					if (p.isSeekable) {
+					if (effectiveIsSeekable) {
 						resetRecordedCommentsState(data);
 					}
 					data.isResolvingSources = true;
 					const sourceResolutionToken = data.sourceResolutionToken + 1;
 					data.sourceResolutionToken = sourceResolutionToken;
 					const currentPlayableId = p.id;
-					const isSeekable = p.isSeekable;
+					const isSeekable = effectiveIsSeekable;
 					const programStartAt = getProgramStartAt(p);
-					const queryTime = p.isSeekable
+					const queryTime = effectiveIsSeekable
 						? programStartAt +
 							Math.min(
 								Math.max(status?.time || Math.floor(duration / 2), 1),
@@ -1425,7 +1473,7 @@ export default function App() {
 						primaryChannel: data.primaryChannel,
 						baseStartAt: startAt,
 						duration,
-						isLive: !p.isSeekable,
+						isLive: effectiveIsLive,
 						queryTime,
 					})
 						.then((resolved) => {
@@ -1474,7 +1522,7 @@ export default function App() {
 						});
 				}
 
-				if (!p.isSeekable) {
+				if (effectiveIsLive) {
 					for (const source of data.liveSources) {
 						if (clientsRef.current.has(source.jkId)) {
 							continue;
@@ -1526,7 +1574,7 @@ export default function App() {
 					}
 				}
 
-				if (p.isSeekable) {
+				if (effectiveIsSeekable) {
 					if (!kakologManagersRef.current.has(p.playerID)) {
 						const mgr = new KakologManager();
 						kakologManagersRef.current.set(p.playerID, mgr);
@@ -1749,10 +1797,10 @@ export default function App() {
 
 			const activeJkIds = new Set<string>();
 			for (const playable of playables) {
-				if (playable.isSeekable) {
+				const playerData = playersDataRef.current.get(playable.playerID);
+				if (!getEffectiveIsLive(playable, playerData)) {
 					continue;
 				}
-				const playerData = playersDataRef.current.get(playable.playerID);
 				for (const source of playerData?.liveSources || []) {
 					activeJkIds.add(source.jkId);
 				}
@@ -1765,7 +1813,10 @@ export default function App() {
 			}
 			const activePids = new Set(
 				playables
-					.filter((playable) => playable.isSeekable)
+					.filter((playable) => {
+						const playerData = playersDataRef.current.get(playable.playerID);
+						return !getEffectiveIsLive(playable, playerData);
+					})
 					.map((p) => p.playerID),
 			);
 			for (const pid of kakologManagersRef.current.keys()) {
@@ -1807,7 +1858,12 @@ export default function App() {
 					width={area.width}
 					height={area.height}
 					playableId={targetPlayable?.id || null}
-					isLive={!targetPlayable?.isSeekable}
+					isLive={getEffectiveIsLive(
+						targetPlayable,
+						targetPlayable
+							? playersDataRef.current.get(targetPlayable.playerID)
+							: undefined,
+					)}
 					hasDisplayCandidates={hasDisplayCandidates}
 					recordedCommentsReady={recordedCommentsReady}
 					isLoadingRecordedComments={isLoadingRecordedComments}
