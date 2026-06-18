@@ -16,8 +16,7 @@ type NumericSettingKey =
 	| "chapterWindowSeconds"
 	| "chapterCooldownSeconds"
 	| "chapterMinimumCount"
-	| "chapterSeekLeadSeconds"
-	| "maxRecordedReplayAirings";
+	| "chapterSeekLeadSeconds";
 
 type NumericSettingDrafts = Record<NumericSettingKey, string>;
 
@@ -29,14 +28,6 @@ const NUMERIC_SETTING_FIELDS: Array<{
 	max: number;
 	step: number;
 }> = [
-	{
-		key: "maxRecordedReplayAirings",
-		label: "過去ログ候補数",
-		description: "別放送日程として表示する過去ログコメントソースの最大数",
-		min: 0,
-		max: 50,
-		step: 1,
-	},
 	{
 		key: "chapterWindowSeconds",
 		label: "チャプター判定幅",
@@ -92,7 +83,6 @@ function buildNumericDrafts(settings: NicoJKSettings): NumericSettingDrafts {
 		chapterCooldownSeconds: String(settings.chapterCooldownSeconds),
 		chapterMinimumCount: String(settings.chapterMinimumCount),
 		chapterSeekLeadSeconds: String(settings.chapterSeekLeadSeconds),
-		maxRecordedReplayAirings: String(settings.maxRecordedReplayAirings),
 	};
 }
 

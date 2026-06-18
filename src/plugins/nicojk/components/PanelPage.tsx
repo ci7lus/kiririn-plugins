@@ -11,6 +11,7 @@ import {
 	Info,
 	MessageSquare,
 	MoreVertical,
+	RotateCw,
 	Search,
 	UserX,
 	X,
@@ -19,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
+import type { InterruptedSourceInfo } from "../kakolog-manager";
 import {
 	addNGCommand,
 	addNGId,
@@ -46,6 +48,7 @@ interface Props {
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
+	onResumeSource: (sourceKey: string) => void;
 	isLive: boolean;
 	duration: number;
 	playbackState: PlayerPlaybackState | null;
@@ -57,6 +60,7 @@ interface Props {
 		isLoading: boolean;
 		fetchedCommentCount: number;
 	};
+	interruptedSources: InterruptedSourceInfo[];
 	hasActivePlayer: boolean;
 }
 
@@ -89,12 +93,14 @@ export default function PanelPage({
 	comments,
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
+	onResumeSource,
 	isLive,
 	duration,
 	playbackState,
 	wsStatus,
 	jkContext,
 	channelDisplayState,
+	interruptedSources,
 	hasActivePlayer,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1344,17 +1350,29 @@ export default function PanelPage({
 												visibleSourceKeys,
 												source.key,
 											);
+											const interruptedInfo = interruptedSources.find(
+												(info) => info.sourceKey === source.key,
+											);
+											const isInterrupted = interruptedInfo != null;
+											const isFullyUnfetched =
+												isInterrupted &&
+												(interruptedInfo?.fetchedChunkCount || 0) === 0;
+											const interruptedChunks = interruptedInfo?.chunks || [];
 
 											return (
 												<div
 													key={source.key}
 													className={`flex items-center justify-between gap-3 rounded-md px-2.5 py-2 ${
-														isSourceVisible
-															? "border border-blue-500/30 bg-blue-500/10"
-															: "bg-[#2a2a2a] opacity-60"
+														isInterrupted
+															? "border border-amber-500/30 bg-amber-500/10"
+															: isSourceVisible
+																? "border border-blue-500/30 bg-blue-500/10"
+																: "bg-[#2a2a2a] opacity-60"
 													}`}
 												>
-													<div className="min-w-0 flex-1">
+													<div
+														className={`min-w-0 flex-1 ${isFullyUnfetched ? "opacity-50" : ""}`}
+													>
 														<div className="flex min-w-0 items-center gap-2 text-gray-300">
 															<span
 																className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
@@ -1369,14 +1387,57 @@ export default function PanelPage({
 																	{sourceCount}件
 																</span>
 															)}
+															{isInterrupted && (
+																<span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-200">
+																	部分取得
+																</span>
+															)}
 														</div>
 														{!isLive && (
 															<div className="text-gray-400">
 																{formatTimeRange(source.startAt, source.endAt)}
 															</div>
 														)}
+														{isInterrupted && interruptedChunks.length > 0 && (
+															<div className="mt-1.5 flex items-center gap-1">
+																{interruptedChunks.map((chunk) => {
+																	const chunkLabel = `${formatTimeRange(chunk.startAt, chunk.endAt)}`;
+																	return (
+																		<span
+																			key={chunk.startAt}
+																			className={`inline-block h-2 w-2 rounded-full ${
+																				chunk.fetched
+																					? "bg-amber-400"
+																					: "bg-gray-600"
+																			}`}
+																			title={
+																				chunk.fetched
+																					? `取得済: ${chunkLabel}`
+																					: `未取得: ${chunkLabel}`
+																			}
+																		/>
+																	);
+																})}
+																<span className="ml-1 text-[9px] text-amber-300/70">
+																	{interruptedInfo?.fetchedChunkCount || 0}/
+																	{interruptedInfo?.totalChunkCount || 0}
+																</span>
+															</div>
+														)}
 													</div>
 													<div className="flex shrink-0 items-center gap-2 self-center">
+														{isInterrupted && (
+															<button
+																type="button"
+																onClick={() => onResumeSource(source.key)}
+																className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
+																title={`${source.channelName} の取得を再開`}
+																aria-label={`${source.channelName} の取得を再開`}
+															>
+																<RotateCw size={12} />
+																全件取得
+															</button>
+														)}
 														{canShowOnlySource && (
 															<button
 																type="button"

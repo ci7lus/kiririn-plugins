@@ -15,7 +15,6 @@ export interface NicoJKSettings {
 	chapterCooldownSeconds: number;
 	chapterMinimumCount: number;
 	chapterSeekLeadSeconds: number;
-	maxRecordedReplayAirings: number;
 	hideSecondarySourceComments: boolean;
 }
 
@@ -33,7 +32,6 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	chapterCooldownSeconds: 60,
 	chapterMinimumCount: 3,
 	chapterSeekLeadSeconds: 5,
-	maxRecordedReplayAirings: 5,
 	hideSecondarySourceComments: false,
 };
 
@@ -128,12 +126,6 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 			DEFAULT_SETTINGS.chapterSeekLeadSeconds,
 			0,
 			300,
-		),
-		maxRecordedReplayAirings: normalizeInteger(
-			stored.maxRecordedReplayAirings,
-			DEFAULT_SETTINGS.maxRecordedReplayAirings,
-			0,
-			50,
 		),
 		hideSecondarySourceComments:
 			typeof stored.hideSecondarySourceComments === "boolean"
