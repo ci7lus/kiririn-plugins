@@ -679,6 +679,25 @@ export default function PanelPage({
 		],
 	);
 
+	const handleSeekToComment = useCallback(
+		(comment: NiconicoComment) => {
+			if (isLive || duration <= 0) {
+				return;
+			}
+
+			const relativeSec = comment.vpos / 100 - (jkContext?.startAt ?? 0);
+			if (!Number.isFinite(relativeSec) || relativeSec < 0) {
+				return;
+			}
+
+			const seekPosition = clamp(relativeSec / duration, 0, 1);
+			lastScrolledTimeRef.current = 0;
+			setAutoScroll(true);
+			window.kiririn.seek(seekPosition, playbackState?.playerID);
+		},
+		[duration, isLive, jkContext?.startAt, playbackState?.playerID],
+	);
+
 	return (
 		<div className="relative flex h-screen flex-col overflow-hidden bg-[#1a1a1a] text-white">
 			<div className="shrink-0 border-b border-gray-700 bg-[#252525] p-2">
@@ -998,9 +1017,28 @@ export default function PanelPage({
 									</button>
 								)}
 								{!isLive && (
-									<span className="text-gray-400">
-										再生位置: {formatPlaybackTime(renderedTooltip.comment.vpos)}
-									</span>
+									<>
+										<span className="text-gray-400">
+											再生位置:{" "}
+											{formatPlaybackTime(renderedTooltip.comment.vpos)}
+										</span>
+										<button
+											type="button"
+											onClick={() =>
+												handleSeekToComment(renderedTooltip.comment)
+											}
+											disabled={
+												duration <= 0 ||
+												renderedTooltip.comment.vpos / 100 -
+													(jkContext?.startAt ?? 0) <
+													0
+											}
+											className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-[10px] text-blue-200 transition-colors hover:bg-blue-500/20 disabled:cursor-default disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500"
+											title="このコメントの再生位置へシーク"
+										>
+											このコメントへシーク
+										</button>
+									</>
 								)}
 								<span className="text-gray-500">
 									premium: {renderedTooltip.comment.premium}
