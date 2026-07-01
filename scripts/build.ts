@@ -1,9 +1,13 @@
 /// <reference types="node" />
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { plugins } from "./plugins-manifest";
+import {
+	getPackagePath,
+	type KiririnPlugin,
+	plugins,
+} from "./plugins-manifest";
 
 const requestedPluginIDs = new Set(process.argv.slice(2));
 const targetPlugins =
@@ -19,6 +23,41 @@ if (targetPlugins.length === 0) {
 }
 
 console.log("Starting build for selected plugins...");
+
+function signAndVerifyPluginPackage(plugin: KiririnPlugin) {
+	const signCertPath = process.env.SIGN_CRT_PATH;
+	const signKeyPath = process.env.SIGN_KEY_PATH;
+
+	if (!signCertPath && !signKeyPath) {
+		return;
+	}
+
+	if (!signCertPath || !signKeyPath) {
+		throw new Error(
+			"SIGN_CRT_PATH and SIGN_KEY_PATH must both be set to sign plugin packages.",
+		);
+	}
+
+	const packagePath = getPackagePath(plugin);
+	console.log(`Signing ${plugin.id}: ${packagePath}`);
+	execFileSync(
+		"ziplac",
+		[
+			"sign",
+			packagePath,
+			packagePath,
+			"--overwrite",
+			"--cert",
+			signCertPath,
+			"--key",
+			signKeyPath,
+		],
+		{ stdio: "inherit" },
+	);
+
+	console.log(`Verifying ${plugin.id}: ${packagePath}`);
+	execFileSync("ziplac", ["verify", packagePath], { stdio: "inherit" });
+}
 
 async function cleanPluginDist(pluginID: string) {
 	const distRoot = resolve(process.cwd(), "dist");
@@ -55,6 +94,7 @@ for (const plugin of targetPlugins) {
 	try {
 		await cleanPluginDist(plugin.id);
 		execSync(`pnpm vite build --mode ${plugin.id}`, { stdio: "inherit" });
+		signAndVerifyPluginPackage(plugin);
 	} catch (error) {
 		console.error(error);
 		console.error(`Failed to build ${plugin.id}`);
