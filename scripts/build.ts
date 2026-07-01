@@ -9,15 +9,25 @@ import {
 	plugins,
 } from "./plugins-manifest";
 
-const requestedPluginIDs = new Set(process.argv.slice(2));
+const requestedPluginIDs = new Set(
+	process.argv
+		.slice(2)
+		.flatMap((argument) => argument.split(","))
+		.map((pluginID) => pluginID.trim())
+		.filter((pluginID) => pluginID.length > 0 && pluginID !== "--"),
+);
+const knownPluginIDs = new Set(plugins.map((plugin) => plugin.id));
+const unknownPluginIDs = Array.from(requestedPluginIDs).filter(
+	(pluginID) => !knownPluginIDs.has(pluginID),
+);
 const targetPlugins =
 	requestedPluginIDs.size > 0
 		? plugins.filter((plugin) => requestedPluginIDs.has(plugin.id))
 		: plugins;
 
-if (targetPlugins.length === 0) {
+if (unknownPluginIDs.length > 0) {
 	console.error(
-		`No matching plugins found for: ${Array.from(requestedPluginIDs).join(", ")}`,
+		`Unknown plugin IDs: ${unknownPluginIDs.join(", ")}. Known plugin IDs: ${Array.from(knownPluginIDs).join(", ")}`,
 	);
 	process.exit(1);
 }
