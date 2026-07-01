@@ -15,6 +15,9 @@ on:
 permissions:
     contents: read
 
+env:
+    ZIPLAC_URL: https://github.com/ci7lus/ziplac/releases/download/v0.1.0/ziplac-linux-amd64
+
 concurrency:
     group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: true
@@ -49,6 +52,34 @@ jobs:
 
             - name: Type check
               run: pnpm type
+
+            - name: Install ziplac
+              if: ${{ inputs.release }}
+              run: |
+                  install -m 700 -d "$RUNNER_TEMP/bin"
+                  curl -fsSL "$ZIPLAC_URL" -o "$RUNNER_TEMP/bin/ziplac"
+                  chmod +x "$RUNNER_TEMP/bin/ziplac"
+                  echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+            - name: Prepare signing files
+              if: ${{ inputs.release }}
+              env:
+                  SIGN_CRT: ${{ secrets.SIGN_CRT }}
+                  SIGN_KEY: ${{ secrets.SIGN_KEY }}
+              run: |
+                  if [ -z "$SIGN_CRT" ] || [ -z "$SIGN_KEY" ]; then
+                    echo "SIGN_CRT and SIGN_KEY secrets must both be set to sign plugin packages." >&2
+                    exit 1
+                  fi
+
+                  signing_dir="$RUNNER_TEMP/kiririn-plugin-signing"
+                  install -m 700 -d "$signing_dir"
+                  printf '%s' "$SIGN_CRT" > "$signing_dir/signer.crt"
+                  printf '%s' "$SIGN_KEY" > "$signing_dir/signer.key"
+                  chmod 600 "$signing_dir/signer.crt" "$signing_dir/signer.key"
+
+                  echo "SIGN_CRT_PATH=$signing_dir/signer.crt" >> "$GITHUB_ENV"
+                  echo "SIGN_KEY_PATH=$signing_dir/signer.key" >> "$GITHUB_ENV"
 
             - name: Build
               if: ${{ !inputs.release }}
