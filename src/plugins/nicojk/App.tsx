@@ -20,7 +20,11 @@ import {
 	getChannelDefinition,
 	type NicoJKChannelDefinition,
 } from "./definitions";
-import { type KakologFetchProgress, KakologManager } from "./kakolog-manager";
+import {
+	type InterruptedSourceInfo,
+	type KakologFetchProgress,
+	KakologManager,
+} from "./kakolog-manager";
 import {
 	type ResolvedCommentSource,
 	type ResolvedCommentSources,
@@ -32,6 +36,7 @@ const OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
 
 type PlayerData = {
 	playableId: string | null;
+	wasSeekable: boolean;
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	primaryChannel: NicoJKChannelDefinition | null;
@@ -48,6 +53,7 @@ type PlayerData = {
 	isLoadingRecordedComments: boolean;
 	recordedCommentsLoadToken: number;
 	recordedFetchProgress: KakologFetchProgress | null;
+	interruptedSources: InterruptedSourceInfo[];
 	/** 最後に jkContext に反映した startAt（initialNetworkTime 判明時の軽量差し替え用） */
 	lastStartAt: number;
 };
@@ -55,6 +61,7 @@ type PlayerData = {
 function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
+		wasSeekable: false,
 		comments: [],
 		visibleSourceKeys: null,
 		primaryChannel: null,
@@ -71,6 +78,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 		isLoadingRecordedComments: false,
 		recordedCommentsLoadToken: 0,
 		recordedFetchProgress: null,
+		interruptedSources: [],
 		lastStartAt: 0,
 	};
 }
@@ -116,7 +124,10 @@ function buildPrimarySource(
 	};
 }
 
-function toContextSource(source: ResolvedCommentSource): NicoJKSourceContext {
+function toContextSource(
+	source: ResolvedCommentSource,
+	interrupted: boolean,
+): NicoJKSourceContext {
 	return {
 		key: source.key,
 		jkId: source.jkId,
@@ -124,6 +135,7 @@ function toContextSource(source: ResolvedCommentSource): NicoJKSourceContext {
 		kind: source.kind,
 		startAt: source.startAt,
 		endAt: source.endAt,
+		interrupted,
 	};
 }
 
@@ -132,6 +144,7 @@ function buildJkContext(
 	sources: ResolvedCommentSource[],
 	startAt: number,
 	duration: number,
+	interruptedSourceKeys?: Set<string>,
 ): NicoJKContext {
 	return {
 		jkId: primarySource.jkId,
@@ -139,7 +152,22 @@ function buildJkContext(
 		startAt,
 		endAt: startAt + duration,
 		programStartAt: primarySource.programStartAt ?? startAt,
-		sources: sources.map(toContextSource),
+		sources: sources.map((s) =>
+			toContextSource(s, interruptedSourceKeys?.has(s.key) || false),
+		),
+	};
+}
+
+function withInterruptedSources(
+	jkContext: NicoJKContext,
+	interruptedSourceKeys: Set<string>,
+): NicoJKContext {
+	return {
+		...jkContext,
+		sources: jkContext.sources.map((s) => ({
+			...s,
+			interrupted: interruptedSourceKeys.has(s.key),
+		})),
 	};
 }
 
@@ -213,6 +241,7 @@ function resetRecordedCommentsState(data: PlayerData) {
 	data.isLoadingRecordedComments = false;
 	data.recordedCommentsLoadToken += 1;
 	data.recordedFetchProgress = null;
+	data.interruptedSources = [];
 }
 
 function getHasDisplayCandidates(
@@ -228,6 +257,34 @@ function getHasDisplayCandidates(
 	}
 
 	return isLive ? data.liveSources.length > 0 : data.replaySources.length > 0;
+}
+
+function getEffectiveIsLive(
+	playable: Playable | null,
+	data: PlayerData | undefined,
+) {
+	return getEffectiveIsLiveBySeekable(playable?.isSeekable, data);
+}
+
+function getEffectiveIsLiveBySeekable(
+	isSeekable: boolean | null | undefined,
+	data: PlayerData | undefined,
+) {
+	if (isSeekable == null) {
+		return false;
+	}
+
+	if (isSeekable) {
+		return false;
+	}
+
+	// 録画の再生終了後に isSeekable が false へ落ちても、
+	// 同一 playable で seekable を観測済みなら録画モードを維持する。
+	if (data?.wasSeekable) {
+		return false;
+	}
+
+	return true;
 }
 
 interface ChannelDisplayState {
@@ -463,6 +520,7 @@ interface OverlaySnapshot {
 	channelDisplayState: ChannelDisplayState;
 	wsStatus: ConnectionStatus;
 	isLive: boolean;
+	interruptedSources: InterruptedSourceInfo[];
 }
 
 type OverlayRelayMessage =
@@ -564,6 +622,9 @@ export default function App() {
 		useState<PlayerPlaybackState | null>(null);
 	const [wsStatus, setWsStatus] = useState<ConnectionStatus>("disconnected");
 	const [panelIsLive, setPanelIsLive] = useState(false);
+	const [interruptedSources, setInterruptedSources] = useState<
+		InterruptedSourceInfo[]
+	>([]);
 	const [hasDisplayCandidates, setHasDisplayCandidates] = useState(false);
 	const [recordedCommentsReady, setRecordedCommentsReady] = useState(false);
 	const [isLoadingRecordedComments, setIsLoadingRecordedComments] =
@@ -571,6 +632,9 @@ export default function App() {
 	const [channelDisplayState, setChannelDisplayState] =
 		useState<ChannelDisplayState>(EMPTY_CHANNEL_DISPLAY_STATE);
 	const overlayPlayerId = area?.type === "overlay" ? area.playerID : null;
+	const targetPlayableId = targetPlayable?.id || null;
+	const targetPlayablePlayerId = targetPlayable?.playerID || null;
+	const targetPlayableIsSeekable = targetPlayable?.isSeekable;
 
 	const areaRef = useRef<PageArea | null>(null);
 	const targetPlayableRef = useRef<Playable | null>(null);
@@ -592,11 +656,14 @@ export default function App() {
 		EMPTY_CHANNEL_DISPLAY_STATE,
 	);
 	const wsStatusRef = useRef<ConnectionStatus>("disconnected");
+	const interruptedSourcesRef = useRef<InterruptedSourceInfo[]>([]);
 	const overlayIsLiveRef = useRef(false);
 	const playersDataRef = useRef<Map<string, PlayerData>>(new Map());
 
 	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
+	const pendingResumeRef = useRef<Map<string, string>>(new Map());
+	const lastPlayerTimeRef = useRef<Map<string, number>>(new Map());
 
 	useEffect(() => {
 		commentsRef.current = comments;
@@ -619,8 +686,8 @@ export default function App() {
 	}, [wsStatus]);
 
 	useEffect(() => {
-		overlayIsLiveRef.current = !targetPlayable?.isSeekable;
-	}, [targetPlayable?.isSeekable]);
+		interruptedSourcesRef.current = interruptedSources;
+	}, [interruptedSources]);
 
 	const applyPanelSnapshot = useCallback((snapshot: OverlaySnapshot) => {
 		panelSnapshotsRef.current.set(snapshot.playerID, snapshot);
@@ -634,6 +701,7 @@ export default function App() {
 		setChannelDisplayState(snapshot.channelDisplayState);
 		setWsStatus(snapshot.wsStatus);
 		setPanelIsLive(snapshot.isLive);
+		setInterruptedSources(snapshot.interruptedSources || []);
 	}, []);
 
 	const clearPanelState = useCallback(
@@ -648,6 +716,7 @@ export default function App() {
 			setChannelDisplayState(displayState);
 			setWsStatus("disconnected");
 			setPanelIsLive(isLive);
+			setInterruptedSources([]);
 		},
 		[],
 	);
@@ -720,6 +789,12 @@ export default function App() {
 		[],
 	);
 
+	const handleResumeSource = useCallback((sourceKey: string) => {
+		const playerID = targetPlayableRef.current?.playerID;
+		if (!playerID) return;
+		pendingResumeRef.current.set(playerID, sourceKey);
+	}, []);
+
 	useEffect(() => {
 		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const playerID = overlayPlayerId;
@@ -737,6 +812,7 @@ export default function App() {
 					channelDisplayState: channelDisplayStateRef.current,
 					wsStatus: wsStatusRef.current,
 					isLive: overlayIsLiveRef.current,
+					interruptedSources: interruptedSourcesRef.current,
 				},
 			} satisfies OverlayRelayMessage);
 		};
@@ -778,18 +854,25 @@ export default function App() {
 		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const channel = relayChannelRef.current;
 		if (!channel) return;
+		const targetData = targetPlayablePlayerId
+			? playersDataRef.current.get(targetPlayablePlayerId)
+			: undefined;
 
 		channel.postMessage({
 			type: "snapshot",
 			payload: {
 				playerID: overlayPlayerId,
-				playableId: targetPlayable?.id || null,
+				playableId: targetPlayableId,
 				comments,
 				visibleSourceKeys,
 				jkContext,
 				channelDisplayState,
 				wsStatus,
-				isLive: !targetPlayable?.isSeekable,
+				isLive: getEffectiveIsLiveBySeekable(
+					targetPlayableIsSeekable,
+					targetData,
+				),
+				interruptedSources,
 			},
 		} satisfies OverlayRelayMessage);
 	}, [
@@ -800,15 +883,17 @@ export default function App() {
 		jkContext,
 		channelDisplayState,
 		wsStatus,
-		targetPlayable?.id,
-		targetPlayable?.isSeekable,
+		interruptedSources,
+		targetPlayableId,
+		targetPlayableIsSeekable,
+		targetPlayablePlayerId,
 	]);
 
 	useEffect(() => {
 		if (area?.type !== "panel") return;
 
-		const playerID = targetPlayable?.playerID;
-		const expectedPlayableId = targetPlayable?.id || null;
+		const playerID = targetPlayablePlayerId;
+		const expectedPlayableId = targetPlayableId;
 
 		if (!playerID) {
 			clearPanelState(EMPTY_CHANNEL_DISPLAY_STATE);
@@ -835,9 +920,12 @@ export default function App() {
 		if (cachedSnapshot) {
 			applyPanelSnapshot(cachedSnapshot);
 		} else if (!hasCurrentPanelSnapshot(playerID, expectedPlayableId)) {
+			const targetData = targetPlayablePlayerId
+				? playersDataRef.current.get(targetPlayablePlayerId)
+				: undefined;
 			clearPanelState(
 				getRelayPendingChannelDisplayState(),
-				!targetPlayable?.isSeekable,
+				getEffectiveIsLiveBySeekable(targetPlayableIsSeekable, targetData),
 			);
 		}
 
@@ -864,9 +952,9 @@ export default function App() {
 		getCachedPanelSnapshot,
 		hasCurrentPanelSnapshot,
 		requestPanelSnapshot,
-		targetPlayable?.id,
-		targetPlayable?.isSeekable,
-		targetPlayable?.playerID,
+		targetPlayableId,
+		targetPlayableIsSeekable,
+		targetPlayablePlayerId,
 	]);
 
 	useEffect(() => {
@@ -909,7 +997,8 @@ export default function App() {
 			if (targetPlayableRef.current?.playerID !== playerID) return;
 			const data = playersDataRef.current.get(playerID);
 			const currentPlayable = targetPlayableRef.current;
-			const isLive = !currentPlayable?.isSeekable;
+			const isLive = getEffectiveIsLive(currentPlayable, data);
+			overlayIsLiveRef.current = isLive;
 			setComments(data?.comments || []);
 			setVisibleSourceKeys(
 				normalizeVisibleSourceKeys(
@@ -923,6 +1012,94 @@ export default function App() {
 			setHasDisplayCandidates(getHasDisplayCandidates(data, isLive));
 			setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 			setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
+			setInterruptedSources(data?.interruptedSources || []);
+		};
+
+		const triggerFetchMore = (
+			playerID: string,
+			priorityTime: number,
+		): boolean => {
+			const playable = bridge.getPlayable(playerID);
+			if (!playable || !playable.isSeekable) return false;
+			const data = playersDataRef.current.get(playerID);
+			const mgr = kakologManagersRef.current.get(playerID);
+			if (!data || !mgr) return false;
+			if (!data.areSourcesResolved) return false;
+			if (!data.recordedCommentsReady) return false;
+			if (data.isLoadingRecordedComments) return false;
+			if (pendingResumeRef.current.has(playerID)) return false;
+			if (data.playableId !== playable.id) return false;
+			if (mgr.isFullyCompleted()) return false;
+
+			const { duration } = getBaseTiming(playable);
+			const currentPlayableId = playable.id;
+			data.isLoadingRecordedComments = true;
+			const loadToken = data.recordedCommentsLoadToken + 1;
+			data.recordedCommentsLoadToken = loadToken;
+			if (targetPlayableRef.current?.playerID === playerID) {
+				syncTargetState(playerID);
+			}
+
+			mgr.setProgressListener((progress) => {
+				const latest = playersDataRef.current.get(playerID);
+				if (
+					!latest ||
+					latest.playableId !== currentPlayableId ||
+					latest.recordedCommentsLoadToken !== loadToken
+				) {
+					return;
+				}
+				latest.recordedFetchProgress = progress;
+				if (targetPlayableRef.current?.playerID === playerID) {
+					syncTargetState(playerID);
+				}
+			});
+
+			mgr
+				.fetchMore(duration, { priorityTime })
+				.then((comments) => {
+					const latest = playersDataRef.current.get(playerID);
+					if (
+						!latest ||
+						latest.playableId !== currentPlayableId ||
+						latest.recordedCommentsLoadToken !== loadToken
+					) {
+						return;
+					}
+					latest.comments = comments;
+					latest.recordedFetchProgress = null;
+					latest.isLoadingRecordedComments = false;
+					latest.interruptedSources = mgr.getInterruptedSources();
+					const interruptedKeys = mgr.getInterruptedSourceKeys();
+					if (latest.jkContext) {
+						latest.jkContext = withInterruptedSources(
+							latest.jkContext,
+							interruptedKeys,
+						);
+					}
+					mgr.setProgressListener(null);
+					if (targetPlayableRef.current?.playerID === playerID) {
+						syncTargetState(playerID);
+					}
+				})
+				.catch((error) => {
+					console.error("[NicoJK] Failed to fetchMore", error);
+					const latest = playersDataRef.current.get(playerID);
+					if (
+						!latest ||
+						latest.playableId !== currentPlayableId ||
+						latest.recordedCommentsLoadToken !== loadToken
+					) {
+						return;
+					}
+					latest.recordedFetchProgress = null;
+					latest.isLoadingRecordedComments = false;
+					mgr.setProgressListener(null);
+					if (targetPlayableRef.current?.playerID === playerID) {
+						syncTargetState(playerID);
+					}
+				});
+			return true;
 		};
 
 		const updateTarget = () => {
@@ -953,6 +1130,10 @@ export default function App() {
 			setTargetPlayable(targetP);
 			targetPlayableRef.current = targetP;
 			setPlaybackState(targetS);
+			overlayIsLiveRef.current = getEffectiveIsLive(
+				targetP,
+				targetP ? playersDataRef.current.get(targetP.playerID) : undefined,
+			);
 
 			if (currentArea.type === "overlay" && targetP) {
 				const data = playersDataRef.current.get(targetP.playerID);
@@ -967,11 +1148,14 @@ export default function App() {
 				setChannelDisplayState(getChannelDisplayState(targetP, data));
 				setWsStatus(getPlayerWsStatus(data));
 				setHasDisplayCandidates(
-					getHasDisplayCandidates(data, !targetP.isSeekable),
+					getHasDisplayCandidates(data, getEffectiveIsLive(targetP, data)),
 				);
 				setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 				setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
+				setInterruptedSources(data?.interruptedSources || []);
 			} else if (targetP) {
+				const targetData = playersDataRef.current.get(targetP.playerID);
+				const targetIsLive = getEffectiveIsLive(targetP, targetData);
 				const cachedSnapshot = getCachedPanelSnapshot(
 					targetP.playerID,
 					targetP.id,
@@ -979,12 +1163,9 @@ export default function App() {
 				if (cachedSnapshot) {
 					applyPanelSnapshot(cachedSnapshot);
 				} else if (!hasCurrentPanelSnapshot(targetP.playerID, targetP.id)) {
-					clearPanelState(
-						getRelayPendingChannelDisplayState(),
-						!targetP.isSeekable,
-					);
+					clearPanelState(getRelayPendingChannelDisplayState(), targetIsLive);
 				} else {
-					setPanelIsLive(!targetP.isSeekable);
+					setPanelIsLive(targetIsLive);
 				}
 				requestPanelSnapshot(targetP.playerID);
 				setHasDisplayCandidates(false);
@@ -1011,6 +1192,28 @@ export default function App() {
 		});
 
 		bridge.onPlayerStatusesChange((statuses) => {
+			// シーク検知: 各 player の time ジャンプを見て即時取得をトリガー
+			for (const status of statuses) {
+				const pid = status.playerID;
+				const prev = lastPlayerTimeRef.current.get(pid);
+				lastPlayerTimeRef.current.set(pid, status.time);
+				if (prev == null) continue;
+				const delta = Math.abs(status.time - prev);
+				if (delta < 10) continue;
+
+				const playable = bridge.getPlayable(pid);
+				if (!playable || !playable.isSeekable) continue;
+				const data = playersDataRef.current.get(pid);
+				const mgr = kakologManagersRef.current.get(pid);
+				if (!data || !mgr) continue;
+				if (!data.areSourcesResolved || !data.recordedCommentsReady) continue;
+				if (data.isLoadingRecordedComments) continue;
+				if (pendingResumeRef.current.has(pid)) continue;
+				if (!mgr.isUnfetchedAt(status.time)) continue;
+
+				triggerFetchMore(pid, status.time);
+			}
+
 			const currentArea = areaRef.current;
 			if (!currentArea) return;
 			if (currentArea.type === "options") {
@@ -1069,6 +1272,11 @@ export default function App() {
 				const dataObject = playersDataRef.current.get(p.playerID);
 				if (!dataObject) continue;
 				let data = dataObject;
+				if (p.isSeekable) {
+					data.wasSeekable = true;
+				}
+				const effectiveIsLive = getEffectiveIsLive(p, data);
+				const effectiveIsSeekable = !effectiveIsLive;
 
 				if (data.playableId !== p.id) {
 					console.log(
@@ -1096,11 +1304,12 @@ export default function App() {
 					data.jkContext = null;
 					data.areSourcesResolved = true;
 					data.isLookingUpChannel = false;
-					if (p.isSeekable) {
+					if (effectiveIsSeekable) {
 						resetRecordedCommentsState(data);
 					} else {
 						data.comments = [];
 						data.recordedFetchProgress = null;
+						data.interruptedSources = [];
 					}
 					syncTargetState(p.playerID);
 					continue;
@@ -1120,6 +1329,7 @@ export default function App() {
 					data.isLoadingRecordedComments = false;
 					data.recordedCommentsLoadToken += 1;
 					data.recordedFetchProgress = null;
+					data.interruptedSources = [];
 					data.sourceResolutionKey = null;
 					data.isResolvingSources = false;
 					data.sourceResolutionToken += 1;
@@ -1169,6 +1379,7 @@ export default function App() {
 								} else {
 									latest.comments = [];
 									latest.recordedFetchProgress = null;
+									latest.interruptedSources = [];
 								}
 							}
 							syncTargetState(p.playerID);
@@ -1184,7 +1395,7 @@ export default function App() {
 						duration,
 					);
 					if (fallbackPrimary) {
-						if (!p.isSeekable) {
+						if (effectiveIsLive) {
 							if (data.liveSources.length === 0) {
 								data.liveSources = [fallbackPrimary];
 							}
@@ -1232,7 +1443,7 @@ export default function App() {
 				}
 
 				const sourceResolutionKey = data.primaryChannel?.jkId
-					? `${p.id}:${p.isSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
+					? `${p.id}:${effectiveIsSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
 					: null;
 				if (
 					data.primaryChannel?.jkId &&
@@ -1241,16 +1452,16 @@ export default function App() {
 					!data.isResolvingSources
 				) {
 					data.areSourcesResolved = false;
-					if (p.isSeekable) {
+					if (effectiveIsSeekable) {
 						resetRecordedCommentsState(data);
 					}
 					data.isResolvingSources = true;
 					const sourceResolutionToken = data.sourceResolutionToken + 1;
 					data.sourceResolutionToken = sourceResolutionToken;
 					const currentPlayableId = p.id;
-					const isSeekable = p.isSeekable;
+					const isSeekable = effectiveIsSeekable;
 					const programStartAt = getProgramStartAt(p);
-					const queryTime = p.isSeekable
+					const queryTime = effectiveIsSeekable
 						? programStartAt +
 							Math.min(
 								Math.max(status?.time || Math.floor(duration / 2), 1),
@@ -1262,7 +1473,7 @@ export default function App() {
 						primaryChannel: data.primaryChannel,
 						baseStartAt: startAt,
 						duration,
-						isLive: !p.isSeekable,
+						isLive: effectiveIsLive,
 						queryTime,
 					})
 						.then((resolved) => {
@@ -1311,7 +1522,7 @@ export default function App() {
 						});
 				}
 
-				if (!p.isSeekable) {
+				if (effectiveIsLive) {
 					for (const source of data.liveSources) {
 						if (clientsRef.current.has(source.jkId)) {
 							continue;
@@ -1363,7 +1574,7 @@ export default function App() {
 					}
 				}
 
-				if (p.isSeekable) {
+				if (effectiveIsSeekable) {
 					if (!kakologManagersRef.current.has(p.playerID)) {
 						const mgr = new KakologManager();
 						kakologManagersRef.current.set(p.playerID, mgr);
@@ -1373,14 +1584,104 @@ export default function App() {
 						mgr.setSources(data.replaySources);
 
 						if (data.jkContext && data.replaySources[0]) {
+							const interruptedKeys = mgr.getInterruptedSourceKeys();
 							data.jkContext = buildJkContext(
 								data.replaySources[0],
 								data.replaySources,
 								startAt,
 								duration,
+								interruptedKeys,
 							);
 						}
 
+						const currentPlayableId = p.id;
+						const playerTime = status?.time || 0;
+
+						// 手動再開（取得再開ボタン）
+						const pendingResumeKey = pendingResumeRef.current.get(p.playerID);
+						if (
+							pendingResumeKey &&
+							data.areSourcesResolved &&
+							!data.isLoadingRecordedComments
+						) {
+							pendingResumeRef.current.delete(p.playerID);
+							data.isLoadingRecordedComments = true;
+							const loadToken = data.recordedCommentsLoadToken + 1;
+							data.recordedCommentsLoadToken = loadToken;
+							if (targetPlayableRef.current?.playerID === p.playerID) {
+								syncTargetState(p.playerID);
+							}
+							mgr.setProgressListener((progress) => {
+								const latest = playersDataRef.current.get(p.playerID);
+								if (
+									!latest ||
+									latest.playableId !== currentPlayableId ||
+									latest.recordedCommentsLoadToken !== loadToken
+								) {
+									return;
+								}
+								latest.recordedFetchProgress = progress;
+								if (targetPlayableRef.current?.playerID === p.playerID) {
+									syncTargetState(p.playerID);
+								}
+							});
+
+							mgr
+								.resumeSource(pendingResumeKey, duration)
+								.then((comments) => {
+									const latest = playersDataRef.current.get(p.playerID);
+									if (
+										!latest ||
+										latest.playableId !== currentPlayableId ||
+										latest.recordedCommentsLoadToken !== loadToken
+									) {
+										return;
+									}
+									latest.comments = comments;
+									latest.recordedFetchProgress = null;
+									latest.isLoadingRecordedComments = false;
+									latest.recordedCommentsReady = true;
+									latest.interruptedSources = mgr.getInterruptedSources();
+									const interruptedKeys = mgr.getInterruptedSourceKeys();
+									if (latest.jkContext) {
+										latest.jkContext = withInterruptedSources(
+											latest.jkContext,
+											interruptedKeys,
+										);
+									}
+									mgr.setProgressListener(null);
+									if (targetPlayableRef.current?.playerID === p.playerID) {
+										syncTargetState(p.playerID);
+									}
+								})
+								.catch((error) => {
+									console.error("[NicoJK] Failed to resume source", error);
+									const latest = playersDataRef.current.get(p.playerID);
+									if (
+										!latest ||
+										latest.playableId !== currentPlayableId ||
+										latest.recordedCommentsLoadToken !== loadToken
+									) {
+										return;
+									}
+									latest.recordedFetchProgress = null;
+									latest.isLoadingRecordedComments = false;
+									latest.interruptedSources = mgr.getInterruptedSources();
+									const interruptedKeys = mgr.getInterruptedSourceKeys();
+									if (latest.jkContext) {
+										latest.jkContext = withInterruptedSources(
+											latest.jkContext,
+											interruptedKeys,
+										);
+									}
+									mgr.setProgressListener(null);
+									if (targetPlayableRef.current?.playerID === p.playerID) {
+										syncTargetState(p.playerID);
+									}
+								});
+						}
+
+						// 初回取得（10k制限）
 						if (
 							data.areSourcesResolved &&
 							!data.recordedCommentsReady &&
@@ -1392,8 +1693,7 @@ export default function App() {
 							}
 							const loadToken = data.recordedCommentsLoadToken + 1;
 							data.recordedCommentsLoadToken = loadToken;
-							const currentPlayableId = p.id;
-							const initialPlayerTime = status?.time || 0;
+							const initialPlayerTime = playerTime;
 							mgr.setProgressListener((progress) => {
 								const latest = playersDataRef.current.get(p.playerID);
 								if (
@@ -1411,9 +1711,9 @@ export default function App() {
 							});
 
 							mgr
-								.fetchAll(duration, {
+								.fetchWithLimit(duration, {
 									priorityTime: initialPlayerTime,
-									onPriorityChunkFetched: (initialComments) => {
+									onPartialComments: (partialComments) => {
 										const latest = playersDataRef.current.get(p.playerID);
 										if (
 											!latest ||
@@ -1423,14 +1723,14 @@ export default function App() {
 											return;
 										}
 
-										latest.comments = initialComments;
+										latest.comments = partialComments;
 										latest.recordedCommentsReady = true;
 										if (targetPlayableRef.current?.playerID === p.playerID) {
 											syncTargetState(p.playerID);
 										}
 									},
 								})
-								.then((allComments) => {
+								.then((fetchedComments) => {
 									const latest = playersDataRef.current.get(p.playerID);
 									if (
 										!latest ||
@@ -1440,10 +1740,18 @@ export default function App() {
 										return;
 									}
 
-									latest.comments = allComments;
+									latest.comments = fetchedComments;
 									latest.recordedFetchProgress = null;
 									latest.isLoadingRecordedComments = false;
 									latest.recordedCommentsReady = true;
+									latest.interruptedSources = mgr.getInterruptedSources();
+									const interruptedKeys = mgr.getInterruptedSourceKeys();
+									if (latest.jkContext) {
+										latest.jkContext = withInterruptedSources(
+											latest.jkContext,
+											interruptedKeys,
+										);
+									}
 									mgr.setProgressListener(null);
 									if (targetPlayableRef.current?.playerID === p.playerID) {
 										syncTargetState(p.playerID);
@@ -1471,16 +1779,28 @@ export default function App() {
 									}
 								});
 						}
+
+						// 自動再開（シーク位置基準で次の未取得が1分前に到達で10k追加取得）
+						if (
+							data.areSourcesResolved &&
+							data.recordedCommentsReady &&
+							!data.isLoadingRecordedComments &&
+							!pendingResumeRef.current.has(p.playerID)
+						) {
+							if (mgr.shouldAutoResume(playerTime)) {
+								triggerFetchMore(p.playerID, playerTime);
+							}
+						}
 					}
 				}
 			}
 
 			const activeJkIds = new Set<string>();
 			for (const playable of playables) {
-				if (playable.isSeekable) {
+				const playerData = playersDataRef.current.get(playable.playerID);
+				if (!getEffectiveIsLive(playable, playerData)) {
 					continue;
 				}
-				const playerData = playersDataRef.current.get(playable.playerID);
 				for (const source of playerData?.liveSources || []) {
 					activeJkIds.add(source.jkId);
 				}
@@ -1493,7 +1813,10 @@ export default function App() {
 			}
 			const activePids = new Set(
 				playables
-					.filter((playable) => playable.isSeekable)
+					.filter((playable) => {
+						const playerData = playersDataRef.current.get(playable.playerID);
+						return !getEffectiveIsLive(playable, playerData);
+					})
 					.map((p) => p.playerID),
 			);
 			for (const pid of kakologManagersRef.current.keys()) {
@@ -1535,7 +1858,12 @@ export default function App() {
 					width={area.width}
 					height={area.height}
 					playableId={targetPlayable?.id || null}
-					isLive={!targetPlayable?.isSeekable}
+					isLive={getEffectiveIsLive(
+						targetPlayable,
+						targetPlayable
+							? playersDataRef.current.get(targetPlayable.playerID)
+							: undefined,
+					)}
 					hasDisplayCandidates={hasDisplayCandidates}
 					recordedCommentsReady={recordedCommentsReady}
 					isLoadingRecordedComments={isLoadingRecordedComments}
@@ -1549,12 +1877,14 @@ export default function App() {
 					comments={comments}
 					visibleSourceKeys={visibleSourceKeys}
 					onVisibleSourceKeysChange={handleVisibleSourceKeysChange}
+					onResumeSource={handleResumeSource}
 					isLive={panelIsLive}
 					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
 					wsStatus={wsStatus}
 					jkContext={jkContext}
 					channelDisplayState={channelDisplayState}
+					interruptedSources={interruptedSources}
 					hasActivePlayer={!!targetPlayable}
 				/>
 			)}

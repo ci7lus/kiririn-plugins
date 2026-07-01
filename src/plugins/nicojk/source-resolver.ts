@@ -1,6 +1,5 @@
 import type { NicoJKChannelDefinition } from "./definitions";
 import { getAllChannelDefinitions } from "./definitions";
-import { getSettings } from "./ng-settings";
 import {
 	haveSimilarDuration,
 	lookupChannelProgramAt,
@@ -179,10 +178,7 @@ async function resolveRecordedReplaySources(
 		})
 		.filter((source): source is ResolvedCommentSource => !!source);
 
-	return dedupeSources(matches).slice(
-		0,
-		getSettings().maxRecordedReplayAirings,
-	);
+	return dedupeSources(matches);
 }
 
 export async function resolveCommentSources(params: {

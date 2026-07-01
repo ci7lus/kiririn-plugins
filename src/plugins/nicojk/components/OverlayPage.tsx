@@ -28,6 +28,29 @@ interface Props {
 type RendererMode = "live" | "recorded";
 type RecordedRendererPhase = "none" | "partial" | "complete";
 
+// niconicomments へ渡すコメントを1時間（3600秒）単位で区切る
+const RENDER_SEGMENT_SIZE = 3600;
+// 次の枠に切り替わる際、前の枠の最後1分間（60秒）を交差させる
+const RENDER_SEGMENT_OVERLAP = 60;
+
+function getSegmentComments(
+	comments: NiconicoComment[],
+	segment: number,
+	startAt: number,
+): NiconicoComment[] {
+	if (segment <= 0) {
+		const segmentEndVpos = (startAt + RENDER_SEGMENT_SIZE) * 100;
+		return comments.filter((c) => c.vpos < segmentEndVpos);
+	}
+
+	const overlapStartVpos =
+		(startAt + segment * RENDER_SEGMENT_SIZE - RENDER_SEGMENT_OVERLAP) * 100;
+	const segmentEndVpos = (startAt + (segment + 1) * RENDER_SEGMENT_SIZE) * 100;
+	return comments.filter(
+		(c) => c.vpos >= overlapStartVpos && c.vpos < segmentEndVpos,
+	);
+}
+
 function getCommentSourceKey(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
@@ -182,6 +205,7 @@ export default function OverlayPage({
 		playableId: string | null;
 		filterVersion: number;
 		recordedPhase: RecordedRendererPhase;
+		segment: number;
 	} | null>(null);
 	const filterSignatureRef = useRef(
 		getFilterSignature(getSettings(), visibleSourceKeys),
@@ -192,6 +216,8 @@ export default function OverlayPage({
 	const [opacity, setOpacity] = useState(getSettings().opacity);
 	const [filterVersion, setFilterVersion] = useState(0);
 	const [rendererInitialized, setRendererInitialized] = useState(false);
+	const [currentSegment, setCurrentSegment] = useState(0);
+	const currentSegmentRef = useRef(0);
 
 	// Settings update listener
 	useEffect(() => {
@@ -271,6 +297,12 @@ export default function OverlayPage({
 		};
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: playableId 変更時にセグメントをリセットする必要がある
+	useEffect(() => {
+		currentSegmentRef.current = 0;
+		setCurrentSegment(0);
+	}, [playableId]);
+
 	useEffect(() => {
 		if (!canvasRef.current) return;
 
@@ -298,7 +330,8 @@ export default function OverlayPage({
 			rendererMetaRef.current?.playableId !== playableId ||
 			rendererMetaRef.current?.filterVersion !== filterVersion ||
 			(!isLive &&
-				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase);
+				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase) ||
+			(!isLive && rendererMetaRef.current?.segment !== currentSegment);
 		if (!shouldRecreate) {
 			return;
 		}
@@ -306,9 +339,13 @@ export default function OverlayPage({
 		rendererRef.current?.clear();
 		const currentSettings = getSettings();
 		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
+		const segmentComments =
+			!isLive && usesFormattedRenderer
+				? getSegmentComments(comments, currentSegment, jkContext?.startAt || 0)
+				: comments;
 		const initialComments = usesFormattedRenderer
 			? toFormattedComments(
-					comments,
+					segmentComments,
 					visibleSourceKeys,
 					jkContext,
 					currentSettings,
@@ -316,7 +353,7 @@ export default function OverlayPage({
 			: [];
 		const liveComments = isLive
 			? toFormattedComments(
-					comments,
+					segmentComments,
 					visibleSourceKeys,
 					jkContext,
 					currentSettings,
@@ -324,6 +361,7 @@ export default function OverlayPage({
 			: [];
 		const renderer = new NiconiComments(canvasRef.current, initialComments, {
 			format: usesFormattedRenderer ? "formatted" : "empty",
+			lazy: true,
 		});
 		if (isLive && liveComments.length > 0) {
 			renderer.addComments(...liveComments);
@@ -334,8 +372,9 @@ export default function OverlayPage({
 			playableId,
 			filterVersion,
 			recordedPhase: isLive ? "none" : recordedRendererPhase,
+			segment: currentSegment,
 		};
-		lastCommentIdRef.current = getMaxCommentId(comments);
+		lastCommentIdRef.current = getMaxCommentId(segmentComments);
 		setRendererInitialized(true);
 	}, [
 		comments,
@@ -348,6 +387,7 @@ export default function OverlayPage({
 		recordedCommentsReady,
 		showComments,
 		visibleSourceKeys,
+		currentSegment,
 	]);
 
 	useEffect(() => {
@@ -362,12 +402,18 @@ export default function OverlayPage({
 						? ((performance.now() - syncRef.current.receivedAt) / 1000) *
 							syncRef.current.rate
 						: 0;
+					const playerTime = syncRef.current.time + elapsed;
 					// vpos は絶対 unixtime × 100。nowVpos = (startAt + playerTime) * 100 で一致する。
 					// startAt = initialNetworkTime（TOT/PMT 判明後に更新される）。
 					nowVpos = Math.floor(
-						(syncRef.current.time + elapsed + jkContextRef.current.startAt) *
-							100,
+						(playerTime + jkContextRef.current.startAt) * 100,
 					);
+
+					const segment = Math.floor(playerTime / RENDER_SEGMENT_SIZE);
+					if (segment !== currentSegmentRef.current) {
+						currentSegmentRef.current = segment;
+						setCurrentSegment(segment);
+					}
 				} else {
 					nowVpos = 0;
 				}

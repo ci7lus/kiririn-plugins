@@ -7,6 +7,7 @@ export interface NicoJKSourceContext {
 	kind: NicoJKSourceKind;
 	startAt: number;
 	endAt: number;
+	interrupted?: boolean;
 }
 
 export interface NicoJKContext {

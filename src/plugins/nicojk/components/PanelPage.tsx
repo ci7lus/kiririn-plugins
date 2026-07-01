@@ -11,6 +11,7 @@ import {
 	Info,
 	MessageSquare,
 	MoreVertical,
+	RotateCw,
 	Search,
 	UserX,
 	X,
@@ -19,19 +20,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
+import type { InterruptedSourceInfo } from "../kakolog-manager";
 import {
 	addNGCommand,
 	addNGId,
 	getSettings,
-	isNG,
 	SETTINGS_UPDATED_EVENT,
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED", "ここ"] as const;
+const CHAPTER_LABELS = [
+	"A",
+	"B",
+	"C",
+	"D",
+	"OP",
+	"ED",
+	"ここ",
+	"出OP",
+] as const;
 const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
-const TOOLTIP_MIN_HEIGHT = 160;
-const TOOLTIP_SAFE_MARGIN = 8;
+const SHEET_ANIMATION_MS = 240;
+const ROW_ESTIMATE_SIZE = 41;
 
 type ChapterLabel = (typeof CHAPTER_LABELS)[number];
 
@@ -46,6 +56,7 @@ interface Props {
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
+	onResumeSource: (sourceKey: string) => void;
 	isLive: boolean;
 	duration: number;
 	playbackState: PlayerPlaybackState | null;
@@ -57,6 +68,7 @@ interface Props {
 		isLoading: boolean;
 		fetchedCommentCount: number;
 	};
+	interruptedSources: InterruptedSourceInfo[];
 	hasActivePlayer: boolean;
 }
 
@@ -89,41 +101,48 @@ export default function PanelPage({
 	comments,
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
+	onResumeSource,
 	isLive,
 	duration,
 	playbackState,
 	wsStatus,
 	jkContext,
 	channelDisplayState,
+	interruptedSources,
 	hasActivePlayer,
 }: Props) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
-	const activeTooltipRootRef = useRef<HTMLDivElement | null>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const [autoScroll, setAutoScroll] = useState(true);
-	const [showScrollTop, setShowScrollTop] = useState(false);
 	const [filterNG, setFilterNG] = useState(true);
 	const [showChapters, setShowChapters] = useState(false);
 	const [showInfo, setShowInfo] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
 	const [showSearch, setShowSearch] = useState(false);
+	const chaptersPopup = useAnimatedVisibility(showChapters);
+	const infoPopup = useAnimatedVisibility(showInfo);
+	const menuPopup = useAnimatedVisibility(showMenu);
+	const searchPopup = useAnimatedVisibility(showSearch);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(-1);
 	const [settings, setSettings] = useState(getSettings());
-	const [hoveredCommentId, setHoveredCommentId] = useState<number | null>(null);
 	const [pinnedCommentId, setPinnedCommentId] = useState<number | null>(null);
+	const [buttonRendered, setButtonRendered] = useState(false);
+	const [buttonShown, setButtonShown] = useState(false);
+	const [sheetRendered, setSheetRendered] = useState(false);
+	const [sheetShown, setSheetShown] = useState(false);
 	const chapterWindowSeconds = settings.chapterWindowSeconds;
 	const chapterCooldownSeconds = settings.chapterCooldownSeconds;
 	const chapterMinimumCount = settings.chapterMinimumCount;
 	const chapterSeekLeadSeconds = settings.chapterSeekLeadSeconds;
-	const [safeAreaInsetBottom, setSafeAreaInsetBottom] = useState(() =>
-		parseFloat(
-			getComputedStyle(document.documentElement).getPropertyValue(
-				"--kiririn-safe-area-inset-bottom",
-			) || "0",
-		),
+	const [safeAreaInsetBottom, setSafeAreaInsetBottom] = useState(
+		() =>
+			parseFloat(
+				getComputedStyle(document.documentElement).getPropertyValue(
+					"--kiririn-safe-area-inset-bottom",
+				) || "0",
+			) + 6,
 	);
-
 	useEffect(() => {
 		const update = () => {
 			setSafeAreaInsetBottom(
@@ -131,15 +150,13 @@ export default function PanelPage({
 					getComputedStyle(document.documentElement).getPropertyValue(
 						"--kiririn-safe-area-inset-bottom",
 					) || "0",
-				),
+				) + 6,
 			);
 		};
-
 		const observer = new ResizeObserver(update);
 		observer.observe(document.documentElement);
 		return () => observer.disconnect();
 	}, []);
-
 	useEffect(() => {
 		const handleUpdate = () => setSettings(getSettings());
 		window.addEventListener(SETTINGS_UPDATED_EVENT, handleUpdate);
@@ -159,12 +176,30 @@ export default function PanelPage({
 
 	const filteredComments = useMemo(() => {
 		const ngFiltered = filterNG
-			? comments.filter((comment) => !isNG(comment.content, comment.user_id))
+			? comments.filter((comment) => {
+					if (comment.user_id && settings.ngIds.includes(comment.user_id)) {
+						return false;
+					}
+					if (
+						comment.content &&
+						settings.ngWords.some((word) => comment.content.includes(word))
+					) {
+						return false;
+					}
+					return true;
+				})
 			: comments;
 		return ngFiltered.filter((comment) =>
 			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
 		);
-	}, [comments, filterNG, jkContext, visibleSourceKeys]);
+	}, [
+		comments,
+		filterNG,
+		jkContext,
+		settings.ngIds,
+		settings.ngWords,
+		visibleSourceKeys,
+	]);
 
 	const displayComments = filteredComments;
 	const normalizedSearchQuery = useMemo(
@@ -319,16 +354,39 @@ export default function PanelPage({
 	]);
 	const canSeekToChapters = !isLive && duration > 0;
 	const playbackProgress = clamp(playbackState?.position ?? 0, 0, 1);
+	const buttonVisible =
+		hasActivePlayer && !autoScroll && displayComments.length > 0;
+	const sheetVisible = pinnedCommentId != null;
+	const activeTooltip = useMemo(() => {
+		if (pinnedCommentId == null) {
+			return null;
+		}
+		const comment = displayComments.find((c) => c.id === pinnedCommentId);
+		if (!comment) {
+			return null;
+		}
+		const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
+		const commentSource = jkContext?.sources[sourceOrdinal] || null;
+		const mailCommands = [...new Set(comment.mail.filter(Boolean))].filter(
+			(mail) => !IGNORE_COMMANDS.includes(mail) && !mail.startsWith("nico:"),
+		);
+		return { comment, sourceOrdinal, commentSource, mailCommands };
+	}, [displayComments, jkContext, pinnedCommentId]);
+	const [renderedTooltip, setRenderedTooltip] = useState<NonNullable<
+		typeof activeTooltip
+	> | null>(null);
 
 	const rowVirtualizer = useVirtualizer({
 		count: hasActivePlayer ? displayComments.length : 0,
 		getScrollElement: () => scrollContainerRef.current,
-		estimateSize: () => 56,
+		estimateSize: () => ROW_ESTIMATE_SIZE,
 		overscan: 10,
 		getItemKey: (index) => {
 			const item = displayComments[index];
 			return item ? `${item.no}-${item.id}` : index;
 		},
+		paddingEnd: safeAreaInsetBottom,
+		scrollPaddingEnd: safeAreaInsetBottom + 4,
 	});
 
 	const findCommentIndexByVpos = useCallback(
@@ -359,12 +417,7 @@ export default function PanelPage({
 		if (!hasActivePlayer || !autoScroll) return;
 
 		if (isLive) {
-			if (displayComments.length > 0) {
-				rowVirtualizer.scrollToIndex(displayComments.length - 1, {
-					align: "end",
-					behavior: "auto",
-				});
-			}
+			rowVirtualizer.scrollToEnd({ behavior: "auto" });
 			return;
 		}
 
@@ -379,15 +432,15 @@ export default function PanelPage({
 		lastScrolledTimeRef.current = playbackState.time;
 
 		const targetIndex = findCommentIndexByVpos(targetVpos);
-		if (targetIndex >= 0) {
-			rowVirtualizer.scrollToIndex(targetIndex, {
-				align: "end",
-				behavior: "auto",
-			});
+		if (targetIndex < 0) {
+			return;
 		}
+		rowVirtualizer.scrollToIndex(targetIndex, {
+			align: "end",
+			behavior: "auto",
+		});
 	}, [
 		autoScroll,
-		displayComments,
 		findCommentIndexByVpos,
 		hasActivePlayer,
 		isLive,
@@ -415,28 +468,10 @@ export default function PanelPage({
 		};
 	}, [autoScroll]);
 
-	const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-		const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-
-		if (isLive) {
-			const isAtBottom = scrollHeight - scrollTop - clientHeight < 30;
-			if (isAtBottom && !autoScroll) {
-				setAutoScroll(true);
-			}
-		}
-
-		setShowScrollTop(scrollHeight - scrollTop - clientHeight > 200);
-	};
-
 	const scrollToBottom = useCallback(() => {
-		if (displayComments.length > 0) {
-			rowVirtualizer.scrollToIndex(displayComments.length - 1, {
-				align: "end",
-				behavior: "auto",
-			});
-		}
+		lastScrolledTimeRef.current = 0;
 		setAutoScroll(true);
-	}, [displayComments.length, rowVirtualizer]);
+	}, []);
 
 	const handleNGId = useCallback((id: string) => {
 		if (confirm(`ID: ${id} をNGに追加しますか？`)) {
@@ -456,8 +491,12 @@ export default function PanelPage({
 		[settings.ngCommands],
 	);
 
-	const handleTooltipMouseLeave = useCallback((commentId: number) => {
-		setHoveredCommentId((current) => (current === commentId ? null : current));
+	const dismissSheet = useCallback(() => {
+		setPinnedCommentId(null);
+	}, []);
+
+	const togglePinComment = useCallback((commentId: number) => {
+		setPinnedCommentId((current) => (current === commentId ? null : commentId));
 	}, []);
 
 	const canShowOnlySource = (jkContext?.sources.length || 0) > 1;
@@ -523,7 +562,6 @@ export default function PanelPage({
 	);
 
 	useEffect(() => {
-		setHoveredCommentId(null);
 		setPinnedCommentId((current) => {
 			if (current == null) {
 				return null;
@@ -574,27 +612,40 @@ export default function PanelPage({
 	}, [activeSearchCommentIndex, rowVirtualizer, showSearch]);
 
 	useEffect(() => {
-		if (pinnedCommentId == null) {
-			activeTooltipRootRef.current = null;
-			return;
+		if (buttonVisible) {
+			setButtonRendered(true);
+			const enterTimer = window.setTimeout(() => setButtonShown(true), 16);
+			return () => window.clearTimeout(enterTimer);
 		}
+		setButtonShown(false);
+		const exitTimer = window.setTimeout(
+			() => setButtonRendered(false),
+			SHEET_ANIMATION_MS,
+		);
+		return () => window.clearTimeout(exitTimer);
+	}, [buttonVisible]);
 
-		const handlePointerDownOutside = (event: PointerEvent) => {
-			const target = event.target;
-			if (!(target instanceof Node)) {
-				return;
-			}
-			if (activeTooltipRootRef.current?.contains(target)) {
-				return;
-			}
-			setPinnedCommentId(null);
-			setHoveredCommentId(null);
-		};
+	useEffect(() => {
+		if (sheetVisible) {
+			setSheetRendered(true);
+			const enterTimer = window.setTimeout(() => setSheetShown(true), 16);
+			return () => window.clearTimeout(enterTimer);
+		}
+		setSheetShown(false);
+		const exitTimer = window.setTimeout(
+			() => setSheetRendered(false),
+			SHEET_ANIMATION_MS,
+		);
+		return () => window.clearTimeout(exitTimer);
+	}, [sheetVisible]);
 
-		document.addEventListener("pointerdown", handlePointerDownOutside);
-		return () =>
-			document.removeEventListener("pointerdown", handlePointerDownOutside);
-	}, [pinnedCommentId]);
+	useEffect(() => {
+		if (activeTooltip) {
+			setRenderedTooltip(activeTooltip);
+		} else if (!sheetRendered) {
+			setRenderedTooltip(null);
+		}
+	}, [activeTooltip, sheetRendered]);
 
 	const formatTime = (unix: number) => {
 		if (!unix) return "--:--";
@@ -652,6 +703,25 @@ export default function PanelPage({
 			duration,
 			playbackState?.playerID,
 		],
+	);
+
+	const handleSeekToComment = useCallback(
+		(comment: NiconicoComment) => {
+			if (isLive || duration <= 0) {
+				return;
+			}
+
+			const relativeSec = comment.vpos / 100 - (jkContext?.startAt ?? 0);
+			if (!Number.isFinite(relativeSec) || relativeSec < 0) {
+				return;
+			}
+
+			const seekPosition = clamp(relativeSec / duration, 0, 1);
+			lastScrolledTimeRef.current = 0;
+			setAutoScroll(true);
+			window.kiririn.seek(seekPosition, playbackState?.playerID);
+		},
+		[duration, isLive, jkContext?.startAt, playbackState?.playerID],
 	);
 
 	return (
@@ -791,10 +861,6 @@ export default function PanelPage({
 			<div
 				ref={scrollContainerRef}
 				className="relative flex-1 overflow-y-auto p-2"
-				style={{
-					paddingBottom: "calc(0.5rem + var(--kiririn-safe-area-inset-bottom))",
-				}}
-				onScroll={handleScroll}
 			>
 				{!hasActivePlayer ? (
 					<div className="flex h-full flex-col items-center justify-center p-4">
@@ -824,55 +890,29 @@ export default function PanelPage({
 							const sourceOrdinal = Math.max(c.sourceOrdinal || 0, 0);
 							const commentSource = jkContext?.sources[sourceOrdinal] || null;
 							const isSecondarySource = sourceOrdinal > 0;
-							const isHoveredTooltip = hoveredCommentId === c.id;
-							const isPinnedTooltip = pinnedCommentId === c.id;
-							const isTooltipVisible = isHoveredTooltip || isPinnedTooltip;
 							const isSearchMatched = matchedCommentIndexSet.has(
 								virtualRow.index,
 							);
 							const isActiveSearchMatch =
 								activeSearchCommentIndex === virtualRow.index;
-							const scrollTop = scrollContainerRef.current?.scrollTop || 0;
-							const containerHeight =
-								scrollContainerRef.current?.clientHeight || 0;
-							const visibleRowTop = virtualRow.start - scrollTop;
-							const rowHeight = virtualRow.size || 56;
-							const visibleRowBottom = visibleRowTop + rowHeight;
-							const spaceAbove = Math.max(
-								visibleRowTop - TOOLTIP_SAFE_MARGIN,
-								0,
-							);
-							const spaceBelow = Math.max(
-								containerHeight -
-									visibleRowBottom -
-									TOOLTIP_SAFE_MARGIN -
-									safeAreaInsetBottom,
-								0,
-							);
-							const placeAbove =
-								spaceBelow < TOOLTIP_MIN_HEIGHT && spaceAbove > spaceBelow;
-							const availableHeight = Math.max(
-								(placeAbove ? spaceAbove : spaceBelow) - TOOLTIP_SAFE_MARGIN,
-								120,
-							);
-							const mailCommands = [...new Set(c.mail.filter(Boolean))].filter(
-								(mail) =>
-									!IGNORE_COMMANDS.includes(mail) && !mail.startsWith("nico:"),
-							);
+							const isActiveTooltipRow = pinnedCommentId === c.id;
 
 							return (
-								<div
+								<button
 									key={virtualRow.key}
 									ref={rowVirtualizer.measureElement}
 									data-index={virtualRow.index}
 									data-vpos={c.vpos}
+									data-comment-id={c.id}
+									type="button"
+									onClick={() => togglePinComment(c.id)}
 									style={{
 										position: "absolute",
 										top: virtualRow.start,
 										left: 0,
 										width: "100%",
-										zIndex: isHoveredTooltip ? 40 : isPinnedTooltip ? 30 : 0,
 									}}
+									className="cursor-pointer appearance-none border-0 bg-transparent p-0 text-left text-inherit focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
 								>
 									<div
 										className={`group relative mb-1 flex items-center gap-2 rounded p-2 text-sm leading-relaxed transition-colors ${
@@ -880,185 +920,213 @@ export default function PanelPage({
 												? "bg-amber-500/20 ring-1 ring-amber-400/60 hover:bg-amber-500/25"
 												: isSearchMatched
 													? "bg-amber-500/10 hover:bg-amber-500/15"
-													: "hover:bg-[#333]"
+													: isActiveTooltipRow
+														? "bg-[#333]"
+														: "hover:bg-[#2c2c2c]"
 										}`}
 									>
-										<div
-											ref={(node) => {
-												if (pinnedCommentId === c.id) {
-													activeTooltipRootRef.current = node;
-												} else if (activeTooltipRootRef.current === node) {
-													activeTooltipRootRef.current = null;
-												}
-											}}
-											className="relative min-w-0 flex-1"
-										>
-											<button
-												type="button"
-												onMouseEnter={() => {
-													setHoveredCommentId(c.id);
-													setPinnedCommentId(null);
-												}}
-												onMouseLeave={() => handleTooltipMouseLeave(c.id)}
-												onClick={() => {
-													if (pinnedCommentId === c.id) {
-														setPinnedCommentId(null);
-														setHoveredCommentId(null);
-														return;
-													}
-													setPinnedCommentId(c.id);
-													setHoveredCommentId(null);
-												}}
-												className="flex w-full min-w-0 items-center gap-2 text-left focus:outline-none"
-											>
-												<div className="flex w-8 flex-shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
-													<span>{c.no}</span>
-													{!isLive && (
-														<span className="mt-0.5 text-[8px] text-gray-600">
-															{formatPlaybackTime(c.vpos)}
-														</span>
-													)}
-												</div>
-												<div className="flex min-w-0 flex-1 items-center gap-2 self-center">
-													<div className="min-w-0 flex-1 break-words leading-[1.5]">
-														{c.content}
-													</div>
-													{isSearchMatched && (
-														<span
-															className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] ${
-																isActiveSearchMatch
-																	? "bg-amber-400/25 text-amber-100"
-																	: "bg-amber-400/15 text-amber-200"
-															}`}
-														>
-															検索
-														</span>
-													)}
-													{isSecondarySource && (
-														<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
-															{commentSource
-																? SOURCE_KIND_LABELS[commentSource.kind]
-																: `src${sourceOrdinal + 1}`}
-														</span>
-													)}
-												</div>
-											</button>
-											{isTooltipVisible && (
-												<div
-													className={`absolute inset-x-2 z-10 rounded-md border border-gray-600 bg-[#101010] p-2 text-[10px] text-gray-200 shadow-2xl ${
-														placeAbove ? "bottom-full mb-1" : "top-full mt-1"
+										<div className="flex w-8 flex-shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
+											<span>{c.no}</span>
+											{!isLive && (
+												<span className="mt-0.5 text-[8px] text-gray-600">
+													{formatPlaybackTime(c.vpos)}
+												</span>
+											)}
+										</div>
+										<div className="flex min-w-0 flex-1 items-center gap-2 self-center">
+											<div className="min-w-0 flex-1 break-words leading-[1.5]">
+												{c.content}
+											</div>
+											{isSearchMatched && (
+												<span
+													className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] ${
+														isActiveSearchMatch
+															? "bg-amber-400/25 text-amber-100"
+															: "bg-amber-400/15 text-amber-200"
 													}`}
-													style={{
-														maxHeight: `${availableHeight}px`,
-														overflowY: "auto",
-													}}
 												>
-													<div className="flex items-center justify-between gap-2 text-gray-300">
-														<span>No.{c.no}</span>
-														<span>{formatCommentTimestamp(c)}</span>
-													</div>
-													<div className="mt-1 break-words text-white">
-														{c.content}
-													</div>
-													<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
-														<span>ID: {c.user_id || "-"}</span>
-														{c.user_id && (
-															<button
-																type="button"
-																onClick={(event) => {
-																	event.stopPropagation();
-																	handleNGId(c.user_id);
-																}}
-																className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 transition-colors hover:bg-red-500/20"
-																title={`ID: ${c.user_id} をNGに追加`}
-															>
-																<span className="inline-flex items-center gap-1">
-																	<UserX size={12} />
-																	ID を NG
-																</span>
-															</button>
-														)}
-														{!isLive && (
-															<span>
-																再生位置: {formatPlaybackTime(c.vpos)}
-															</span>
-														)}
-														<span>
-															ソース:{" "}
-															{commentSource
-																? formatSourceLabel(commentSource)
-																: `src${sourceOrdinal + 1}`}
-														</span>
-														{commentSource && (
-															<span>
-																種別: {SOURCE_KIND_LABELS[commentSource.kind]}
-															</span>
-														)}
-														<span>premium: {c.premium}</span>
-													</div>
-													<div className="mt-2 border-t border-gray-800 pt-2">
-														<div className="mb-1 text-gray-400">コマンド</div>
-														{mailCommands.length > 0 ? (
-															<div className="flex flex-wrap gap-1.5">
-																{mailCommands.map((command) => {
-																	const isNGCommand =
-																		settings.ngCommands.includes(command);
-																	return (
-																		<button
-																			key={command}
-																			type="button"
-																			onClick={(event) => {
-																				event.stopPropagation();
-																				handleNGCommand(command);
-																			}}
-																			disabled={isNGCommand}
-																			className={`rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
-																				isNGCommand
-																					? "cursor-default border-gray-700 bg-gray-800 text-gray-500"
-																					: "border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-																			}`}
-																			title={
-																				isNGCommand
-																					? "既にNGコマンドに登録済み"
-																					: `${command} をNGコマンドに追加`
-																			}
-																		>
-																			{command}
-																		</button>
-																	);
-																})}
-															</div>
-														) : (
-															<div className="text-gray-500">-</div>
-														)}
-													</div>
-												</div>
+													検索
+												</span>
+											)}
+											{isSecondarySource && (
+												<span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] text-blue-200">
+													{commentSource
+														? SOURCE_KIND_LABELS[commentSource.kind]
+														: `src${sourceOrdinal + 1}`}
+												</span>
 											)}
 										</div>
 									</div>
-								</div>
+								</button>
 							);
 						})}
 					</div>
 				)}
 			</div>
 
-			{hasActivePlayer && showScrollTop && (
+			{buttonRendered && (
 				<button
 					type="button"
 					onClick={scrollToBottom}
 					style={{
 						bottom: "calc(1rem + var(--kiririn-safe-area-inset-bottom))",
 					}}
-					className="absolute right-4 z-10 rounded-full bg-blue-600 p-3 text-white shadow-2xl transition-all duration-200 hover:scale-110 hover:bg-blue-500 active:scale-95 animate-in fade-in zoom-in"
-					title="最新へ戻る"
+					className={`absolute right-4 z-10 rounded-md bg-gray-600 px-4 py-2 text-sm font-medium text-white shadow-2xl transition-all duration-200 ease-out hover:bg-blue-500 active:scale-95 ${
+						buttonShown
+							? "translate-y-0 opacity-100"
+							: "pointer-events-none translate-y-2 opacity-0"
+					}`}
 				>
-					<ArrowUp size={20} className="rotate-180" />
+					再生位置に戻る
 				</button>
 			)}
+			{sheetRendered && renderedTooltip && (
+				<>
+					<button
+						type="button"
+						aria-label="シートを閉じる"
+						onClick={(event) => {
+							event.stopPropagation();
+							dismissSheet();
+						}}
+						className={`absolute inset-0 z-60 bg-black/55 transition-opacity duration-200 ease-out ${
+							sheetShown ? "opacity-100" : "opacity-0"
+						}`}
+					/>
+					<div
+						role="dialog"
+						aria-modal="true"
+						className="absolute inset-x-0 bottom-0 z-70 flex max-h-[80%] flex-col rounded-t-2xl border-t border-gray-700 bg-[#1f1f1f] text-white shadow-[0_-12px_32px_rgba(0,0,0,0.55)] transition-transform duration-200 ease-out"
+						style={{
+							transform: sheetShown ? "translateY(0)" : "translateY(100%)",
+							paddingBottom:
+								"calc(0.5rem + var(--kiririn-safe-area-inset-bottom))",
+						}}
+					>
+						<div className="flex items-start justify-between gap-3 border-b border-gray-800 px-4 pb-3 pt-4">
+							<div className="min-w-0">
+								<div className="truncate text-[12px] font-semibold text-gray-400">
+									No.{renderedTooltip.comment.no}
+								</div>
+								<div className="mt-0.5 truncate text-[11px] text-gray-400">
+									{formatCommentTimestamp(renderedTooltip.comment)}
+								</div>
+							</div>
+							<button
+								type="button"
+								onClick={dismissSheet}
+								className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+								aria-label="シートを閉じる"
+							>
+								<X size={18} />
+							</button>
+						</div>
+						<div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-sm leading-relaxed break-words text-white">
+							{renderedTooltip.comment.content}
+						</div>
+						<div className="space-y-3 border-t border-gray-800 px-4 py-3 text-[11px] text-gray-300">
+							<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+								<span className="text-gray-400">
+									ID: {renderedTooltip.comment.user_id || "-"}
+								</span>
+								{renderedTooltip.comment.user_id && (
+									<button
+										type="button"
+										onClick={() => handleNGId(renderedTooltip.comment.user_id)}
+										className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200 transition-colors hover:bg-red-500/20"
+										title={`ID: ${renderedTooltip.comment.user_id} をNGに追加`}
+									>
+										<span className="inline-flex items-center gap-1">
+											<UserX size={12} />
+											ID を NG
+										</span>
+									</button>
+								)}
+								{!isLive && (
+									<>
+										<span className="text-gray-400">
+											再生位置:{" "}
+											{formatPlaybackTime(renderedTooltip.comment.vpos)}
+										</span>
+										<button
+											type="button"
+											onClick={() =>
+												handleSeekToComment(renderedTooltip.comment)
+											}
+											disabled={
+												duration <= 0 ||
+												renderedTooltip.comment.vpos / 100 -
+													(jkContext?.startAt ?? 0) <
+													0
+											}
+											className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-[10px] text-blue-200 transition-colors hover:bg-blue-500/20 disabled:cursor-default disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-500"
+											title="このコメントの再生位置へシーク"
+										>
+											このコメントへシーク
+										</button>
+									</>
+								)}
+								<span className="text-gray-500">
+									premium: {renderedTooltip.comment.premium}
+								</span>
+							</div>
+							<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
+								<span>
+									ソース:{" "}
+									{renderedTooltip.commentSource
+										? formatSourceLabel(renderedTooltip.commentSource)
+										: `src${renderedTooltip.sourceOrdinal + 1}`}
+								</span>
+								{renderedTooltip.commentSource && (
+									<span>
+										種別:{" "}
+										{SOURCE_KIND_LABELS[renderedTooltip.commentSource.kind]}
+									</span>
+								)}
+							</div>
+							{renderedTooltip.mailCommands.length > 0 && (
+								<div>
+									<div className="mb-1.5 text-gray-400">コマンド</div>
+									<div className="flex flex-wrap gap-1.5">
+										{renderedTooltip.mailCommands.map((command) => {
+											const isNGCommand = settings.ngCommands.includes(command);
+											return (
+												<button
+													key={command}
+													type="button"
+													onClick={() => handleNGCommand(command)}
+													disabled={isNGCommand}
+													className={`rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
+														isNGCommand
+															? "cursor-default border-gray-700 bg-gray-800 text-gray-500"
+															: "border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+													}`}
+													title={
+														isNGCommand
+															? "既にNGコマンドに登録済み"
+															: `${command} をNGコマンドに追加`
+													}
+												>
+													{command}
+												</button>
+											);
+										})}
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				</>
+			)}
 
-			{hasActivePlayer && showSearch && (
-				<div className="absolute right-2 top-12 z-50 w-[min(28rem,calc(100%-1rem))] rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+			{hasActivePlayer && searchPopup.rendered && (
+				<div
+					className={`absolute right-2 top-12 z-50 w-[min(28rem,calc(100%-1rem))] rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
+						searchPopup.shown
+							? "translate-y-0 opacity-100"
+							: "pointer-events-none -translate-y-2 opacity-0"
+					}`}
+				>
 					<div className="mb-3 flex items-start justify-between gap-3">
 						<h4 className="flex items-center gap-2 font-bold text-gray-100">
 							<Search size={14} /> コメント検索
@@ -1147,8 +1215,14 @@ export default function PanelPage({
 				</div>
 			)}
 
-			{hasActivePlayer && !isLive && showChapters && (
-				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+			{hasActivePlayer && !isLive && chaptersPopup.rendered && (
+				<div
+					className={`absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
+						chaptersPopup.shown
+							? "translate-y-0 opacity-100"
+							: "pointer-events-none -translate-y-2 opacity-0"
+					}`}
+				>
 					<div className="mb-3 flex items-start justify-between gap-3">
 						<h4 className="font-bold text-gray-100">コメントチャプター</h4>
 						<button
@@ -1205,8 +1279,14 @@ export default function PanelPage({
 				</div>
 			)}
 
-			{hasActivePlayer && showMenu && (
-				<div className="absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+			{hasActivePlayer && menuPopup.rendered && (
+				<div
+					className={`absolute inset-x-2 top-12 z-50 rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
+						menuPopup.shown
+							? "translate-y-0 opacity-100"
+							: "pointer-events-none -translate-y-2 opacity-0"
+					}`}
+				>
 					<div className="mb-4 flex items-start justify-between">
 						<h4 className="flex items-center gap-1 font-bold text-gray-200">
 							表示設定
@@ -1242,17 +1322,6 @@ export default function PanelPage({
 						</button>
 						<button
 							type="button"
-							onClick={() => setAutoScroll(!autoScroll)}
-							className="flex w-full items-center justify-between rounded p-2 text-sm transition-colors hover:bg-gray-700"
-						>
-							<div className="flex items-center gap-2">
-								<ArrowDown size={16} />
-								<span>自動スクロール</span>
-							</div>
-							{autoScroll && <Check size={16} className="text-blue-400" />}
-						</button>
-						<button
-							type="button"
 							onClick={() => setFilterNG(!filterNG)}
 							className="flex w-full items-center justify-between rounded p-2 text-sm transition-colors hover:bg-gray-700"
 						>
@@ -1285,8 +1354,14 @@ export default function PanelPage({
 				</div>
 			)}
 
-			{hasActivePlayer && showInfo && (
-				<div className="absolute inset-x-2 top-12 z-50 flex max-h-[70%] flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl duration-200 animate-in fade-in slide-in-from-top-2">
+			{hasActivePlayer && infoPopup.rendered && (
+				<div
+					className={`absolute inset-x-2 top-12 z-50 flex max-h-[70%] flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
+						infoPopup.shown
+							? "translate-y-0 opacity-100"
+							: "pointer-events-none -translate-y-2 opacity-0"
+					}`}
+				>
 					<div className="mb-2 flex items-start justify-between">
 						<h4 className="flex items-center gap-1 font-bold text-blue-400">
 							<Info size={14} /> チャンネル情報
@@ -1339,17 +1414,29 @@ export default function PanelPage({
 												visibleSourceKeys,
 												source.key,
 											);
+											const interruptedInfo = interruptedSources.find(
+												(info) => info.sourceKey === source.key,
+											);
+											const isInterrupted = interruptedInfo != null;
+											const isFullyUnfetched =
+												isInterrupted &&
+												(interruptedInfo?.fetchedChunkCount || 0) === 0;
+											const interruptedChunks = interruptedInfo?.chunks || [];
 
 											return (
 												<div
 													key={source.key}
 													className={`flex items-center justify-between gap-3 rounded-md px-2.5 py-2 ${
-														isSourceVisible
-															? "border border-blue-500/30 bg-blue-500/10"
-															: "bg-[#2a2a2a] opacity-60"
+														isInterrupted
+															? "border border-amber-500/30 bg-amber-500/10"
+															: isSourceVisible
+																? "border border-blue-500/30 bg-blue-500/10"
+																: "bg-[#2a2a2a] opacity-60"
 													}`}
 												>
-													<div className="min-w-0 flex-1">
+													<div
+														className={`min-w-0 flex-1 ${isFullyUnfetched ? "opacity-50" : ""}`}
+													>
 														<div className="flex min-w-0 items-center gap-2 text-gray-300">
 															<span
 																className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
@@ -1364,14 +1451,57 @@ export default function PanelPage({
 																	{sourceCount}件
 																</span>
 															)}
+															{isInterrupted && (
+																<span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-200">
+																	部分取得
+																</span>
+															)}
 														</div>
 														{!isLive && (
 															<div className="text-gray-400">
 																{formatTimeRange(source.startAt, source.endAt)}
 															</div>
 														)}
+														{isInterrupted && interruptedChunks.length > 0 && (
+															<div className="mt-1.5 flex items-center gap-1">
+																{interruptedChunks.map((chunk) => {
+																	const chunkLabel = `${formatTimeRange(chunk.startAt, chunk.endAt)}`;
+																	return (
+																		<span
+																			key={chunk.startAt}
+																			className={`inline-block h-2 w-2 rounded-full ${
+																				chunk.fetched
+																					? "bg-amber-400"
+																					: "bg-gray-600"
+																			}`}
+																			title={
+																				chunk.fetched
+																					? `取得済: ${chunkLabel}`
+																					: `未取得: ${chunkLabel}`
+																			}
+																		/>
+																	);
+																})}
+																<span className="ml-1 text-[9px] text-amber-300/70">
+																	{interruptedInfo?.fetchedChunkCount || 0}/
+																	{interruptedInfo?.totalChunkCount || 0}
+																</span>
+															</div>
+														)}
 													</div>
 													<div className="flex shrink-0 items-center gap-2 self-center">
+														{isInterrupted && (
+															<button
+																type="button"
+																onClick={() => onResumeSource(source.key)}
+																className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
+																title={`${source.channelName} の取得を再開`}
+																aria-label={`${source.channelName} の取得を再開`}
+															>
+																<RotateCw size={12} />
+																全件取得
+															</button>
+														)}
 														{canShowOnlySource && (
 															<button
 																type="button"
@@ -1559,4 +1689,27 @@ function wrapIndex(index: number, total: number) {
 	}
 
 	return ((index % total) + total) % total;
+}
+
+const POPUP_ANIMATION_MS = 180;
+
+function useAnimatedVisibility(visible: boolean) {
+	const [rendered, setRendered] = useState(visible);
+	const [shown, setShown] = useState(false);
+
+	useEffect(() => {
+		if (visible) {
+			setRendered(true);
+			const enterTimer = window.setTimeout(() => setShown(true), 16);
+			return () => window.clearTimeout(enterTimer);
+		}
+		setShown(false);
+		const exitTimer = window.setTimeout(
+			() => setRendered(false),
+			POPUP_ANIMATION_MS,
+		);
+		return () => window.clearTimeout(exitTimer);
+	}, [visible]);
+
+	return { rendered, shown };
 }
