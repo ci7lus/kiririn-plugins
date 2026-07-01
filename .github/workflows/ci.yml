@@ -11,6 +11,11 @@ on:
                 type: boolean
                 required: true
                 default: true
+            release_plugins:
+                type: string
+                required: false
+                default: ""
+                description: "Comma-separated plugin IDs to release. Empty releases all plugins."
 
 permissions:
     contents: read
@@ -37,6 +42,7 @@ jobs:
               with:
                   version: 11
                   run_install: false
+                  cache: true
 
             - name: Setup Node.js
               uses: actions/setup-node@v6
@@ -88,10 +94,16 @@ jobs:
             - name: Build (with uploading source maps to Sentry)
               if: ${{ inputs.release }}
               env:
+                  RELEASE_PLUGINS: ${{ inputs.release_plugins }}
                   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
                   SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
                   SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-              run: pnpm build
+              run: |
+                  if [ -n "$RELEASE_PLUGINS" ]; then
+                    pnpm build -- "$RELEASE_PLUGINS"
+                  else
+                    pnpm build
+                  fi
 
             - name: Upload dist artifact
               uses: actions/upload-artifact@v7
