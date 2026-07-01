@@ -29,7 +29,16 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_LABELS = ["A", "B", "C", "D", "OP", "ED", "ここ"] as const;
+const CHAPTER_LABELS = [
+	"A",
+	"B",
+	"C",
+	"D",
+	"OP",
+	"ED",
+	"ここ",
+	"出OP",
+] as const;
 const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
 const SHEET_ANIMATION_MS = 240;
 const ROW_ESTIMATE_SIZE = 41;
