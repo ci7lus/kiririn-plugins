@@ -46,6 +46,7 @@ export const plugins: KiririnPlugin[] = [
 				"https://o481625.ingest.us.sentry.io/*",
 			],
 			strictMinVersion: "0.1.0",
+			updateURL: "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json",
 		},
 	},
 	{
@@ -66,6 +67,7 @@ export const plugins: KiririnPlugin[] = [
 				"https://cal.syoboi.jp/*",
 				"https://jikkyo.tsukumijima.net/*",
 			],
+			updateURL: "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json",
 		},
 	},
 ];

@@ -5,7 +5,22 @@
 				{
 					"version": "0.1.0",
 					"update_link": "",
-					"update_hash": "sha256:a247ca764ea0f72f666b001717f8a8f5d457817d7a9983ca1b37241f731eab22",
+					"update_hash": "sha256:",
+					"update_info_url": "",
+					"applications": {
+						"kiririn": {
+							"strict_min_version": "0.1.0"
+						}
+					}
+				}
+			]
+		},
+		"io.github.ci7lus.kiririn-plugins.nicojk": {
+			"updates": [
+				{
+					"version": "0.1.0",
+					"update_link": "",
+					"update_hash": "sha256:",
 					"update_info_url": "",
 					"applications": {
 						"kiririn": {
