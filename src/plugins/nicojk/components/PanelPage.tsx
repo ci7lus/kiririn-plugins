@@ -49,7 +49,6 @@ type ChapterPoint = {
 	key: string;
 	label: ChapterLabel;
 	relativeSec: number;
-	position: number;
 };
 
 interface Props {
@@ -325,7 +324,6 @@ export default function PanelPage({
 						key: `${bucketIndex}:${anchor.commentId}`,
 						label: dominantLabel,
 						relativeSec: anchor.relativeSec,
-						position: clamp(anchor.relativeSec / duration, 0, 1),
 					},
 				];
 			});
@@ -353,7 +351,8 @@ export default function PanelPage({
 		jkContext,
 	]);
 	const canSeekToChapters = !isLive && duration > 0;
-	const playbackProgress = clamp(playbackState?.position ?? 0, 0, 1);
+	const playbackProgress =
+		duration > 0 ? clamp((playbackState?.time ?? 0) / duration, 0, 1) : 0;
 	const buttonVisible =
 		hasActivePlayer && !autoScroll && displayComments.length > 0;
 	const sheetVisible = pinnedCommentId != null;
@@ -690,12 +689,16 @@ export default function PanelPage({
 			if (!canSeekToChapters) {
 				return;
 			}
-			const seekPosition = clamp(
-				Math.max(0, chapter.relativeSec - chapterSeekLeadSeconds) / duration,
+			const seekTime = clamp(
+				chapter.relativeSec - chapterSeekLeadSeconds,
 				0,
-				1,
+				duration,
 			);
-			window.kiririn.seek(seekPosition, playbackState?.playerID);
+			if (typeof window.kiririn.seekToTime === "function") {
+				window.kiririn.seekToTime(seekTime, playbackState?.playerID);
+			} else {
+				window.kiririn.seek(seekTime / duration, playbackState?.playerID);
+			}
 		},
 		[
 			canSeekToChapters,
@@ -716,10 +719,14 @@ export default function PanelPage({
 				return;
 			}
 
-			const seekPosition = clamp(relativeSec / duration, 0, 1);
+			const seekTime = clamp(relativeSec, 0, duration);
 			lastScrolledTimeRef.current = 0;
 			setAutoScroll(true);
-			window.kiririn.seek(seekPosition, playbackState?.playerID);
+			if (typeof window.kiririn.seekToTime === "function") {
+				window.kiririn.seekToTime(seekTime, playbackState?.playerID);
+			} else {
+				window.kiririn.seek(seekTime / duration, playbackState?.playerID);
+			}
 		},
 		[duration, isLive, jkContext?.startAt, playbackState?.playerID],
 	);
@@ -1249,7 +1256,9 @@ export default function PanelPage({
 											type="button"
 											onClick={() => handleChapterSeek(chapter)}
 											className="group absolute top-1 -translate-x-1/2 text-left"
-											style={{ left: `${chapter.position * 100}%` }}
+											style={{
+												left: `${clamp(chapter.relativeSec / duration, 0, 1) * 100}%`,
+											}}
 											title={`${chapter.label} ${formatRelativeSeconds(chapter.relativeSec)}`}
 										>
 											<div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded border border-gray-600 bg-[#101010] px-2 py-1 text-[10px] text-gray-100 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">

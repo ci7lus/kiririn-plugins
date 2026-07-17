@@ -219,6 +219,24 @@ class MockBridge implements KiririnBridge {
 		this.notifyStatuses();
 	}
 
+	seekToTime(time: number, playerID?: string): void {
+		const status = this.resolveStatus(playerID);
+		if (!status) {
+			return;
+		}
+
+		const playable = this.playables.find(
+			(candidate) => candidate.playerID === status.playerID,
+		);
+		if (!playable?.isSeekable || typeof playable.length !== "number") {
+			return;
+		}
+
+		status.time = Math.max(0, Math.min(time, playable.length));
+		status.position = playable.length > 0 ? status.time / playable.length : 0;
+		this.notifyStatuses();
+	}
+
 	getCaptureBlob(
 		_captureID: string,
 		_variant: CaptureVariant,

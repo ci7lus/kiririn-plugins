@@ -125,7 +125,10 @@ export interface KiririnPluginBridge {
 	play(playerID?: string): void;
 	pause(playerID?: string): void;
 	togglePlayPause(playerID?: string): void;
+	/** 0〜1の再生位置へ移動します。 */
 	seek(position: number, playerID?: string): void;
+	/** 指定した再生時刻（秒）へ移動します。 */
+	seekToTime(time: number, playerID?: string): void;
 
 	getCaptureBlob(
 		captureID: string,
