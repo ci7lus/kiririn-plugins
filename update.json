@@ -18,6 +18,17 @@
 		"io.github.ci7lus.kiririn-plugins.nicojk": {
 			"updates": [
 				{
+					"version": "0.1.1",
+					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/202607172043/nicojk.kppx",
+					"update_hash": "sha256:274dd4a5c910d58e0d461ae467d8dbb565bbca957d613af0724213c1af39690e",
+					"update_info_url": "https://github.com/ci7lus/kiririn-plugins/releases/tag/202607172043",
+					"applications": {
+						"kiririn": {
+							"strict_min_version": "0.1.0"
+						}
+					}
+				},
+				{
 					"version": "0.1.0",
 					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/202607031354/nicojk.kppx",
 					"update_hash": "sha256:ec545394ed3f610973a69603534adff19952fb1133e94061979fcb0fa724f992",
