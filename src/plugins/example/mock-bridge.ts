@@ -101,6 +101,14 @@ function createStatus(playable: Playable): PlayerPlaybackState {
 		time: initialTime,
 		position: initialPosition,
 		rate: 1,
+		televisionDisplayRect:
+			playable.playerID === "player-vod"
+				? { x: 0.08, y: 0.1, width: 0.84, height: 0.8 }
+				: { x: 0, y: 0, width: 1, height: 1 },
+		videoDisplayRect:
+			playable.playerID === "player-vod"
+				? { x: 0.12, y: 0.16, width: 0.76, height: 0.68 }
+				: { x: 0, y: 0, width: 1, height: 1 },
 	};
 }
 
