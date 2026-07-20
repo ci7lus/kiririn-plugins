@@ -37,7 +37,7 @@ export const plugins: KiririnPlugin[] = [
 		manifest: {
 			name: "Kiririn Plugin Example",
 			identifier: "io.github.ci7lus.kiririn-plugins.example",
-			version: "0.1.0",
+			version: "0.2.0",
 			author: "ci7lus",
 			homepageURL: "https://github.com/ci7lus/kiririn-plugins",
 			permissions: ["storage"],
@@ -45,7 +45,7 @@ export const plugins: KiririnPlugin[] = [
 				"https://example.com/*",
 				"https://o481625.ingest.us.sentry.io/*",
 			],
-			strictMinVersion: "0.1.1",
+			strictMinVersion: "0.2.0",
 			updateURL:
 				"https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json",
 		},

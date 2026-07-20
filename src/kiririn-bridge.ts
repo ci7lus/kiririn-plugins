@@ -64,6 +64,8 @@ function createStatus(playable: Playable): PlayerPlaybackState {
 		time: initialTime,
 		position: initialPosition,
 		rate: 1,
+		televisionDisplayRect: { x: 0, y: 0, width: 1, height: 1 },
+		videoDisplayRect: { x: 0, y: 0, width: 1, height: 1 },
 	};
 }
 

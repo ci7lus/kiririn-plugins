@@ -11,6 +11,7 @@ import type {
 	DeeplinkOpenedPayload,
 	KiririnRuntimeInfo,
 	Playable,
+	PlayerDisplayRect,
 	PlayerPlaybackState,
 } from "../../Plugin";
 import { type ExampleBridge, getExampleBridge } from "./mock-bridge";
@@ -22,12 +23,14 @@ const MAX_EVENT_LOG_ITEMS = 18;
 
 type ExampleSettings = {
 	overlayEnabled: boolean;
+	showPlayerDisplayRects: boolean;
 	jumpSeconds: number;
 };
 
 type CapturePreview = {
 	key: string;
 	captureID: string;
+	playerID: string;
 	type: CaptureVariant;
 	url: string;
 	overlayPluginManifestIDs: string[];
@@ -83,6 +86,7 @@ type BrowserStorageLike = {
 
 const DEFAULT_SETTINGS = Object.freeze<ExampleSettings>({
 	overlayEnabled: true,
+	showPlayerDisplayRects: false,
 	jumpSeconds: 15,
 });
 
@@ -107,6 +111,10 @@ function normalizeSettings(candidate: unknown): ExampleSettings {
 			typeof value?.overlayEnabled === "boolean"
 				? value.overlayEnabled
 				: DEFAULT_SETTINGS.overlayEnabled,
+		showPlayerDisplayRects:
+			typeof value?.showPlayerDisplayRects === "boolean"
+				? value.showPlayerDisplayRects
+				: DEFAULT_SETTINGS.showPlayerDisplayRects,
 		jumpSeconds:
 			typeof value?.jumpSeconds === "number" &&
 			[5, 10, 15, 30, 60].includes(value.jumpSeconds)
@@ -253,6 +261,10 @@ function formatPercent(value: number | null | undefined) {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatJSON(value: unknown) {
+	return JSON.stringify(value, null, 2) ?? "-";
+}
+
 function formatRuntimeTarget(runtimeInfo: KiririnRuntimeInfo) {
 	return runtimeInfo.playerID ?? "global";
 }
@@ -283,6 +295,32 @@ function releaseCapturePreviews(previews: CapturePreview[]) {
 	for (const preview of previews) {
 		URL.revokeObjectURL(preview.url);
 	}
+}
+
+function DisplayRectOverlay({
+	label,
+	rect,
+	variant,
+}: {
+	label: string;
+	rect: PlayerDisplayRect;
+	variant: "plugin" | "television" | "video";
+}) {
+	const clamp = (value: number) => Math.max(0, Math.min(1, value));
+
+	return (
+		<div
+			className={`example-display-rect is-${variant}`}
+			style={{
+				left: `${clamp(rect.x) * 100}%`,
+				top: `${clamp(rect.y) * 100}%`,
+				width: `${clamp(rect.width) * 100}%`,
+				height: `${clamp(rect.height) * 100}%`,
+			}}
+		>
+			<span className="example-display-rect-label">{label}</span>
+		</div>
+	);
 }
 
 function SummaryItem({ label, value }: { label: string; value: string }) {
@@ -319,9 +357,11 @@ function Section({
 function PlayerBadge({
 	playable,
 	status,
+	showPlayerDisplayRects,
 }: {
 	playable: Playable | null;
 	status: PlayerPlaybackState | null;
+	showPlayerDisplayRects: boolean;
 }) {
 	if (!playable || !status) {
 		return (
@@ -332,18 +372,39 @@ function PlayerBadge({
 	}
 
 	return (
-		<div className="example-overlay-card">
-			<p className="example-overlay-kicker">Overlay Example</p>
-			<h1 className="example-overlay-title">{playable.title}</h1>
-			<p className="example-overlay-copy">
-				{status.isPlaying ? "再生中" : "一時停止中"} /{" "}
-				{formatPlaybackTime(status.time)}
-			</p>
-			<div className="example-chip-row">
-				<span className="example-chip">player: {playable.playerID}</span>
-				<span className="example-chip">
-					progress: {formatPercent(status.position)}
-				</span>
+		<div className="example-overlay-content">
+			{showPlayerDisplayRects ? (
+				<div className="example-display-rect-layer" aria-hidden="true">
+					<DisplayRectOverlay
+						label="plugin display area"
+						rect={{ x: 0, y: 0, width: 1, height: 1 }}
+						variant="plugin"
+					/>
+					<DisplayRectOverlay
+						label="televisionDisplayRect"
+						rect={status.televisionDisplayRect}
+						variant="television"
+					/>
+					<DisplayRectOverlay
+						label="videoDisplayRect"
+						rect={status.videoDisplayRect}
+						variant="video"
+					/>
+				</div>
+			) : null}
+			<div className="example-overlay-card">
+				<p className="example-overlay-kicker">Overlay Example</p>
+				<h1 className="example-overlay-title">{playable.title}</h1>
+				<p className="example-overlay-copy">
+					{status.isPlaying ? "再生中" : "一時停止中"} /{" "}
+					{formatPlaybackTime(status.time)}
+				</p>
+				<div className="example-chip-row">
+					<span className="example-chip">player: {playable.playerID}</span>
+					<span className="example-chip">
+						progress: {formatPercent(status.position)}
+					</span>
+				</div>
 			</div>
 		</div>
 	);
@@ -379,6 +440,7 @@ function ActionButton({
 function PanelView({
 	runtimeInfo,
 	activePlayerID,
+	focusedPlayerID,
 	activePlayable,
 	activeStatus,
 	playables,
@@ -395,6 +457,7 @@ function PanelView({
 }: {
 	runtimeInfo: KiririnRuntimeInfo;
 	activePlayerID: string | null;
+	focusedPlayerID: string | null;
 	activePlayable: Playable | null;
 	activeStatus: PlayerPlaybackState | null;
 	playables: Playable[];
@@ -419,12 +482,7 @@ function PanelView({
 				<section className="example-hero-card">
 					<div className="example-hero-top">
 						<div>
-							<p className="example-kicker">Kiririn Safari Web Extension</p>
-							<h1 className="example-hero-title">Panel Page</h1>
-							<p className="example-hero-subtitle">
-								新しい bridge API を使って runtime / playables / capture /
-								deeplink を表示します。
-							</p>
+							<h1 className="example-hero-title">kiririn Plugin Example</h1>
 						</div>
 						<div className="example-chip-row">
 							<span className="example-chip">
@@ -541,6 +599,34 @@ function PanelView({
 					</ActionRow>
 				</Section>
 
+				<Section
+					title="Bridge Values"
+					note="Plugin.d.ts の値を省略せず確認できるデバッグ表示です。"
+				>
+					<div className="example-list-grid">
+						<div className="example-list-card">
+							<h3 className="example-list-title">getRuntimeInfo()</h3>
+							<pre className="example-json-block">
+								{formatJSON(runtimeInfo)}
+							</pre>
+						</div>
+						<div className="example-list-card">
+							<h3 className="example-list-title">getFocusedPlayerID()</h3>
+							<pre className="example-json-block">
+								{formatJSON(focusedPlayerID)}
+							</pre>
+						</div>
+						<div className="example-list-card">
+							<h3 className="example-list-title">getPlayables()</h3>
+							<pre className="example-json-block">{formatJSON(playables)}</pre>
+						</div>
+						<div className="example-list-card">
+							<h3 className="example-list-title">getPlayerStatuses()</h3>
+							<pre className="example-json-block">{formatJSON(statuses)}</pre>
+						</div>
+					</div>
+				</Section>
+
 				{devControls ? (
 					<Section
 						title="Dev Controls"
@@ -629,6 +715,12 @@ function PanelView({
 									/>
 									<figcaption className="example-capture-caption">
 										<div>{capture.type}</div>
+										<div>captureID: {capture.captureID}</div>
+										<div>playerID: {capture.playerID}</div>
+										<div>
+											overlay plugins:{" "}
+											{capture.overlayPluginManifestIDs.join(", ") || "-"}
+										</div>
 										<div>{formatTimestamp(capture.capturedAt)}</div>
 									</figcaption>
 								</figure>
@@ -758,6 +850,27 @@ function OptionsView({
 
 				<label className="example-setting-card">
 					<div>
+						<div className="example-setting-title">
+							プレイヤー領域を表示する
+						</div>
+						<div className="example-setting-copy">
+							overlay に televisionDisplayRect と videoDisplayRect
+							の範囲を表示します。
+						</div>
+					</div>
+					<input
+						type="checkbox"
+						checked={settings.showPlayerDisplayRects}
+						onChange={(event) =>
+							onUpdateSettings({
+								showPlayerDisplayRects: event.currentTarget.checked,
+							})
+						}
+					/>
+				</label>
+
+				<label className="example-setting-card">
+					<div>
 						<div className="example-setting-title">Seek Step</div>
 						<div className="example-setting-copy">
 							panel page の ±seek ボタンで使う秒数です。
@@ -861,6 +974,7 @@ export default function App() {
 						return {
 							key: `${payload.captureID}:${variant.type}`,
 							captureID: payload.captureID,
+							playerID: payload.playerID,
 							type: variant.type,
 							url: URL.createObjectURL(blob),
 							overlayPluginManifestIDs: variant.overlayPluginManifestIDs,
@@ -960,10 +1074,8 @@ export default function App() {
 			0,
 			Math.min(activePlayable.length, activeStatus.time + deltaSeconds),
 		);
-		const nextPosition =
-			activePlayable.length > 0 ? nextTime / activePlayable.length : 0;
 
-		bridge.seek(nextPosition, activePlayerID ?? undefined);
+		bridge.seekToTime(nextTime, activePlayerID ?? undefined);
 	});
 
 	const handleFetchExampleCom = useEffectEvent(() => {
@@ -991,7 +1103,11 @@ export default function App() {
 	if (runtimeInfo.displayAreaType === "overlay") {
 		return settings.overlayEnabled ? (
 			<div className="example-shell is-overlay">
-				<PlayerBadge playable={activePlayable} status={activeStatus} />
+				<PlayerBadge
+					playable={activePlayable}
+					status={activeStatus}
+					showPlayerDisplayRects={settings.showPlayerDisplayRects}
+				/>
 			</div>
 		) : null;
 	}
@@ -1010,6 +1126,7 @@ export default function App() {
 		<PanelView
 			runtimeInfo={runtimeInfo}
 			activePlayerID={activePlayerID}
+			focusedPlayerID={focusedPlayerID}
 			activePlayable={activePlayable}
 			activeStatus={activeStatus}
 			playables={playables}

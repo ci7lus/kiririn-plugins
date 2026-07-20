@@ -37,12 +37,68 @@
 }
 
 .example-shell.is-overlay {
+	position: relative;
+	display: flex;
+	padding: 0;
+	pointer-events: none;
+	background: transparent;
+}
+
+.example-overlay-content {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	padding: 18px;
 	display: flex;
 	align-items: flex-start;
 	justify-content: flex-start;
-	padding: 18px;
+}
+
+.example-display-rect-layer {
+	position: absolute;
+	inset: 0;
 	pointer-events: none;
+	z-index: 0;
+}
+
+.example-display-rect {
+	position: absolute;
+	min-width: 2px;
+	min-height: 2px;
+	border: 2px solid;
+	border-radius: 4px;
+}
+
+.example-display-rect.is-television {
+	background: rgba(143, 240, 210, 0.16);
+	border-color: rgba(143, 240, 210, 0.82);
+}
+
+.example-display-rect.is-plugin {
 	background: transparent;
+	border-color: rgba(248, 195, 106, 0.88);
+	border-style: dashed;
+}
+
+.example-display-rect.is-video {
+	background: rgba(91, 192, 235, 0.16);
+	border-color: rgba(91, 192, 235, 0.88);
+}
+
+.example-display-rect-label {
+	position: absolute;
+	top: 4px;
+	left: 4px;
+	padding: 3px 6px;
+	border-radius: 5px;
+	background: rgba(4, 10, 17, 0.72);
+	color: var(--example-fg);
+	font:
+		10px / 1.2 ui-monospace,
+		SFMono-Regular,
+		Menlo,
+		monospace;
+	white-space: nowrap;
 }
 
 .example-scroll-area {
@@ -295,9 +351,12 @@
 }
 
 .example-overlay-card {
+	position: relative;
+	z-index: 1;
 	max-width: min(360px, 100%);
 	padding: 16px 18px;
 	pointer-events: auto;
+	opacity: 0.5;
 	background: rgba(6, 13, 20, 0.78);
 }
 
