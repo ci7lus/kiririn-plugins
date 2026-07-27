@@ -8,14 +8,18 @@
 
 サンプルの実装です。
 
+[インストール (v0.2.0-)](https://ci7lus.github.io/kiririn-plugins/install.html?manifestID=io.github.ci7lus.kiririn-plugins.example)
+
+[ダウンロード (v0.1.x)](https://github.com/ci7lus/kiririn-plugins/releases/download/202607031354/example.kppx)
+
 ### nicojk
 
 動画表示の上に実況コメントを表示するプラグインです。<br>
-コメントソースとして [NX-Jikkyo](https://nx-jikkyo.tsukumijima.net/) および[ニコニコ実況 過去ログ API](https://jikkyo.tsukumijima.net/) を利用しています。
+コメントソースとして [NX-Jikkyo](https://nx-jikkyo.tsukumijima.net/) および[ニコニコ実況 過去ログ API](https://jikkyo.tsukumijima.net/) を、レンダラーとして [niconicomments](https://xpadev-net.github.io/niconicomments/) を利用しています。
 
-## ダウンロード
+[インストール (v0.2.0-)](https://ci7lus.github.io/kiririn-plugins/install.html?manifestID=io.github.ci7lus.kiririn-plugins.nicojk)
 
-[Releases](https://github.com/ci7lus/kiririn-plugins/releases) からダウンロードできます。
+[ダウンロード (v0.1.x)](https://github.com/ci7lus/kiririn-plugins/releases/download/202607172043/nicojk.kppx)
 
 ## ライセンス
 

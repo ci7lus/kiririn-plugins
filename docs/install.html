@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>kiririn</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				font-family: system-ui, sans-serif;
+			}
+
+			body {
+				margin: 0;
+				padding: 2rem;
+				line-height: 1.6;
+			}
+
+			main {
+				max-width: 40rem;
+				margin: 0 auto;
+			}
+
+			code {
+				word-break: break-all;
+			}
+
+			.error {
+				color: #b42318;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<p id="message">kiririn を起動しています…</p>
+			<p id="fallback-message">
+				自動的に起動しない場合は、
+				<a id="install-link" href="https://github.com/ci7lus/kiririn-plugins">こちら</a>をクリックしてください。
+			</p>
+			<p id="target"></p>
+		</main>
+
+		<script>
+			const updateManifestUrl =
+				"https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json";
+			const manifestID = new URLSearchParams(window.location.search).get(
+				"manifestID",
+			);
+			const message = document.getElementById("message");
+			const fallbackMessage = document.getElementById("fallback-message");
+			const installLink = document.getElementById("install-link");
+			const target = document.getElementById("target");
+
+			if (manifestID?.trim()) {
+				const deeplink =
+					`kiririn://plugins/?updateManifestUrl=${encodeURIComponent(updateManifestUrl)}&manifestID=${encodeURIComponent(manifestID.trim())}`;
+				installLink.href = deeplink;
+				target.textContent = `対象: ${manifestID.trim()}`;
+				window.location.replace(deeplink);
+			} else {
+				message.textContent = "manifestIDが指定されていません。";
+				message.classList.add("error");
+				fallbackMessage.hidden = true;
+			}
+		</script>
+	</body>
+</html>
