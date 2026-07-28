@@ -29,21 +29,21 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_LABELS = [
-	"A",
-	"B",
-	"C",
-	"D",
-	"OP",
-	"ED",
-	"ここ",
-	"出OP",
+const CHAPTER_CANDIDATES = [
+	{ pattern: /^A$/i, label: "A" },
+	{ pattern: /^B$/i, label: "B" },
+	{ pattern: /^C$/i, label: "C" },
+	{ pattern: /^D$/i, label: "D" },
+	{ pattern: /^出?OP$/i, label: "OP" },
+	{ pattern: /^ED$/i, label: "ED" },
+	{ pattern: /^ここ$/, label: "ここ" },
+	{ pattern: /^ｷﾀ[‐‑‒–—―−ーｰ－─━〜～-]+/, label: "ｷﾀｰ" },
 ] as const;
 const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
 const SHEET_ANIMATION_MS = 240;
 const ROW_ESTIMATE_SIZE = 41;
 
-type ChapterLabel = (typeof CHAPTER_LABELS)[number];
+type ChapterLabel = (typeof CHAPTER_CANDIDATES)[number]["label"];
 
 type ChapterPoint = {
 	key: string;
@@ -312,11 +312,13 @@ export default function PanelPage({
 				});
 				const anchor = sortedMatches[0];
 				const highestCount = Math.max(...bucket.counts.values());
-				const dominantLabels = CHAPTER_LABELS.filter(
-					(label) => (bucket.counts.get(label) || 0) === highestCount,
+				const dominantLabels = new Set(
+					[...bucket.counts.entries()]
+						.filter(([, count]) => count === highestCount)
+						.map(([label]) => label),
 				);
 				const dominantLabel =
-					sortedMatches.find((match) => dominantLabels.includes(match.label))
+					sortedMatches.find((match) => dominantLabels.has(match.label))
 						?.label || anchor.label;
 
 				return [
@@ -1580,14 +1582,17 @@ export default function PanelPage({
 }
 
 function normalizeChapterLabel(content: string): ChapterLabel | null {
+	// Keep half-width kana intact while normalizing full-width Latin candidates.
 	const normalized = content
 		.trim()
 		.replace(/[Ａ-Ｚａ-ｚ]/g, (char) =>
 			String.fromCharCode(char.charCodeAt(0) - 0xfee0),
-		)
-		.toUpperCase();
+		);
 
-	return CHAPTER_LABELS.find((label) => label === normalized) || null;
+	return (
+		CHAPTER_CANDIDATES.find((candidate) => candidate.pattern.test(normalized))
+			?.label || null
+	);
 }
 
 function formatRelativeSeconds(value: number): string {

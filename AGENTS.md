@@ -9,7 +9,7 @@
 
 ## Build And Packaging
 
-- Plugin definitions live in [scripts/plugins-manifest.ts](scripts/plugins-manifest.ts).
+- Plugin definitions live in [scripts/plugins-manifest.json](scripts/plugins-manifest.json), with their JSON Schema in [scripts/plugins-manifest.schema.json](scripts/plugins-manifest.schema.json).
 - Each plugin is `kind: "web-extension"` and declares `overlay`, `panel`, and/or `options` HTML entries.
 - `pnpm build` runs [scripts/build.ts](scripts/build.ts), builds each plugin with Vite, and emits `dist/<plugin>.kppx`.
 - Packaging rewrites built page paths to bundle-root `overlay.html`, `panel.html`, and `options.html`. Do not reintroduce single-page assumptions.
@@ -36,3 +36,8 @@
 ## Validation
 
 - For code changes in this repo, run `pnpm biome check --fix` and `pnpm build` before finishing when feasible.
+
+## Codex Environment
+
+- In Codex Desktop, if `node` is not available on `PATH`, call `load_workspace_dependencies` and run `pnpm` with the returned bundled Node.js and fallback binary directories prepended to `PATH`.
+- `pnpm build` launches `tsx`, which creates a local IPC socket. If the sandbox rejects it with `listen EPERM .../tsx-*.pipe`, rerun the same build using Codex's sandbox escalation mechanism. Do not change the build scripts or skip validation to work around this environment restriction.

@@ -1,5 +1,6 @@
-import { basename, relative, resolve } from "node:path";
-import process from "node:process";
+import { basename, dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import pluginsManifest from "./plugins-manifest.json" with { type: "json" };
 
 export type ExtensionPageType = "overlay" | "panel" | "options";
 
@@ -16,63 +17,60 @@ export type WebExtensionPluginManifest = {
 	strictMaxVersion?: string;
 };
 
-export type WebExtensionPlugin = {
+type PluginDefinition = {
 	id: string;
 	entries: Partial<Record<ExtensionPageType, string>>;
 	manifest: WebExtensionPluginManifest;
 };
 
+type PluginsManifest = {
+	$schema: string;
+	plugins: PluginDefinition[];
+};
+
+export type WebExtensionPlugin = PluginDefinition;
 export type KiririnPlugin = WebExtensionPlugin;
 
-const workspaceRoot = process.cwd();
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const manifest: PluginsManifest = pluginsManifest;
 
-export const plugins: KiririnPlugin[] = [
-	{
-		id: "example",
-		entries: {
-			overlay: resolve(workspaceRoot, "src/plugins/example/overlay.html"),
-			panel: resolve(workspaceRoot, "src/plugins/example/panel.html"),
-			options: resolve(workspaceRoot, "src/plugins/example/options.html"),
-		},
-		manifest: {
-			name: "Kiririn Plugin Example",
-			identifier: "io.github.ci7lus.kiririn-plugins.example",
-			version: "0.2.0",
-			author: "ci7lus",
-			homepageURL: "https://github.com/ci7lus/kiririn-plugins",
-			permissions: ["storage"],
-			hostPermissions: [
-				"https://example.com/*",
-				"https://o481625.ingest.us.sentry.io/*",
-			],
-			strictMinVersion: "0.2.0",
-			updateURL:
-				"https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json",
-		},
-	},
-	{
-		id: "nicojk",
-		entries: {
-			overlay: resolve(workspaceRoot, "src/plugins/nicojk/overlay.html"),
-			panel: resolve(workspaceRoot, "src/plugins/nicojk/panel.html"),
-			options: resolve(workspaceRoot, "src/plugins/nicojk/options.html"),
-		},
-		manifest: {
-			name: "NicoJK",
-			identifier: "io.github.ci7lus.kiririn-plugins.nicojk",
-			version: "0.1.1",
-			author: "ci7lus",
-			homepageURL: "https://github.com/ci7lus/kiririn-plugins",
-			permissions: ["storage"],
-			hostPermissions: [
-				"https://cal.syoboi.jp/*",
-				"https://jikkyo.tsukumijima.net/*",
-			],
-			updateURL:
-				"https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json",
-		},
-	},
-];
+export const plugins: KiririnPlugin[] = manifest.plugins.map((plugin) => ({
+	...plugin,
+	entries: Object.fromEntries(
+		Object.entries(plugin.entries).map(([pageType, entry]) => [
+			pageType,
+			resolve(workspaceRoot, entry),
+		]),
+	),
+}));
+
+validatePlugins(plugins);
+
+function validatePlugins(pluginList: KiririnPlugin[]) {
+	const pluginIDs = new Set<string>();
+	const identifiers = new Set<string>();
+
+	for (const plugin of pluginList) {
+		if (pluginIDs.has(plugin.id)) {
+			throw new Error(`Duplicate plugin ID: ${plugin.id}`);
+		}
+
+		if (identifiers.has(plugin.manifest.identifier)) {
+			throw new Error(
+				`Duplicate plugin identifier: ${plugin.manifest.identifier}`,
+			);
+		}
+
+		if (Object.keys(plugin.entries).length === 0) {
+			throw new Error(
+				`Plugin "${plugin.id}" must define at least one page entry.`,
+			);
+		}
+
+		pluginIDs.add(plugin.id);
+		identifiers.add(plugin.manifest.identifier);
+	}
+}
 
 export function getPluginIdentifier(plugin: KiririnPlugin) {
 	return plugin.manifest.identifier;

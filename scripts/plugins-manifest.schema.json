@@ -1,0 +1,110 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/scripts/plugins-manifest.schema.json",
+	"title": "Kiririn plugins manifest",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["$schema", "plugins"],
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"format": "uri"
+		},
+		"plugins": {
+			"type": "array",
+			"items": {
+				"$ref": "#/$defs/plugin"
+			}
+		}
+	},
+	"$defs": {
+		"plugin": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "entries", "manifest"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+				},
+				"entries": {
+					"type": "object",
+					"additionalProperties": false,
+					"minProperties": 1,
+					"properties": {
+						"overlay": {
+							"$ref": "#/$defs/entryPath"
+						},
+						"panel": {
+							"$ref": "#/$defs/entryPath"
+						},
+						"options": {
+							"$ref": "#/$defs/entryPath"
+						}
+					}
+				},
+				"manifest": {
+					"$ref": "#/$defs/webExtensionManifest"
+				}
+			}
+		},
+		"entryPath": {
+			"type": "string",
+			"minLength": 1,
+			"pattern": "\\.html$"
+		},
+		"webExtensionManifest": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["name", "identifier", "version", "author", "homepageURL"],
+			"properties": {
+				"name": {
+					"type": "string",
+					"minLength": 1
+				},
+				"identifier": {
+					"type": "string",
+					"minLength": 1
+				},
+				"version": {
+					"type": "string",
+					"minLength": 1
+				},
+				"author": {
+					"type": "string",
+					"minLength": 1
+				},
+				"homepageURL": {
+					"type": "string",
+					"format": "uri"
+				},
+				"permissions": {
+					"$ref": "#/$defs/stringArray"
+				},
+				"hostPermissions": {
+					"$ref": "#/$defs/stringArray"
+				},
+				"updateURL": {
+					"type": "string",
+					"format": "uri"
+				},
+				"strictMinVersion": {
+					"type": "string",
+					"minLength": 1
+				},
+				"strictMaxVersion": {
+					"type": "string",
+					"minLength": 1
+				}
+			}
+		},
+		"stringArray": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"minLength": 1
+			},
+			"uniqueItems": true
+		}
+	}
+}

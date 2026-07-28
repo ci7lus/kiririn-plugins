@@ -1,0 +1,48 @@
+{
+	"$schema": "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/scripts/plugins-manifest.schema.json",
+	"plugins": [
+		{
+			"id": "example",
+			"entries": {
+				"overlay": "src/plugins/example/overlay.html",
+				"panel": "src/plugins/example/panel.html",
+				"options": "src/plugins/example/options.html"
+			},
+			"manifest": {
+				"name": "Kiririn Plugin Example",
+				"identifier": "io.github.ci7lus.kiririn-plugins.example",
+				"version": "0.2.0",
+				"author": "ci7lus",
+				"homepageURL": "https://github.com/ci7lus/kiririn-plugins",
+				"permissions": ["storage"],
+				"hostPermissions": [
+					"https://example.com/*",
+					"https://o481625.ingest.us.sentry.io/*"
+				],
+				"strictMinVersion": "0.2.0",
+				"updateURL": "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json"
+			}
+		},
+		{
+			"id": "nicojk",
+			"entries": {
+				"overlay": "src/plugins/nicojk/overlay.html",
+				"panel": "src/plugins/nicojk/panel.html",
+				"options": "src/plugins/nicojk/options.html"
+			},
+			"manifest": {
+				"name": "NicoJK",
+				"identifier": "io.github.ci7lus.kiririn-plugins.nicojk",
+				"version": "0.1.2",
+				"author": "ci7lus",
+				"homepageURL": "https://github.com/ci7lus/kiririn-plugins",
+				"permissions": ["storage"],
+				"hostPermissions": [
+					"https://cal.syoboi.jp/*",
+					"https://jikkyo.tsukumijima.net/*"
+				],
+				"updateURL": "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json"
+			}
+		}
+	]
+}

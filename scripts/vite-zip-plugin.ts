@@ -9,7 +9,7 @@ import {
 	getPackagedPagePath,
 	getPackagePath,
 	type KiririnPlugin,
-} from "./plugins-manifest";
+} from "./plugins";
 
 const pageTypes = [
 	"overlay",
