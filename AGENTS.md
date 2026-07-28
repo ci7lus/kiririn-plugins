@@ -36,3 +36,8 @@
 ## Validation
 
 - For code changes in this repo, run `pnpm biome check --fix` and `pnpm build` before finishing when feasible.
+
+## Codex Environment
+
+- In Codex Desktop, if `node` is not available on `PATH`, call `load_workspace_dependencies` and run `pnpm` with the returned bundled Node.js and fallback binary directories prepended to `PATH`.
+- `pnpm build` launches `tsx`, which creates a local IPC socket. If the sandbox rejects it with `listen EPERM .../tsx-*.pipe`, rerun the same build using Codex's sandbox escalation mechanism. Do not change the build scripts or skip validation to work around this environment restriction.
