@@ -179,7 +179,7 @@ jobs:
 
             - name: Update release metadata
               run: >-
-                  pnpm release:update --
+                  pnpm release:update
                   "${{ steps.release_meta.outputs.tag }}"
                   "${{ github.repository }}"
                   release-assets
