@@ -10,6 +10,8 @@
 		"lint": "biome lint",
 		"format": "biome check --fix",
 		"preview": "vite preview",
+		"release:targets": "tsx scripts/release.ts targets",
+		"release:update": "tsx scripts/release.ts update",
 		"build-orig": "tsc -b && vite build",
 		"type": "tsc -b"
 	},

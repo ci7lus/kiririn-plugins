@@ -3,11 +3,7 @@
 import { execFileSync, execSync } from "node:child_process";
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import {
-	getPackagePath,
-	type KiririnPlugin,
-	plugins,
-} from "./plugins-manifest";
+import { getPackagePath, type KiririnPlugin, plugins } from "./plugins";
 
 const requestedPluginIDs = new Set(
 	process.argv

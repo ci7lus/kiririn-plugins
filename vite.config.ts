@@ -8,7 +8,7 @@ import {
 	createWebExtensionBuildManifest,
 	getPluginIdentifier,
 	plugins,
-} from "./scripts/plugins-manifest";
+} from "./scripts/plugins";
 import { createZipPackagingPlugin } from "./scripts/vite-zip-plugin";
 
 const kiririnPageTypes = ["overlay", "panel"] as const;

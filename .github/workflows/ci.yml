@@ -11,11 +11,6 @@ on:
                 type: boolean
                 required: true
                 default: true
-            release_plugins:
-                type: string
-                required: false
-                default: ""
-                description: "Comma-separated plugin IDs to release. Empty releases all plugins."
 
 permissions:
     contents: read
@@ -31,6 +26,9 @@ jobs:
     build:
         name: Build
         runs-on: ubuntu-latest
+        outputs:
+            has_releases: ${{ steps.release_targets.outputs.has_releases }}
+            release_plugins: ${{ steps.release_targets.outputs.release_plugins }}
         permissions:
             contents: read
         steps:
@@ -59,8 +57,23 @@ jobs:
             - name: Type check
               run: pnpm type
 
-            - name: Install ziplac
+            - name: Find unreleased plugin versions
+              id: release_targets
               if: ${{ inputs.release }}
+              run: |
+                  release_plugins="$(pnpm --silent release:targets)"
+                  echo "release_plugins=$release_plugins" >> "$GITHUB_OUTPUT"
+
+                  if [ -n "$release_plugins" ]; then
+                    echo "has_releases=true" >> "$GITHUB_OUTPUT"
+                    echo "Releasing plugins: $release_plugins"
+                  else
+                    echo "has_releases=false" >> "$GITHUB_OUTPUT"
+                    echo "All plugin versions in the manifest are already published."
+                  fi
+
+            - name: Install ziplac
+              if: ${{ inputs.release && steps.release_targets.outputs.has_releases == 'true' }}
               run: |
                   install -m 700 -d "$RUNNER_TEMP/bin"
                   curl -fsSL "$ZIPLAC_URL" -o "$RUNNER_TEMP/bin/ziplac"
@@ -68,7 +81,7 @@ jobs:
                   echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
             - name: Prepare signing files
-              if: ${{ inputs.release }}
+              if: ${{ inputs.release && steps.release_targets.outputs.has_releases == 'true' }}
               env:
                   SIGN_CRT: ${{ secrets.SIGN_CRT }}
                   SIGN_KEY: ${{ secrets.SIGN_KEY }}
@@ -92,20 +105,15 @@ jobs:
               run: pnpm build
 
             - name: Build (with uploading source maps to Sentry)
-              if: ${{ inputs.release }}
+              if: ${{ inputs.release && steps.release_targets.outputs.has_releases == 'true' }}
               env:
-                  RELEASE_PLUGINS: ${{ inputs.release_plugins }}
                   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
                   SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
                   SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-              run: |
-                  if [ -n "$RELEASE_PLUGINS" ]; then
-                    pnpm build -- "$RELEASE_PLUGINS"
-                  else
-                    pnpm build
-                  fi
+              run: pnpm build -- "${{ steps.release_targets.outputs.release_plugins }}"
 
             - name: Upload dist artifact
+              if: ${{ !inputs.release || steps.release_targets.outputs.has_releases == 'true' }}
               uses: actions/upload-artifact@v7
               with:
                   name: dist
@@ -115,13 +123,17 @@ jobs:
     release:
         name: Release
         needs: build
-        if: ${{ inputs.release }}
+        if: ${{ inputs.release && needs.build.outputs.has_releases == 'true' }}
         runs-on: ubuntu-latest
         permissions:
             contents: write
+            pull-requests: write
             attestations: write
             id-token: write
         steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+
             - name: Download dist artifact
               uses: actions/download-artifact@v8
               with:
@@ -131,13 +143,8 @@ jobs:
             - name: Prepare release metadata
               id: release_meta
               run: |
-                  release_tag="$(date -u +'%Y%m%d%H%M')"
+                  release_tag="$(date -u +'%Y%m%d%H%M%S')"
                   echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
-
-            # - name: Generate artifact attestation
-            #   uses: actions/attest@v4
-            #   with:
-            #       subject-path: release-assets/*
 
             - name: Create GitHub release
               env:
@@ -148,3 +155,50 @@ jobs:
                     --title "${{ steps.release_meta.outputs.tag }}" \
                     --generate-notes \
                     release-assets/*.kppx
+
+            - name: Generate artifact attestation
+              uses: actions/attest@v4
+              with:
+                  subject-path: release-assets/*.kppx
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
+              with:
+                  version: 11
+                  run_install: false
+                  cache: true
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Update release metadata
+              run: >-
+                  pnpm release:update --
+                  "${{ steps.release_meta.outputs.tag }}"
+                  "${{ github.repository }}"
+                  release-assets
+
+            - name: Create update manifest pull request
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_PLUGINS: ${{ needs.build.outputs.release_plugins }}
+                  RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
+              run: |
+                  branch="release/update-$RELEASE_TAG"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git switch -c "$branch"
+                  git add update.json
+                  git commit -m "Update plugin releases for $RELEASE_TAG"
+                  git push --set-upstream origin "$branch"
+                  gh pr create \
+                    --base "$GITHUB_REF_NAME" \
+                    --head "$branch" \
+                    --title "Update plugin releases for $RELEASE_TAG" \
+                    --body "Adds update metadata for release $RELEASE_TAG ($RELEASE_PLUGINS)."
