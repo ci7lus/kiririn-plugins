@@ -60,7 +60,7 @@ export const plugins: KiririnPlugin[] = [
 		manifest: {
 			name: "NicoJK",
 			identifier: "io.github.ci7lus.kiririn-plugins.nicojk",
-			version: "0.1.1",
+			version: "0.1.2",
 			author: "ci7lus",
 			homepageURL: "https://github.com/ci7lus/kiririn-plugins",
 			permissions: ["storage"],
