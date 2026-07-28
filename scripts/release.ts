@@ -135,7 +135,8 @@ async function updateReleaseManifest(
 }
 
 async function main() {
-	const [command, ...args] = process.argv.slice(2);
+	const [command, ...rawArgs] = process.argv.slice(2);
+	const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
 
 	switch (command) {
 		case "targets": {
