@@ -13,6 +13,7 @@
 		"release:targets": "tsx scripts/release.ts targets",
 		"release:update": "tsx scripts/release.ts update",
 		"build-orig": "tsc -b && vite build",
+		"test": "node --import tsx --test tests/*.test.ts",
 		"type": "tsc -b"
 	},
 	"dependencies": {

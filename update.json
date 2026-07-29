@@ -32,7 +32,12 @@
 					"version": "0.1.2",
 					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/20260728161520/nicojk.kppx",
 					"update_hash": "sha256:cabbb94f2fee1e8a414da9b2b2d5c1072662ef6a4921b5fb9d28c25a179b8736",
-					"update_info_url": "https://github.com/ci7lus/kiririn-plugins/releases/tag/20260728161520"
+					"update_info_url": "https://github.com/ci7lus/kiririn-plugins/releases/tag/20260728161520",
+					"applications": {
+						"kiririn": {
+							"strict_min_version": "0.1.0"
+						}
+					}
 				},
 				{
 					"version": "0.1.1",

@@ -158,15 +158,27 @@ function buildJkContext(
 	};
 }
 
-function withInterruptedSources(
+function withKakologSourceStates(
 	jkContext: NicoJKContext,
-	interruptedSourceKeys: Set<string>,
+	manager: KakologManager,
 ): NicoJKContext {
+	const interruptedSourceKeys = manager.getInterruptedSourceKeys();
+	const corrections = new Map(
+		manager
+			.getChapterCorrections()
+			.map((correction) => [correction.sourceKey, correction]),
+	);
 	return {
 		...jkContext,
 		sources: jkContext.sources.map((s) => ({
 			...s,
 			interrupted: interruptedSourceKeys.has(s.key),
+			chapterCorrection: corrections.has(s.key)
+				? {
+						offsetSeconds: corrections.get(s.key)?.offsetSeconds || 0,
+						enabled: corrections.get(s.key)?.enabled ?? true,
+					}
+				: undefined,
 		})),
 	};
 }
@@ -526,6 +538,10 @@ interface OverlaySnapshot {
 type OverlayRelayMessage =
 	| { type: "requestSnapshot" }
 	| { type: "setVisibleSourceKeys"; payload: { sourceKeys: string[] | null } }
+	| {
+			type: "setChapterCorrectionEnabled";
+			payload: { sourceKey: string; enabled: boolean };
+	  }
 	| { type: "snapshot"; payload: OverlaySnapshot };
 
 function createOverlayRelayChannel(playerID: string) {
@@ -795,6 +811,16 @@ export default function App() {
 		pendingResumeRef.current.set(playerID, sourceKey);
 	}, []);
 
+	const handleChapterCorrectionEnabledChange = useCallback(
+		(sourceKey: string, enabled: boolean) => {
+			panelRelayChannelRef.current?.postMessage({
+				type: "setChapterCorrectionEnabled",
+				payload: { sourceKey, enabled },
+			} satisfies OverlayRelayMessage);
+		},
+		[],
+	);
+
 	useEffect(() => {
 		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const playerID = overlayPlayerId;
@@ -834,6 +860,28 @@ export default function App() {
 				}
 				if (targetPlayableRef.current?.playerID === playerID) {
 					setVisibleSourceKeys(normalizedSourceKeys);
+				}
+				postSnapshot();
+				return;
+			}
+
+			if (event.data.type === "setChapterCorrectionEnabled") {
+				const data = playersDataRef.current.get(playerID);
+				const manager = kakologManagersRef.current.get(playerID);
+				if (!data || !manager || !data.jkContext) {
+					return;
+				}
+
+				data.comments = manager.setChapterCorrectionEnabled(
+					event.data.payload.sourceKey,
+					event.data.payload.enabled,
+				);
+				data.jkContext = withKakologSourceStates(data.jkContext, manager);
+				if (targetPlayableRef.current?.playerID === playerID) {
+					commentsRef.current = data.comments;
+					jkContextRef.current = data.jkContext;
+					setComments(data.comments);
+					setJkContext(data.jkContext);
 				}
 				postSnapshot();
 			}
@@ -1020,7 +1068,7 @@ export default function App() {
 			priorityTime: number,
 		): boolean => {
 			const playable = bridge.getPlayable(playerID);
-			if (!playable || !playable.isSeekable) return false;
+			if (!playable?.isSeekable) return false;
 			const data = playersDataRef.current.get(playerID);
 			const mgr = kakologManagersRef.current.get(playerID);
 			if (!data || !mgr) return false;
@@ -1070,12 +1118,8 @@ export default function App() {
 					latest.recordedFetchProgress = null;
 					latest.isLoadingRecordedComments = false;
 					latest.interruptedSources = mgr.getInterruptedSources();
-					const interruptedKeys = mgr.getInterruptedSourceKeys();
 					if (latest.jkContext) {
-						latest.jkContext = withInterruptedSources(
-							latest.jkContext,
-							interruptedKeys,
-						);
+						latest.jkContext = withKakologSourceStates(latest.jkContext, mgr);
 					}
 					mgr.setProgressListener(null);
 					if (targetPlayableRef.current?.playerID === playerID) {
@@ -1202,7 +1246,7 @@ export default function App() {
 				if (delta < 10) continue;
 
 				const playable = bridge.getPlayable(pid);
-				if (!playable || !playable.isSeekable) continue;
+				if (!playable?.isSeekable) continue;
 				const data = playersDataRef.current.get(pid);
 				const mgr = kakologManagersRef.current.get(pid);
 				if (!data || !mgr) continue;
@@ -1584,13 +1628,14 @@ export default function App() {
 						mgr.setSources(data.replaySources);
 
 						if (data.jkContext && data.replaySources[0]) {
-							const interruptedKeys = mgr.getInterruptedSourceKeys();
-							data.jkContext = buildJkContext(
-								data.replaySources[0],
-								data.replaySources,
-								startAt,
-								duration,
-								interruptedKeys,
+							data.jkContext = withKakologSourceStates(
+								buildJkContext(
+									data.replaySources[0],
+									data.replaySources,
+									startAt,
+									duration,
+								),
+								mgr,
 							);
 						}
 
@@ -1642,11 +1687,10 @@ export default function App() {
 									latest.isLoadingRecordedComments = false;
 									latest.recordedCommentsReady = true;
 									latest.interruptedSources = mgr.getInterruptedSources();
-									const interruptedKeys = mgr.getInterruptedSourceKeys();
 									if (latest.jkContext) {
-										latest.jkContext = withInterruptedSources(
+										latest.jkContext = withKakologSourceStates(
 											latest.jkContext,
-											interruptedKeys,
+											mgr,
 										);
 									}
 									mgr.setProgressListener(null);
@@ -1667,11 +1711,10 @@ export default function App() {
 									latest.recordedFetchProgress = null;
 									latest.isLoadingRecordedComments = false;
 									latest.interruptedSources = mgr.getInterruptedSources();
-									const interruptedKeys = mgr.getInterruptedSourceKeys();
 									if (latest.jkContext) {
-										latest.jkContext = withInterruptedSources(
+										latest.jkContext = withKakologSourceStates(
 											latest.jkContext,
-											interruptedKeys,
+											mgr,
 										);
 									}
 									mgr.setProgressListener(null);
@@ -1725,6 +1768,12 @@ export default function App() {
 
 										latest.comments = partialComments;
 										latest.recordedCommentsReady = true;
+										if (latest.jkContext) {
+											latest.jkContext = withKakologSourceStates(
+												latest.jkContext,
+												mgr,
+											);
+										}
 										if (targetPlayableRef.current?.playerID === p.playerID) {
 											syncTargetState(p.playerID);
 										}
@@ -1745,11 +1794,10 @@ export default function App() {
 									latest.isLoadingRecordedComments = false;
 									latest.recordedCommentsReady = true;
 									latest.interruptedSources = mgr.getInterruptedSources();
-									const interruptedKeys = mgr.getInterruptedSourceKeys();
 									if (latest.jkContext) {
-										latest.jkContext = withInterruptedSources(
+										latest.jkContext = withKakologSourceStates(
 											latest.jkContext,
-											interruptedKeys,
+											mgr,
 										);
 									}
 									mgr.setProgressListener(null);
@@ -1878,6 +1926,9 @@ export default function App() {
 					visibleSourceKeys={visibleSourceKeys}
 					onVisibleSourceKeysChange={handleVisibleSourceKeysChange}
 					onResumeSource={handleResumeSource}
+					onChapterCorrectionEnabledChange={
+						handleChapterCorrectionEnabledChange
+					}
 					isLive={panelIsLive}
 					duration={targetPlayable ? getBaseTiming(targetPlayable).duration : 0}
 					playbackState={playbackState}
@@ -1892,7 +1943,7 @@ export default function App() {
 			{area.type === "options" && <OptionsPage />}
 
 			{debugKiririn?.toggleSeekable && (
-				<div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm max-w-sm">
+				<div className="fixed bottom-4 left-4 z-9999 flex flex-col gap-2 p-2 bg-black/80 rounded-lg border border-gray-600 shadow-2xl backdrop-blur-sm max-w-sm">
 					<div className="text-[10px] text-gray-400 font-mono flex justify-between">
 						<span>MockBridge Controls</span>
 						<span className="text-blue-400 text-[8px] opacity-70">
@@ -1916,7 +1967,7 @@ export default function App() {
 									<button
 										type="button"
 										onClick={() => debugKiririn.focusPlayable?.(p.playerID)}
-										className={`px-2 py-1 text-[8px] rounded truncate max-w-[80px] ${
+										className={`px-2 py-1 text-[8px] rounded truncate max-w-20 ${
 											targetPlayable?.playerID === p.playerID
 												? "bg-green-600 text-white"
 												: "bg-gray-700 text-gray-300"

@@ -85,6 +85,16 @@ function getFilterSignature(
 	});
 }
 
+function getCommentTimingSignature(jkContext: NicoJKContext | null) {
+	return JSON.stringify(
+		jkContext?.sources.map((source) => [
+			source.key,
+			source.chapterCorrection?.offsetSeconds ?? null,
+			source.chapterCorrection?.enabled ?? null,
+		]) || [],
+	);
+}
+
 function isCommentNGBySettings(
 	comment: string | undefined,
 	userId: string | undefined,
@@ -204,6 +214,7 @@ export default function OverlayPage({
 		mode: RendererMode;
 		playableId: string | null;
 		filterVersion: number;
+		commentTimingSignature: string;
 		recordedPhase: RecordedRendererPhase;
 		segment: number;
 	} | null>(null);
@@ -324,11 +335,14 @@ export default function OverlayPage({
 		}
 
 		const nextMode: RendererMode = isLive ? "live" : "recorded";
+		const commentTimingSignature = getCommentTimingSignature(jkContext);
 		const shouldRecreate =
 			!rendererRef.current ||
 			rendererMetaRef.current?.mode !== nextMode ||
 			rendererMetaRef.current?.playableId !== playableId ||
 			rendererMetaRef.current?.filterVersion !== filterVersion ||
+			rendererMetaRef.current?.commentTimingSignature !==
+				commentTimingSignature ||
 			(!isLive &&
 				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase) ||
 			(!isLive && rendererMetaRef.current?.segment !== currentSegment);
@@ -371,6 +385,7 @@ export default function OverlayPage({
 			mode: nextMode,
 			playableId,
 			filterVersion,
+			commentTimingSignature,
 			recordedPhase: isLive ? "none" : recordedRendererPhase,
 			segment: currentSegment,
 		};

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../Plugin";
+import { type ChapterPoint, detectChapterPoints } from "../chapter-comments";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import type { InterruptedSourceInfo } from "../kakolog-manager";
@@ -29,33 +30,19 @@ import {
 	saveSettings,
 } from "../ng-settings";
 
-const CHAPTER_CANDIDATES = [
-	{ pattern: /^A$/i, label: "A" },
-	{ pattern: /^B$/i, label: "B" },
-	{ pattern: /^C$/i, label: "C" },
-	{ pattern: /^D$/i, label: "D" },
-	{ pattern: /^出?OP$/i, label: "OP" },
-	{ pattern: /^ED$/i, label: "ED" },
-	{ pattern: /^ここ$/, label: "ここ" },
-	{ pattern: /^ｷﾀ[‐‑‒–—―−ーｰ－─━〜～-]+/, label: "ｷﾀｰ" },
-] as const;
 const IGNORE_COMMANDS = ["184", "medium", "naka", "white"];
 const SHEET_ANIMATION_MS = 240;
 const ROW_ESTIMATE_SIZE = 41;
-
-type ChapterLabel = (typeof CHAPTER_CANDIDATES)[number]["label"];
-
-type ChapterPoint = {
-	key: string;
-	label: ChapterLabel;
-	relativeSec: number;
-};
 
 interface Props {
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
 	onResumeSource: (sourceKey: string) => void;
+	onChapterCorrectionEnabledChange: (
+		sourceKey: string,
+		enabled: boolean,
+	) => void;
 	isLive: boolean;
 	duration: number;
 	playbackState: PlayerPlaybackState | null;
@@ -101,6 +88,7 @@ export default function PanelPage({
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
 	onResumeSource,
+	onChapterCorrectionEnabledChange,
 	isLive,
 	duration,
 	playbackState,
@@ -251,98 +239,13 @@ export default function PanelPage({
 			return [];
 		}
 
-		type ChapterMatch = {
-			label: ChapterLabel;
-			relativeSec: number;
-			commentId: number;
-		};
-
-		type ChapterBucket = {
-			matches: ChapterMatch[];
-			counts: Map<ChapterLabel, number>;
-		};
-
-		const buckets = new Map<number, ChapterBucket>();
-
-		for (const comment of chapterComments) {
-			const label = normalizeChapterLabel(comment.content);
-			if (!label) {
-				continue;
-			}
-
-			const relativeSec = comment.vpos / 100 - jkContext.startAt;
-			if (
-				!Number.isFinite(relativeSec) ||
-				relativeSec < 0 ||
-				relativeSec > duration
-			) {
-				continue;
-			}
-
-			const bucketIndex = Math.floor(relativeSec / chapterWindowSeconds);
-			let bucket = buckets.get(bucketIndex);
-			if (!bucket) {
-				bucket = {
-					matches: [],
-					counts: new Map<ChapterLabel, number>(),
-				};
-				buckets.set(bucketIndex, bucket);
-			}
-
-			bucket.matches.push({
-				label,
-				relativeSec,
-				commentId: comment.id,
-			});
-			bucket.counts.set(label, (bucket.counts.get(label) || 0) + 1);
-		}
-
-		const candidates = [...buckets.entries()]
-			.sort(([left], [right]) => left - right)
-			.flatMap(([bucketIndex, bucket]) => {
-				if (bucket.matches.length < chapterMinimumCount) {
-					return [];
-				}
-
-				const sortedMatches = [...bucket.matches].sort((left, right) => {
-					if (left.relativeSec !== right.relativeSec) {
-						return left.relativeSec - right.relativeSec;
-					}
-					return left.commentId - right.commentId;
-				});
-				const anchor = sortedMatches[0];
-				const highestCount = Math.max(...bucket.counts.values());
-				const dominantLabels = new Set(
-					[...bucket.counts.entries()]
-						.filter(([, count]) => count === highestCount)
-						.map(([label]) => label),
-				);
-				const dominantLabel =
-					sortedMatches.find((match) => dominantLabels.has(match.label))
-						?.label || anchor.label;
-
-				return [
-					{
-						key: `${bucketIndex}:${anchor.commentId}`,
-						label: dominantLabel,
-						relativeSec: anchor.relativeSec,
-					},
-				];
-			});
-
-		const filtered: ChapterPoint[] = [];
-		let nextAvailableSec = -Infinity;
-
-		for (const candidate of candidates) {
-			if (candidate.relativeSec < nextAvailableSec) {
-				continue;
-			}
-
-			filtered.push(candidate);
-			nextAvailableSec = candidate.relativeSec + chapterCooldownSeconds;
-		}
-
-		return filtered.reverse();
+		return detectChapterPoints(chapterComments, {
+			startAt: jkContext.startAt,
+			duration,
+			windowSeconds: chapterWindowSeconds,
+			cooldownSeconds: chapterCooldownSeconds,
+			minimumCount: chapterMinimumCount,
+		}).reverse();
 	}, [
 		chapterComments,
 		chapterCooldownSeconds,
@@ -934,7 +837,7 @@ export default function PanelPage({
 														: "hover:bg-[#2c2c2c]"
 										}`}
 									>
-										<div className="flex w-8 flex-shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
+										<div className="flex w-8 shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
 											<span>{c.no}</span>
 											{!isLive && (
 												<span className="mt-0.5 text-[8px] text-gray-600">
@@ -943,7 +846,7 @@ export default function PanelPage({
 											)}
 										</div>
 										<div className="flex min-w-0 flex-1 items-center gap-2 self-center">
-											<div className="min-w-0 flex-1 break-words leading-[1.5]">
+											<div className="min-w-0 flex-1 wrap-break-word leading-normal">
 												{c.content}
 											</div>
 											{isSearchMatched && (
@@ -1030,7 +933,7 @@ export default function PanelPage({
 								<X size={18} />
 							</button>
 						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-sm leading-relaxed break-words text-white">
+						<div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-sm leading-relaxed wrap-break-word text-white">
 							{renderedTooltip.comment.content}
 						</div>
 						<div className="space-y-3 border-t border-gray-800 px-4 py-3 text-[11px] text-gray-300">
@@ -1473,6 +1376,23 @@ export default function PanelPage({
 																{formatTimeRange(source.startAt, source.endAt)}
 															</div>
 														)}
+														{source.chapterCorrection && (
+															<div
+																className={
+																	source.chapterCorrection.enabled
+																		? "text-emerald-300"
+																		: "text-gray-500"
+																}
+															>
+																チャプター補正{" "}
+																{formatCorrectionSeconds(
+																	source.chapterCorrection.offsetSeconds,
+																)}
+																{source.chapterCorrection.enabled
+																	? " 適用中"
+																	: " 無効"}
+															</div>
+														)}
 														{isInterrupted && interruptedChunks.length > 0 && (
 															<div className="mt-1.5 flex items-center gap-1">
 																{interruptedChunks.map((chunk) => {
@@ -1511,6 +1431,38 @@ export default function PanelPage({
 															>
 																<RotateCw size={12} />
 																全件取得
+															</button>
+														)}
+														{source.chapterCorrection && (
+															<button
+																type="button"
+																onClick={() =>
+																	onChapterCorrectionEnabledChange(
+																		source.key,
+																		!source.chapterCorrection?.enabled,
+																	)
+																}
+																className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
+																	source.chapterCorrection.enabled
+																		? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500"
+																		: "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
+																}`}
+																title={
+																	source.chapterCorrection.enabled
+																		? "チャプター補正を適用しない"
+																		: "チャプター補正を再適用する"
+																}
+																aria-label={
+																	source.chapterCorrection.enabled
+																		? `${source.channelName} のチャプター補正を適用しない`
+																		: `${source.channelName} のチャプター補正を再適用する`
+																}
+															>
+																{source.chapterCorrection.enabled ? (
+																	<Ban size={14} />
+																) : (
+																	<Check size={14} />
+																)}
 															</button>
 														)}
 														{canShowOnlySource && (
@@ -1581,20 +1533,6 @@ export default function PanelPage({
 	);
 }
 
-function normalizeChapterLabel(content: string): ChapterLabel | null {
-	// Keep half-width kana intact while normalizing full-width Latin candidates.
-	const normalized = content
-		.trim()
-		.replace(/[Ａ-Ｚａ-ｚ]/g, (char) =>
-			String.fromCharCode(char.charCodeAt(0) - 0xfee0),
-		);
-
-	return (
-		CHAPTER_CANDIDATES.find((candidate) => candidate.pattern.test(normalized))
-			?.label || null
-	);
-}
-
 function formatRelativeSeconds(value: number): string {
 	if (!Number.isFinite(value) || value < 0) {
 		return "--:--";
@@ -1612,6 +1550,14 @@ function formatRelativeSeconds(value: number): string {
 	}
 
 	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function formatCorrectionSeconds(value: number): string {
+	const absolute = Math.abs(value);
+	const formatted = Number.isInteger(absolute)
+		? String(absolute)
+		: absolute.toFixed(2).replace(/\.?0+$/, "");
+	return `${value >= 0 ? "+" : "-"}${formatted}秒`;
 }
 
 function clamp(value: number, min: number, max: number): number {
