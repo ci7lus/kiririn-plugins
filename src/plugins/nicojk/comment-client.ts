@@ -40,7 +40,7 @@ export class CommentClient {
 	private statusListeners: StatusCallback[] = [];
 	private jkId: string | null = null;
 	private abortController: AbortController | null = null;
-	private keepSeatInterval: number | null = null;
+	private keepSeatInterval: ReturnType<typeof setInterval> | null = null;
 	private status: ConnectionStatus = "disconnected";
 	private commentCounter = 0;
 

@@ -57,6 +57,9 @@ jobs:
             - name: Type check
               run: pnpm type
 
+            - name: Test
+              run: pnpm test
+
             - name: Find unreleased plugin versions
               id: release_targets
               if: ${{ inputs.release }}

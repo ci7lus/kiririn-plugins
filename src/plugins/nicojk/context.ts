@@ -8,6 +8,10 @@ export interface NicoJKSourceContext {
 	startAt: number;
 	endAt: number;
 	interrupted?: boolean;
+	chapterCorrection?: {
+		offsetSeconds: number;
+		enabled: boolean;
+	};
 }
 
 export interface NicoJKContext {

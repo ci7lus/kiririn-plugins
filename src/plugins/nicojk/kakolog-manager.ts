@@ -1,6 +1,11 @@
+import {
+	type ChapterSourceCorrection,
+	synchronizeCommentSourcesByChapters,
+} from "./chapter-source-sync";
 import type { NiconicoComment } from "./comment-client";
 import { buildStableCommentId } from "./comment-id";
 import { fetchJson } from "./host-fetch";
+import { getSettings } from "./ng-settings";
 import type {
 	ResolvedCommentSource,
 	ResolvedSourceKind,
@@ -66,6 +71,13 @@ export interface InterruptedSourceInfo {
 	fetchedEndAt: number | null;
 	/** チャンクごとの取得状態（applicableOffsets 順） */
 	chunks: InterruptedChunkState[];
+}
+
+export interface ChapterCorrectionInfo {
+	sourceKey: string;
+	offsetSeconds: number;
+	matchedLabels: ChapterSourceCorrection["matchedLabels"];
+	enabled: boolean;
 }
 
 interface SourceFetchState {
@@ -142,6 +154,9 @@ export class KakologManager {
 		currentSourceJkId: string | null;
 		currentSourceChannelName: string | null;
 	} | null = null;
+	private correctionSignature = "";
+	private chapterCorrections: ChapterSourceCorrection[] = [];
+	private disabledChapterCorrectionSourceKeys = new Set<string>();
 
 	public setSources(sources: ResolvedCommentSource[]) {
 		const signature = JSON.stringify(
@@ -150,6 +165,7 @@ export class KakologManager {
 				source.jkId,
 				source.startAt,
 				source.endAt,
+				source.programStartAt,
 			]),
 		);
 		if (this.sourceSignature === signature) {
@@ -176,6 +192,7 @@ export class KakologManager {
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
 		this.interruptOffset = null;
+		this.resetChapterCorrectionState();
 		this.resetProgress();
 	}
 
@@ -195,7 +212,14 @@ export class KakologManager {
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
 		this.interruptOffset = null;
+		this.resetChapterCorrectionState();
 		this.resetProgress();
+	}
+
+	private resetChapterCorrectionState() {
+		this.correctionSignature = "";
+		this.chapterCorrections = [];
+		this.disabledChapterCorrectionSourceKeys.clear();
 	}
 
 	public setProgressListener(
@@ -206,7 +230,68 @@ export class KakologManager {
 	}
 
 	public getAllComments(): NiconicoComment[] {
-		return sortAndDedupeComments(this.allComments);
+		return this.getSynchronizedComments();
+	}
+
+	private getSynchronizedComments(): NiconicoComment[] {
+		const settings = getSettings();
+		const disabledSourceOrdinals = new Set<number>();
+		for (const [sourceOrdinal, source] of this.sources.entries()) {
+			if (this.disabledChapterCorrectionSourceKeys.has(source.key)) {
+				disabledSourceOrdinals.add(sourceOrdinal);
+			}
+		}
+		const synchronized = synchronizeCommentSourcesByChapters(
+			this.allComments,
+			this.sources,
+			{
+				windowSeconds: settings.chapterWindowSeconds,
+				cooldownSeconds: settings.chapterCooldownSeconds,
+				minimumCount: settings.chapterMinimumCount,
+				disabledSourceOrdinals,
+			},
+		);
+		this.chapterCorrections = synchronized.corrections;
+		const correctionSignature = JSON.stringify(synchronized.corrections);
+		if (correctionSignature !== this.correctionSignature) {
+			this.correctionSignature = correctionSignature;
+			for (const correction of synchronized.corrections) {
+				const source = this.sources[correction.sourceOrdinal];
+				console.info(
+					`[Kakolog] Chapter-synced ${source?.jkId || correction.sourceOrdinal} by ${correction.offsetSeconds.toFixed(2)}s (${correction.matchedLabels.join(", ")})`,
+				);
+			}
+		}
+		return sortAndDedupeComments(synchronized.comments);
+	}
+
+	public getChapterCorrections(): ChapterCorrectionInfo[] {
+		return this.chapterCorrections.flatMap((correction) => {
+			const source = this.sources[correction.sourceOrdinal];
+			if (!source) {
+				return [];
+			}
+			return [
+				{
+					sourceKey: source.key,
+					offsetSeconds: correction.offsetSeconds,
+					matchedLabels: correction.matchedLabels,
+					enabled: !this.disabledChapterCorrectionSourceKeys.has(source.key),
+				},
+			];
+		});
+	}
+
+	public setChapterCorrectionEnabled(
+		sourceKey: string,
+		enabled: boolean,
+	): NiconicoComment[] {
+		if (enabled) {
+			this.disabledChapterCorrectionSourceKeys.delete(sourceKey);
+		} else {
+			this.disabledChapterCorrectionSourceKeys.add(sourceKey);
+		}
+		return this.getSynchronizedComments();
 	}
 
 	public getInterruptedSourceKeys(): Set<string> {
@@ -323,11 +408,11 @@ export class KakologManager {
 
 		if (this.isFullyCompleted()) {
 			this.resetProgress();
-			return sortAndDedupeComments(this.allComments);
+			return this.getSynchronizedComments();
 		}
 
 		if (this.isFetching) {
-			return sortAndDedupeComments(this.allComments);
+			return this.getSynchronizedComments();
 		}
 
 		const revision = this.fetchRevision;
@@ -340,7 +425,7 @@ export class KakologManager {
 		});
 
 		if (revision !== this.fetchRevision) return [];
-		return sortAndDedupeComments(this.allComments);
+		return this.getSynchronizedComments();
 	}
 
 	public async fetchMore(
@@ -348,8 +433,8 @@ export class KakologManager {
 		options?: { priorityTime?: number },
 	): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0 || duration <= 0) return [];
-		if (this.isFetching) return sortAndDedupeComments(this.allComments);
-		if (this.isFullyCompleted()) return sortAndDedupeComments(this.allComments);
+		if (this.isFetching) return this.getSynchronizedComments();
+		if (this.isFullyCompleted()) return this.getSynchronizedComments();
 
 		const revision = this.fetchRevision;
 		this.batchStartCount = this.totalFetched;
@@ -361,7 +446,7 @@ export class KakologManager {
 		});
 
 		if (revision !== this.fetchRevision) return [];
-		return sortAndDedupeComments(this.allComments);
+		return this.getSynchronizedComments();
 	}
 
 	public async resumeSource(
@@ -369,11 +454,10 @@ export class KakologManager {
 		duration: number,
 	): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0 || duration <= 0) return [];
-		if (this.isFetching) return sortAndDedupeComments(this.allComments);
+		if (this.isFetching) return this.getSynchronizedComments();
 
 		const state = this.sourceStates.find((s) => s.sourceKey === sourceKey);
-		if (!state || state.completed)
-			return sortAndDedupeComments(this.allComments);
+		if (!state || state.completed) return this.getSynchronizedComments();
 
 		const revision = this.fetchRevision;
 		state.ignoreLimit = true;
@@ -384,7 +468,7 @@ export class KakologManager {
 		});
 
 		if (revision !== this.fetchRevision) return [];
-		return sortAndDedupeComments(this.allComments);
+		return this.getSynchronizedComments();
 	}
 
 	private async runFetchLoop(
@@ -492,7 +576,7 @@ export class KakologManager {
 						options.onPartialComments
 					) {
 						partialEmitted = true;
-						options.onPartialComments(sortAndDedupeComments(this.allComments));
+						options.onPartialComments(this.getSynchronizedComments());
 					}
 				} catch (e) {
 					console.error(
