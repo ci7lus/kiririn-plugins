@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { synchronizeCommentSourcesByChapters } from "../src/plugins/nicojk/chapter-source-sync";
 import type { NiconicoComment } from "../src/plugins/nicojk/comment-client";
+import { KakologManager } from "../src/plugins/nicojk/kakolog-manager";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
 const START_AT = 1_700_000_000;
@@ -156,21 +157,104 @@ test("単独の「ここ」は誤補正を避けるため同期基準にしな�
 });
 
 test("無効化したソースは補正状態を残したまま vpos へ適用しない", () => {
+	const primaryChapter = chapter(0, 300, "OP");
 	const secondaryBody = comment(1, 600, "本編コメント");
-	const comments = [
-		...chapter(0, 300, "OP"),
-		...chapter(1, 480, "OP"),
-		secondaryBody,
-	];
+	const comments = [...primaryChapter, ...chapter(1, 480, "OP"), secondaryBody];
 
 	const synchronized = synchronizeCommentSourcesByChapters(comments, SOURCES, {
 		...SYNC_OPTIONS,
 		disabledSourceOrdinals: new Set([1]),
 	});
 
-	assert.equal(synchronized.corrections[0]?.offsetSeconds, -180);
+	assert.deepEqual(synchronized.corrections, [
+		{
+			sourceOrdinal: 1,
+			offsetSeconds: -180,
+			matchedLabels: ["OP"],
+		},
+	]);
 	assert.equal(
 		synchronized.comments.find((item) => item.id === secondaryBody.id)?.vpos,
 		secondaryBody.vpos,
 	);
+	assert.deepEqual(
+		synchronized.comments
+			.filter((item) => item.sourceOrdinal === 0)
+			.map((item) => item.vpos),
+		primaryChapter.map((item) => item.vpos),
+	);
 });
+
+test("キャッシュをクリアするとソースの補正無効化もリセットする", async () => {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		const isPrimary = url.pathname.endsWith("/jk1");
+		const sourceStartAt = isPrimary ? START_AT : START_AT + 86400;
+		const relativeChapterAt = isPrimary ? 300 : 480;
+		const chats = chapterApiComments(sourceStartAt, relativeChapterAt, "OP");
+		if (!isPrimary) {
+			chats.push(apiComment(sourceStartAt, 600, "本編コメント", 4));
+		}
+		return Response.json({
+			packet: chats.map((chat) => ({ chat })),
+		});
+	};
+
+	try {
+		const manager = new KakologManager();
+		manager.setSources(SOURCES);
+
+		const corrected = await manager.fetchWithLimit(1800);
+		const correctedBody = corrected.find(
+			(item) => item.content === "本編コメント",
+		);
+		assert.equal(correctedBody?.vpos, (START_AT + 420) * 100);
+
+		const disabled = manager.setChapterCorrectionEnabled("replay", false);
+		const disabledBody = disabled.find(
+			(item) => item.content === "本編コメント",
+		);
+		assert.equal(disabledBody?.vpos, (START_AT + 600) * 100);
+
+		manager.clearCache();
+		const correctedAfterReset = await manager.fetchWithLimit(1800);
+		const resetBody = correctedAfterReset.find(
+			(item) => item.content === "本編コメント",
+		);
+		assert.equal(resetBody?.vpos, (START_AT + 420) * 100);
+		assert.equal(manager.getChapterCorrections()[0]?.enabled, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+function chapterApiComments(
+	sourceStartAt: number,
+	relativeSec: number,
+	label: string,
+) {
+	return [
+		apiComment(sourceStartAt, relativeSec, label, 1),
+		apiComment(sourceStartAt, relativeSec + 1, label, 2),
+		apiComment(sourceStartAt, relativeSec + 2, label, 3),
+	];
+}
+
+function apiComment(
+	sourceStartAt: number,
+	relativeSec: number,
+	content: string,
+	no: number,
+) {
+	return {
+		id: String(no),
+		no: String(no),
+		vpos: "0",
+		content,
+		date: String(sourceStartAt + relativeSec),
+		date_usec: "0",
+		mail: "",
+		user_id: `user-${no}`,
+	};
+}

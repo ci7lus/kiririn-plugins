@@ -192,9 +192,7 @@ export class KakologManager {
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
 		this.interruptOffset = null;
-		this.correctionSignature = "";
-		this.chapterCorrections = [];
-		this.disabledChapterCorrectionSourceKeys = new Set();
+		this.resetChapterCorrectionState();
 		this.resetProgress();
 	}
 
@@ -214,9 +212,14 @@ export class KakologManager {
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
 		this.interruptOffset = null;
+		this.resetChapterCorrectionState();
+		this.resetProgress();
+	}
+
+	private resetChapterCorrectionState() {
 		this.correctionSignature = "";
 		this.chapterCorrections = [];
-		this.resetProgress();
+		this.disabledChapterCorrectionSourceKeys.clear();
 	}
 
 	public setProgressListener(
