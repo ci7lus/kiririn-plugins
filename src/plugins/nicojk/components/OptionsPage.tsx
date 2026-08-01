@@ -424,7 +424,8 @@ export default function OptionsPage() {
 								<option value="nx-jikkyo">nx-jikkyo</option>
 							</select>
 							<span className="text-xs leading-relaxed text-gray-400">
-								ライブ放送にのみ適用されます。録画再生では引き続き nx-jikkyo を使用します。
+								ライブ放送にのみ適用されます。録画再生では引き続き nx-jikkyo
+								を使用します。
 							</span>
 						</label>
 					</div>
