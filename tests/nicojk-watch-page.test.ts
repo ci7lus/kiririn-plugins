@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	type NiconicoWatchPage,
 	NiconicoWatchPageError,
 	parseNiconicoWatchPageHtml,
 	resolveNiconicoWatchPage,
-	type NiconicoWatchPage,
 } from "../src/plugins/nicojk/niconico-watch-page";
 
 const FINAL_URL = "https://live.nicovideo.jp/watch/lv123456789";
@@ -40,13 +40,10 @@ function watchPageHtml(overrides: Record<string, unknown> = {}) {
 }
 
 test("embedded-data の属性を復号して放送ページの4項目を抽出する", () => {
-	assert.deepEqual(
-		parseNiconicoWatchPageHtml(watchPageHtml(), FINAL_URL),
-		{
-			...EXPECTED_PAGE,
-			requestedUrl: FINAL_URL,
-		},
-	);
+	assert.deepEqual(parseNiconicoWatchPageHtml(watchPageHtml(), FINAL_URL), {
+		...EXPECTED_PAGE,
+		requestedUrl: FINAL_URL,
+	});
 });
 
 test("ISO-8601 の vposBaseTime を Unix epoch 秒へ正規化する", () => {
@@ -141,8 +138,9 @@ test("HTTP成功・最終URL・HTMLを検証し、omit/follow で解決する", 
 
 test("HTTP失敗を typed error にする", async () => {
 	await assert.rejects(
-		resolveNiconicoWatchPage("co123", async () =>
-			new Response("error", { status: 500 }),
+		resolveNiconicoWatchPage(
+			"co123",
+			async () => new Response("error", { status: 500 }),
 		),
 		(error: unknown) =>
 			error instanceof NiconicoWatchPageError && error.reason === "http-error",

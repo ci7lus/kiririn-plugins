@@ -21,10 +21,7 @@ export class NiconicoWatchPageError extends Error {
 	override readonly name = "NiconicoWatchPageError";
 	readonly reason: NiconicoWatchPageErrorReason;
 
-	constructor(
-		reason: NiconicoWatchPageErrorReason,
-		message: string,
-	) {
+	constructor(reason: NiconicoWatchPageErrorReason, message: string) {
 		super(message);
 		this.reason = reason;
 	}
@@ -65,7 +62,10 @@ function extractEmbeddedDataProps(html: string) {
 
 	const props = element.match(/\bdata-props\s*=\s*(["'])(.*?)\1/i)?.[2];
 	if (props === undefined) {
-		fail("missing-embedded-data", "The embedded-data data-props attribute is missing");
+		fail(
+			"missing-embedded-data",
+			"The embedded-data data-props attribute is missing",
+		);
 	}
 
 	return decodeAttributeEntities(props);
@@ -122,7 +122,7 @@ export function parseNiconicoWatchPageHtml(
 	html: string,
 	finalUrl: string,
 ): NiconicoWatchPage {
-	const url = parseFinalUrl(finalUrl);
+	parseFinalUrl(finalUrl);
 	const propsJson = extractEmbeddedDataProps(html);
 	let props: EmbeddedProps;
 	try {
