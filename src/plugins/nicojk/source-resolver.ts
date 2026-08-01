@@ -23,6 +23,7 @@ export interface ResolvedCommentSource {
 	kind: ResolvedSourceKind;
 	jkId: string;
 	channelName: string;
+	nicoliveCommunityId?: string;
 	syobocalId?: number;
 	startAt: number;
 	endAt: number;
@@ -60,6 +61,7 @@ function buildSource(
 		kind,
 		jkId: channel.jkId,
 		channelName: channel.name,
+		nicoliveCommunityId: channel.nicoliveCommunityIds?.[0],
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt,
