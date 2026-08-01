@@ -4,10 +4,18 @@ import {
 	writeStoredJsonWithFallback,
 } from "./storage";
 
+export const LIVE_COMMENT_SOURCE_VALUES = ["niconico", "nx-jikkyo"] as const;
+export type LiveCommentSource = (typeof LIVE_COMMENT_SOURCE_VALUES)[number];
+
+export function normalizeLiveCommentSource(value: unknown): LiveCommentSource {
+	return value === "nx-jikkyo" ? "nx-jikkyo" : "niconico";
+}
+
 export interface NicoJKSettings {
 	ngWords: string[];
 	ngIds: string[];
 	ngCommands: string[];
+	liveCommentSource: LiveCommentSource;
 	showComments: boolean;
 	opacity: number;
 	secondarySourceOpacity: number;
@@ -25,6 +33,7 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	ngWords: [],
 	ngIds: [],
 	ngCommands: [],
+	liveCommentSource: "niconico",
 	showComments: true,
 	opacity: 0.8,
 	secondarySourceOpacity: 1,
@@ -94,6 +103,7 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 		ngWords: normalizeStringArray(stored.ngWords),
 		ngIds: normalizeStringArray(stored.ngIds),
 		ngCommands: normalizeStringArray(stored.ngCommands),
+		liveCommentSource: normalizeLiveCommentSource(stored.liveCommentSource),
 		showComments:
 			typeof stored.showComments === "boolean"
 				? stored.showComments
