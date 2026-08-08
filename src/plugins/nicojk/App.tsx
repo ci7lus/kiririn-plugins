@@ -25,6 +25,14 @@ import {
 	type KakologFetchProgress,
 	KakologManager,
 } from "./kakolog-manager";
+import type { LiveCommentClient } from "./live-comment-client";
+import {
+	getSettings,
+	initializeSettings,
+	type LiveCommentSource,
+	SETTINGS_UPDATED_EVENT,
+} from "./ng-settings";
+import { NiconicoCommentClient } from "./niconico-comment-client";
 import {
 	type ResolvedCommentSource,
 	type ResolvedCommentSources,
@@ -102,7 +110,7 @@ function getProgramResolutionSignature(playable: Playable) {
 	].join(":");
 }
 
-function buildPrimarySource(
+export function buildPrimarySource(
 	channel: NicoJKChannelDefinition,
 	startAt: number,
 	programStartAt: number,
@@ -117,6 +125,7 @@ function buildPrimarySource(
 		kind: "primary",
 		jkId: channel.jkId,
 		channelName: channel.name,
+		nicoliveCommunityId: channel.nicoliveCommunityIds?.[0],
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt: startAt + duration,
@@ -473,9 +482,19 @@ function aggregateConnectionStatuses(
 	return "disconnected";
 }
 
-function getSourceOrdinal(sources: ResolvedCommentSource[], jkId: string) {
-	const index = sources.findIndex((source) => source.jkId === jkId);
-	return index < 0 ? 0 : index;
+export function getLiveClientKey(
+	mode: LiveCommentSource,
+	source: ResolvedCommentSource,
+) {
+	return `${mode}:${source.key}`;
+}
+
+export function createLiveCommentClient(
+	mode: LiveCommentSource,
+): LiveCommentClient {
+	return mode === "niconico"
+		? new NiconicoCommentClient()
+		: new CommentClient();
 }
 
 function scopeLiveComment(
@@ -676,7 +695,10 @@ export default function App() {
 	const overlayIsLiveRef = useRef(false);
 	const playersDataRef = useRef<Map<string, PlayerData>>(new Map());
 
-	const clientsRef = useRef<Map<string, CommentClient>>(new Map());
+	const clientsRef = useRef<Map<string, LiveCommentClient>>(new Map());
+	const liveCommentSourceRef = useRef<LiveCommentSource>(
+		getSettings().liveCommentSource,
+	);
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
 	const pendingResumeRef = useRef<Map<string, string>>(new Map());
 	const lastPlayerTimeRef = useRef<Map<string, number>>(new Map());
@@ -1036,10 +1058,37 @@ export default function App() {
 			return aggregateConnectionStatuses(
 				data.liveSources.map(
 					(source) =>
-						clientsRef.current.get(source.jkId)?.getStatus() || "disconnected",
+						clientsRef.current
+							.get(getLiveClientKey(liveCommentSourceRef.current, source))
+							?.getStatus() || "disconnected",
 				),
 			);
 		};
+
+		const handleLiveCommentSourceChange = () => {
+			const nextSource = getSettings().liveCommentSource;
+			if (nextSource === liveCommentSourceRef.current) return;
+
+			liveCommentSourceRef.current = nextSource;
+			for (const client of clientsRef.current.values()) client.disconnect();
+			clientsRef.current.clear();
+
+			for (const [playerID, data] of playersDataRef.current.entries()) {
+				const playable = bridge.getPlayable(playerID);
+				if (!playable || !getEffectiveIsLive(playable, data)) continue;
+				data.comments = [];
+				if (targetPlayableRef.current?.playerID === playerID) {
+					syncTargetState(playerID);
+				}
+			}
+			if (targetPlayableRef.current) setWsStatus("disconnected");
+		};
+
+		void initializeSettings();
+		window.addEventListener(
+			SETTINGS_UPDATED_EVENT,
+			handleLiveCommentSourceChange,
+		);
 
 		const syncTargetState = (playerID: string) => {
 			if (targetPlayableRef.current?.playerID !== playerID) return;
@@ -1568,23 +1617,31 @@ export default function App() {
 
 				if (effectiveIsLive) {
 					for (const source of data.liveSources) {
-						if (clientsRef.current.has(source.jkId)) {
+						const clientKey = getLiveClientKey(
+							liveCommentSourceRef.current,
+							source,
+						);
+						if (clientsRef.current.has(clientKey)) {
 							continue;
 						}
 
-						const jkId = source.jkId;
-						const client = new CommentClient();
+						const sourceKey = source.key;
+						const client = createLiveCommentClient(
+							liveCommentSourceRef.current,
+						);
 						client.onComment((c) => {
 							for (const [pid, pData] of playersDataRef.current.entries()) {
 								if (
 									!pData.liveSources.some(
-										(liveSource) => liveSource.jkId === jkId,
+										(liveSource) => liveSource.key === sourceKey,
 									)
 								) {
 									continue;
 								}
 
-								const sourceOrdinal = getSourceOrdinal(pData.liveSources, jkId);
+								const sourceOrdinal = pData.liveSources.findIndex(
+									(liveSource) => liveSource.key === sourceKey,
+								);
 								pData.comments = mergeComments(
 									pData.comments,
 									[scopeLiveComment(c, sourceOrdinal)],
@@ -1603,15 +1660,15 @@ export default function App() {
 								);
 								if (
 									currentData?.liveSources.some(
-										(liveSource) => liveSource.jkId === jkId,
+										(liveSource) => liveSource.key === sourceKey,
 									)
 								) {
 									setWsStatus(getPlayerWsStatus(currentData));
 								}
 							}
 						});
-						client.connect(jkId);
-						clientsRef.current.set(jkId, client);
+						client.connect(source);
+						clientsRef.current.set(clientKey, client);
 					}
 					if (targetPlayableRef.current?.playerID === p.playerID) {
 						setWsStatus(getPlayerWsStatus(data));
@@ -1843,20 +1900,22 @@ export default function App() {
 				}
 			}
 
-			const activeJkIds = new Set<string>();
+			const activeClientKeys = new Set<string>();
 			for (const playable of playables) {
 				const playerData = playersDataRef.current.get(playable.playerID);
 				if (!getEffectiveIsLive(playable, playerData)) {
 					continue;
 				}
 				for (const source of playerData?.liveSources || []) {
-					activeJkIds.add(source.jkId);
+					activeClientKeys.add(
+						getLiveClientKey(liveCommentSourceRef.current, source),
+					);
 				}
 			}
-			for (const [jkId, client] of clientsRef.current.entries()) {
-				if (!activeJkIds.has(jkId)) {
+			for (const [clientKey, client] of clientsRef.current.entries()) {
+				if (!activeClientKeys.has(clientKey)) {
 					client.disconnect();
-					clientsRef.current.delete(jkId);
+					clientsRef.current.delete(clientKey);
 				}
 			}
 			const activePids = new Set(
@@ -1875,6 +1934,10 @@ export default function App() {
 		return () => {
 			console.log(`[NicoJK][#${instanceId}] App lifecycle cleanup.`);
 			window.removeEventListener("resize", handleResize);
+			window.removeEventListener(
+				SETTINGS_UPDATED_EVENT,
+				handleLiveCommentSourceChange,
+			);
 			clearInterval(interval);
 			for (const client of clientsRef.current.values()) client.disconnect();
 			clientsRef.current.clear();

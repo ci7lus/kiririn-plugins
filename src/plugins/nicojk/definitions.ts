@@ -1,9 +1,4 @@
-import { fetchJson } from "./host-fetch";
-
-const DEFINITIONS_URL =
-	"https://cdn.jsdelivr.net/gh/neneka/saya-definitions@master/definitions.json";
-const CACHE_KEY = "nicojk_definitions_cache_json";
-const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 1 week
+import sayaDefinitions from "./vendor/saya-definitions.json";
 
 export interface ChannelDefinition {
 	type: string;
@@ -11,12 +6,8 @@ export interface ChannelDefinition {
 	serviceIds: number[];
 	networkId: number;
 	nicojkId?: number;
+	nicoliveCommunityIds?: string[];
 	syobocalId?: number;
-}
-
-interface DefinitionsCache {
-	timestamp: number;
-	channels: ChannelDefinition[];
 }
 
 export interface NicoJKChannelDefinition extends ChannelDefinition {
@@ -36,42 +27,14 @@ function toNicoJKChannelDefinition(
 	};
 }
 
-async function loadDefinitions(): Promise<ChannelDefinition[]> {
-	let channels: ChannelDefinition[] = [];
-
-	const cached = localStorage.getItem(CACHE_KEY);
-	if (cached) {
-		try {
-			const parsed: DefinitionsCache = JSON.parse(cached);
-			if (Date.now() - parsed.timestamp < CACHE_DURATION) {
-				channels = parsed.channels;
-			}
-		} catch (e) {
-			console.error("Failed to parse definitions cache", e);
-		}
-	}
-
-	if (channels.length > 0) {
-		return channels;
-	}
-
-	try {
-		const response = await fetchJson<{ channels: ChannelDefinition[] }>(
-			DEFINITIONS_URL,
-		);
-		channels = response.channels;
-		localStorage.setItem(
-			CACHE_KEY,
-			JSON.stringify({
-				timestamp: Date.now(),
-				channels,
-			}),
-		);
-		return channels;
-	} catch (e) {
-		console.error("Failed to fetch definitions", e);
-		return [];
-	}
+export async function loadDefinitions(): Promise<ChannelDefinition[]> {
+	return sayaDefinitions.channels.map((channel) => ({
+		...channel,
+		serviceIds: [...channel.serviceIds],
+		nicoliveCommunityIds: channel.nicoliveCommunityIds
+			? [...channel.nicoliveCommunityIds]
+			: undefined,
+	}));
 }
 
 export async function getAllChannelDefinitions(): Promise<

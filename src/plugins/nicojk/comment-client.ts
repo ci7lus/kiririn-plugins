@@ -1,4 +1,11 @@
 import ReconnectingWebSocket from "reconnecting-websocket";
+import type {
+	ConnectionStatus,
+	LiveCommentClient,
+} from "./live-comment-client";
+import type { ResolvedCommentSource } from "./source-resolver";
+
+export type { ConnectionStatus } from "./live-comment-client";
 
 export interface NiconicoComment {
 	id: number;
@@ -16,11 +23,6 @@ export interface NiconicoComment {
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;
-export type ConnectionStatus =
-	| "disconnected"
-	| "connecting"
-	| "connected"
-	| "error";
 type StatusCallback = (status: ConnectionStatus) => void;
 
 interface RoomData {
@@ -32,13 +34,14 @@ interface RoomData {
 	keepIntervalSec?: number;
 }
 
-export class CommentClient {
+export class CommentClient implements LiveCommentClient {
 	private watchWs: ReconnectingWebSocket | null = null;
 	private commentWs: ReconnectingWebSocket | null = null;
 	private bc: BroadcastChannel | null = null;
 	private listeners: CommentCallback[] = [];
 	private statusListeners: StatusCallback[] = [];
 	private jkId: string | null = null;
+	private sourceKey: string | null = null;
 	private abortController: AbortController | null = null;
 	private keepSeatInterval: ReturnType<typeof setInterval> | null = null;
 	private status: ConnectionStatus = "disconnected";
@@ -52,11 +55,11 @@ export class CommentClient {
 		return this.status;
 	}
 
-	private setupBC(jkId: string) {
+	private setupBC(sourceKey: string) {
 		if (this.bc) {
 			this.bc.close();
 		}
-		this.bc = new BroadcastChannel(`nicojk_comments_${jkId}`);
+		this.bc = new BroadcastChannel(`nicojk_comments_${sourceKey}`);
 		this.bc.onmessage = (ev) => {
 			if (ev.data.type === "comment") {
 				this.notifyListeners({ ...ev.data.payload, origin: "broadcast" });
@@ -64,16 +67,31 @@ export class CommentClient {
 		};
 	}
 
-	public async connect(jkId: string, options?: { passive?: boolean }) {
-		if (this.jkId === jkId) return;
+	public connect(
+		source: ResolvedCommentSource,
+		options?: { passive?: boolean },
+	): void;
+	public connect(jkId: string, options?: { passive?: boolean }): void;
+	public connect(
+		sourceOrJkId: ResolvedCommentSource | string,
+		options?: { passive?: boolean },
+	): void {
+		const jkId =
+			typeof sourceOrJkId === "string" ? sourceOrJkId : sourceOrJkId.jkId;
+		const sourceKey =
+			typeof sourceOrJkId === "string" ? sourceOrJkId : sourceOrJkId.key;
+		if (this.sourceKey === sourceKey) return;
 		this.disconnect();
 		this.jkId = jkId;
+		this.sourceKey = sourceKey;
 		this.updateStatus("connecting");
 
-		this.setupBC(jkId);
+		this.setupBC(sourceKey);
 
 		if (options?.passive) {
-			console.log(`[NicoJK] Passive mode for ${jkId}. Monitoring BC only.`);
+			console.log(
+				`[NicoJK] Passive mode for ${sourceKey}. Monitoring BC only.`,
+			);
 			this.updateStatus("connected");
 			return;
 		}
@@ -83,30 +101,33 @@ export class CommentClient {
 
 		if (navigator.locks) {
 			navigator.locks.request(
-				`nicojk_lock_${jkId}`,
+				`nicojk_lock_${sourceKey}`,
 				{ ifAvailable: true },
 				async (lock) => {
 					if (lock) {
-						console.log(`[NicoJK] Acquired lock for ${jkId} as Leader.`);
+						console.log(`[NicoJK] Acquired lock for ${sourceKey} as Leader.`);
 						this.setupWatchSession(jkId);
 						return new Promise<void>((resolve) => {
 							signal.addEventListener("abort", () => resolve());
 						});
 					} else {
 						console.log(
-							`[NicoJK] Follower for ${jkId}. Waiting for promotion...`,
+							`[NicoJK] Follower for ${sourceKey}. Waiting for promotion...`,
 						);
 						this.updateStatus("connected");
 
-						navigator.locks.request(`nicojk_lock_${jkId}`, async (lock) => {
-							if (!signal.aborted && lock) {
-								console.log(`[NicoJK] Promoted to Leader for ${jkId}.`);
-								this.setupWatchSession(jkId);
-								return new Promise<void>((resolve) => {
-									signal.addEventListener("abort", () => resolve());
-								});
-							}
-						});
+						navigator.locks.request(
+							`nicojk_lock_${sourceKey}`,
+							async (lock) => {
+								if (!signal.aborted && lock) {
+									console.log(`[NicoJK] Promoted to Leader for ${sourceKey}.`);
+									this.setupWatchSession(jkId);
+									return new Promise<void>((resolve) => {
+										signal.addEventListener("abort", () => resolve());
+									});
+								}
+							},
+						);
 					}
 				},
 			);
@@ -278,6 +299,7 @@ export class CommentClient {
 			this.bc = null;
 		}
 		this.jkId = null;
+		this.sourceKey = null;
 		this.updateStatus("disconnected");
 	}
 

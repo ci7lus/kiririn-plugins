@@ -17,6 +17,7 @@
 		"type": "tsc -b"
 	},
 	"dependencies": {
+		"@n-air-app/nicolive-comment-protobuf": "2026.629.180145",
 		"@sentry/react": "^10.63.0",
 		"@tanstack/react-virtual": "^3.14.5",
 		"@xpadev-net/niconicomments": "^0.3.1",

@@ -6,6 +6,7 @@ import {
 	addNGWord,
 	getSettings,
 	type NicoJKSettings,
+	normalizeLiveCommentSource,
 	removeNGCommand,
 	removeNGId,
 	removeNGWord,
@@ -399,6 +400,34 @@ export default function OptionsPage() {
 					<div className="flex items-center gap-2 mb-4 text-indigo-400">
 						<Sliders size={20} />
 						<h3 className="font-bold">コメント取得設定</h3>
+					</div>
+					<div className="mb-4 rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<label className="flex flex-col gap-2">
+							<span className="text-sm font-medium text-gray-100">
+								ライブコメント取得元
+							</span>
+							<select
+								value={settings.liveCommentSource}
+								onChange={(event) =>
+									syncSettings(
+										saveSettings({
+											...settings,
+											liveCommentSource: normalizeLiveCommentSource(
+												event.target.value,
+											),
+										}),
+									)
+								}
+								className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
+							>
+								<option value="niconico">ニコニコ（ログアウト状態）</option>
+								<option value="nx-jikkyo">nx-jikkyo</option>
+							</select>
+							<span className="text-xs leading-relaxed text-gray-400">
+								ライブ放送にのみ適用されます。録画再生では引き続き nx-jikkyo
+								を使用します。
+							</span>
+						</label>
 					</div>
 					<div className="grid gap-3 sm:grid-cols-2">
 						{NUMERIC_SETTING_FIELDS.map((field) => (

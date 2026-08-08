@@ -1,0 +1,2482 @@
+{
+	"$schema": "https://raw.githubusercontent.com/SlashNephy/saya-definitions/master/schema.yml",
+	"channels": [
+		{
+			"name": "NHK 総合",
+			"type": "GR",
+			"serviceIds": [
+				1024, 10240, 11264, 12288, 13312, 14336, 15360, 16384, 17408, 18432,
+				19456, 20480, 21504, 22528, 25600, 26624, 28672, 30720, 31744, 32768,
+				33792, 34816, 35840, 36864, 37888, 38912, 39936, 40960, 41984, 43008,
+				44032, 45056, 46080, 47104, 48128, 49152, 50176, 51200, 52224, 53248,
+				54272, 55296, 56320, 56832, 57344, 58368, 59392, 60416, 61440, 62464,
+				63488
+			],
+			"networkId": 15,
+			"flag": 1,
+			"nicojkId": 1,
+			"nicoliveTags": ["NHK総合"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "NHK総合",
+			"nicoliveCommunityIds": ["ch2646436"],
+			"twitterKeywords": ["#nhkgtv"],
+			"boardIds": ["NHK", "LOVELIVE_NHK", "NANJ_NHK", "NANG_NHK"],
+			"syobocalId": 1,
+			"annictId": 1
+		},
+		{
+			"name": "Eテレ",
+			"type": "GR",
+			"serviceIds": [
+				1032, 2056, 3080, 10248, 11272, 12296, 13320, 14344, 15368, 16392,
+				17416, 18440, 19464, 20488, 21512, 22536, 30728, 31752, 32776, 34824,
+				35848, 36872, 37896, 47112, 48136, 49160, 50184, 51208, 52232, 53256,
+				54280, 55304, 56328, 56840, 57352, 58376, 59400, 60424, 61448, 62472,
+				63496
+			],
+			"networkId": 15,
+			"flag": 2,
+			"nicojkId": 2,
+			"nicoliveTags": ["NHK_Eテレ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "NHKEテレ",
+			"nicoliveCommunityIds": ["ch2646437"],
+			"twitterKeywords": ["#Eテレ", "#etv", "#nhketv"],
+			"boardIds": ["ETV", "LOVELIVE_ETV", "NANJ_ETV", "NANG_ETV"],
+			"syobocalId": 2,
+			"annictId": 2
+		},
+		{
+			"name": "日テレ",
+			"type": "GR",
+			"serviceIds": [
+				1040, 2088, 3112, 4120, 5136, 6176, 10264, 11288, 12312, 13336, 14360,
+				15384, 16408, 17440, 18448, 19472, 20504, 21528, 22544, 30736, 31776,
+				32784, 34832, 35872, 36880, 37904, 47128, 51216, 52240, 54288, 55312,
+				56352, 57376, 58408, 59432, 61464
+			],
+			"networkId": 15,
+			"flag": 4,
+			"nicojkId": 4,
+			"nicoliveTags": ["日本テレビ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "日テレ",
+			"nicoliveCommunityIds": ["ch2646438"],
+			"twitterKeywords": ["#ntv"],
+			"boardIds": ["NTV", "NANJ_NTV", "NANG_NTV"],
+			"syobocalId": 4,
+			"annictId": 4
+		},
+		{
+			"name": "テレビ朝日",
+			"type": "GR",
+			"serviceIds": [
+				1064, 2072, 3104, 4128, 5144, 10272, 11296, 12320, 13344, 14368, 15392,
+				16416, 17448, 18464, 19480, 20520, 21536, 22560, 30744, 31784, 34840,
+				35880, 47136, 51232, 52248, 56336, 57384, 58400, 59424, 61472, 63520
+			],
+			"networkId": 15,
+			"flag": 32,
+			"nicojkId": 5,
+			"nicoliveTags": ["テレビ朝日"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "テレビ朝日",
+			"nicoliveCommunityIds": ["ch2646439"],
+			"twitterKeywords": ["#tvasahi"],
+			"boardIds": ["ANB", "NANJ_ANB", "NANG_ANB"],
+			"syobocalId": 6,
+			"annictId": 6
+		},
+		{
+			"name": "TBS",
+			"type": "GR",
+			"serviceIds": [
+				1048, 2064, 3096, 4112, 5152, 6168, 10256, 11280, 12304, 13328, 14352,
+				15376, 16400, 17424, 19488, 20496, 21544, 22552, 30752, 31760, 32792,
+				34848, 35856, 37920, 47120, 51224, 52256, 55320, 56344, 57360, 58384,
+				59408, 60432, 61456, 63504
+			],
+			"networkId": 15,
+			"flag": 8,
+			"nicojkId": 6,
+			"nicoliveTags": ["TBSテレビ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "TBS",
+			"nicoliveCommunityIds": ["ch2646440"],
+			"twitterKeywords": ["#tbs"],
+			"boardIds": ["TBS", "NANJ_TBS", "NANG_TBS"],
+			"syobocalId": 5,
+			"annictId": 5
+		},
+		{
+			"name": "テレビ東京",
+			"type": "GR",
+			"serviceIds": [
+				1072, 4144, 5160, 10288, 11312, 12336, 13360, 14384, 15408, 16432,
+				33840, 41008, 56360
+			],
+			"networkId": 15,
+			"flag": 64,
+			"nicojkId": 7,
+			"nicoliveTags": ["テレビ東京"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "テレビ東京",
+			"nicoliveCommunityIds": ["ch2646441"],
+			"twitterKeywords": ["#tvtokyo"],
+			"boardIds": ["TX", "NANJ_TX", "NANG_TX"],
+			"syobocalId": 7,
+			"annictId": 7
+		},
+		{
+			"name": "フジテレビ",
+			"type": "GR",
+			"serviceIds": [
+				1056, 2080, 3088, 4136, 5168, 6160, 10280, 11304, 12328, 13352, 14376,
+				15400, 16424, 17432, 18456, 19496, 20512, 21520, 30760, 31768, 34856,
+				35864, 36888, 37912, 47144, 52264, 55328, 56368, 57368, 58392, 59416,
+				60440, 62480, 63544
+			],
+			"networkId": 15,
+			"flag": 16,
+			"nicojkId": 8,
+			"nicoliveTags": ["フジテレビ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "フジテレビ",
+			"nicoliveCommunityIds": ["ch2646442"],
+			"twitterKeywords": ["#fujitv"],
+			"boardIds": ["CX", "NANJ_CX", "NANG_CX"],
+			"syobocalId": 3,
+			"annictId": 3
+		},
+		{
+			"name": "TOKYO MX",
+			"type": "GR",
+			"serviceIds": [23608],
+			"networkId": 15,
+			"nicojkId": 9,
+			"nicoliveTags": ["TOKYO_MX"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "TOKYO MX",
+			"nicoliveCommunityIds": ["ch2646485"],
+			"twitterKeywords": ["#tokyomx"],
+			"boardIds": ["MX", "LOCAL_MX", "ANIME_MX", "NANJ_MX", "NANG_MX"],
+			"syobocalId": 19,
+			"annictId": 19
+		},
+		{
+			"name": "放送大学",
+			"type": "GR",
+			"serviceIds": [1088],
+			"networkId": 15,
+			"nicojkId": 231,
+			"twitterKeywords": ["#放送大学"],
+			"syobocalId": 158
+		},
+		{
+			"name": "テレ玉",
+			"type": "GR",
+			"serviceIds": [29752],
+			"networkId": 15,
+			"nicojkId": 10,
+			"nicoliveTags": ["テレ玉"],
+			"miyoutvId": "テレ玉",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#テレ玉"],
+			"boardIds": ["LOCAL_TVS"],
+			"syobocalId": 14,
+			"annictId": 14
+		},
+		{
+			"name": "tvk",
+			"type": "GR",
+			"serviceIds": [24632],
+			"networkId": 15,
+			"nicojkId": 11,
+			"nicoliveTags": ["tvk"],
+			"miyoutvId": "tvk",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#tvk"],
+			"boardIds": ["LOCAL_TVK", "NANJ_TVK", "NANG_TVK"],
+			"syobocalId": 8,
+			"annictId": 8
+		},
+		{
+			"name": "チバテレビ",
+			"type": "GR",
+			"serviceIds": [27704],
+			"networkId": 15,
+			"nicojkId": 12,
+			"nicoliveTags": ["チバテレビ"],
+			"miyoutvId": "チバテレ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#チバテレ"],
+			"boardIds": ["LOCAL_CTC"],
+			"syobocalId": 13,
+			"annictId": 13
+		},
+		{
+			"name": "群馬テレビ",
+			"type": "GR",
+			"serviceIds": [25656],
+			"networkId": 15,
+			"miyoutvId": "群馬テレビ",
+			"boardIds": ["LOCAL_GTV"],
+			"syobocalId": 72,
+			"annictId": 72
+		},
+		{
+			"name": "とちぎテレビ",
+			"type": "GR",
+			"serviceIds": [28728],
+			"networkId": 15,
+			"miyoutvId": "とちぎテレビ",
+			"boardIds": ["LOCAL_GYT"],
+			"syobocalId": 100,
+			"annictId": 100
+		},
+		{
+			"name": "三重テレビ",
+			"type": "GR",
+			"serviceIds": [38960],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 82,
+			"annictId": 82
+		},
+		{
+			"name": "ぎふチャン",
+			"type": "GR",
+			"serviceIds": [39984],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 83,
+			"annictId": 83
+		},
+		{
+			"name": "KBS京都",
+			"type": "GR",
+			"serviceIds": [42032],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 66,
+			"annictId": 66
+		},
+		{
+			"name": "サンテレビ",
+			"type": "GR",
+			"serviceIds": [43056],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST", "NANJ_SUN", "NANG_SUN"],
+			"syobocalId": 58,
+			"annictId": 58
+		},
+		{
+			"name": "テレビ和歌山",
+			"type": "GR",
+			"serviceIds": [44080],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 86,
+			"annictId": 86
+		},
+		{
+			"name": "奈良テレビ",
+			"type": "GR",
+			"serviceIds": [45104],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 74,
+			"annictId": 74
+		},
+		{
+			"name": "BBCびわ湖放送",
+			"type": "GR",
+			"serviceIds": [46128],
+			"networkId": 15,
+			"boardIds": ["LOCAL_WEST"],
+			"syobocalId": 87,
+			"annictId": 87
+		},
+		{
+			"name": "MBS毎日放送",
+			"type": "GR",
+			"serviceIds": [2064],
+			"networkId": 15,
+			"nicojkId": 6,
+			"nicoliveTags": ["TBSテレビ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "TBS",
+			"nicoliveCommunityIds": ["ch2646440"],
+			"twitterKeywords": ["#tbs", "#mbs"],
+			"boardIds": ["TBS", "NANJ_TBS", "NANG_TBS", "NANJ_MBS", "NANG_MBS"],
+			"syobocalId": 5,
+			"annictId": 5
+		},
+		{
+			"name": "CBC",
+			"type": "GR",
+			"serviceIds": [3096],
+			"networkId": 15,
+			"nicojkId": 6,
+			"nicoliveTags": ["TBSテレビ"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "TBS",
+			"nicoliveCommunityIds": ["ch2646440"],
+			"twitterKeywords": ["#tbs", "#cbc"],
+			"boardIds": [
+				"TBS",
+				"LOCAL_TOKAI",
+				"NANJ_TBS",
+				"NANG_TBS",
+				"NANJ_CBC",
+				"NANG_CBC"
+			],
+			"syobocalId": 5,
+			"annictId": 5
+		},
+		{
+			"name": "ABC",
+			"type": "GR",
+			"serviceIds": [2072],
+			"networkId": 15,
+			"nicojkId": 5,
+			"nicoliveTags": ["テレビ朝日"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "テレビ朝日",
+			"nicoliveCommunityIds": ["ch2646439"],
+			"twitterKeywords": ["#tvasahi"],
+			"boardIds": ["ANB", "NANJ_ANB", "NANG_ANB", "NANJ_ABC", "NANG_ABC"],
+			"syobocalId": 6,
+			"annictId": 6
+		},
+		{
+			"name": "J:COM HD",
+			"type": "GR",
+			"serviceIds": [23656, 23672],
+			"networkId": 15,
+			"boardIds": ["ENDLESS_JCOM", "NANJ_JCOM", "NANG_JCOM"],
+			"syobocalId": 245,
+			"annictId": 255
+		},
+		{
+			"name": "NHKBS1",
+			"type": "BS",
+			"serviceIds": [101, 102],
+			"networkId": 4,
+			"nicojkId": 101,
+			"nicoliveTags": ["NHKBS-1", "NHKBS", "NHK_BS"],
+			"miyoutvId": "NHKBS1",
+			"hasOfficialNicolive": true,
+			"nicoliveCommunityIds": ["ch2647992"],
+			"twitterKeywords": ["#nhkbs1"],
+			"boardIds": [
+				"BSNHK_BS1",
+				"NANJ_NHKBS1",
+				"NANG_NHKBS1",
+				"NANJ_NHKBS2",
+				"NANG_NHKBS2"
+			],
+			"syobocalId": 9,
+			"annictId": 9
+		},
+		{
+			"name": "NHKBSプレミアム",
+			"type": "BS",
+			"serviceIds": [103, 104],
+			"networkId": 4,
+			"nicojkId": 103,
+			"nicoliveTags": ["NHK_BSプレミアム", "NHKBSプレミアム", "BSプレミアム"],
+			"miyoutvId": "NHKBSプレミアム",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#nhkbsp"],
+			"boardIds": ["BSNHK_BSP", "NANJ_NHKBSP", "NANG_NHKBSP"],
+			"syobocalId": 179,
+			"annictId": 180
+		},
+		{
+			"name": "BS日テレ",
+			"type": "BS",
+			"serviceIds": [141, 142, 143],
+			"networkId": 4,
+			"nicojkId": 141,
+			"nicoliveTags": ["BS_日テレ", "BS日テレ"],
+			"miyoutvId": "BS日テレ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BS日テレ", "#bsntv"],
+			"boardIds": ["BSFREE_NTV", "NANJ_BSNTV", "NANG_BSNTV"],
+			"syobocalId": 71,
+			"annictId": 71
+		},
+		{
+			"name": "BS朝日",
+			"type": "BS",
+			"serviceIds": [151, 152, 153],
+			"networkId": 4,
+			"nicojkId": 151,
+			"nicoliveTags": ["BS_朝日", "BS朝日"],
+			"miyoutvId": "BS朝日",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BS朝日", "#bsasahi"],
+			"boardIds": ["BSFREE_ANB", "NANJ_BSANB", "NANG_BSANB"],
+			"syobocalId": 18,
+			"annictId": 18
+		},
+		{
+			"name": "BS-TBS",
+			"type": "BS",
+			"serviceIds": [161, 162, 163],
+			"networkId": 4,
+			"nicojkId": 161,
+			"nicoliveTags": ["BS-TBS", "BSTBS"],
+			"miyoutvId": "BS-TBS",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#bstbs"],
+			"boardIds": ["BSFREE_TBS", "NANJ_BSTBS", "NANG_BSTBS"],
+			"syobocalId": 16,
+			"annictId": 16
+		},
+		{
+			"name": "BSテレ東",
+			"type": "BS",
+			"serviceIds": [171, 172, 173],
+			"networkId": 4,
+			"nicojkId": 171,
+			"nicoliveTags": ["BSジャパン", "BSテレ東"],
+			"miyoutvId": "BSジャパン",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BSテレ東", "#BSジャパン", "#bstvtokyo"],
+			"boardIds": ["BSFREE_TX", "NANJ_BSTX", "NANG_BSTX"],
+			"syobocalId": 15,
+			"annictId": 15
+		},
+		{
+			"name": "BSフジ",
+			"type": "BS",
+			"serviceIds": [181, 182, 183],
+			"networkId": 4,
+			"nicojkId": 181,
+			"nicoliveTags": ["BSフジ"],
+			"miyoutvId": "BSフジ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BSフジ", "#bsfuji"],
+			"boardIds": ["BSFREE_CX", "NANJ_BSCX", "NANG_BSCX"],
+			"syobocalId": 17,
+			"annictId": 17
+		},
+		{
+			"name": "WOWOWプライム",
+			"type": "BS",
+			"serviceIds": [191],
+			"networkId": 4,
+			"nicojkId": 191,
+			"nicoliveTags": ["WOWOW_PRIME"],
+			"miyoutvId": "WOWOWプライム",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#WOWOW"],
+			"boardIds": ["BSPAY_WOWOWP", "NANJ_WOWOW", "NANG_WOWOW"],
+			"syobocalId": 204,
+			"annictId": 205
+		},
+		{
+			"name": "WOWOWライブ",
+			"type": "BS",
+			"serviceIds": [192],
+			"networkId": 4,
+			"nicojkId": 192,
+			"nicoliveTags": ["WOWOW_LIVE"],
+			"miyoutvId": "WOWOWライブ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#WOWOW"],
+			"boardIds": ["BSPAY_WOWOWL", "NANJ_WOWOW", "NANG_WOWOW"],
+			"syobocalId": 97,
+			"annictId": 97
+		},
+		{
+			"name": "WOWOWシネマ",
+			"type": "BS",
+			"serviceIds": [193],
+			"networkId": 4,
+			"nicojkId": 193,
+			"nicoliveTags": ["WOWOW_CINEMA"],
+			"miyoutvId": "WOWOWシネマ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#WOWOW"],
+			"boardIds": ["BSPAY_WOWOWC", "NANJ_WOWOW", "NANG_WOWOW"],
+			"syobocalId": 76,
+			"annictId": 76
+		},
+		{
+			"name": "スターチャンネル1",
+			"type": "BS",
+			"serviceIds": [200],
+			"networkId": 4,
+			"nicojkId": 200,
+			"miyoutvId": "スターチャンネル",
+			"twitterKeywords": ["#スターチャンネル"],
+			"boardIds": ["BSPAY_STAR"],
+			"syobocalId": 217,
+			"annictId": 217
+		},
+		{
+			"name": "スターチャンネル2",
+			"type": "BS",
+			"serviceIds": [201],
+			"networkId": 4,
+			"nicojkId": 201,
+			"miyoutvId": "スターチャンネル",
+			"twitterKeywords": ["#スターチャンネル"],
+			"boardIds": ["BSPAY_STAR"],
+			"syobocalId": 219,
+			"annictId": 220
+		},
+		{
+			"name": "スターチャンネル3",
+			"type": "BS",
+			"serviceIds": [202],
+			"networkId": 4,
+			"nicojkId": 202,
+			"miyoutvId": "スターチャンネル",
+			"twitterKeywords": ["#スターチャンネル"],
+			"boardIds": ["BSPAY_STAR"],
+			"syobocalId": 214,
+			"annictId": 214
+		},
+		{
+			"name": "BS11イレブン",
+			"type": "BS",
+			"serviceIds": [211],
+			"networkId": 4,
+			"nicojkId": 211,
+			"nicoliveTags": ["BS11"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "BS11イレブン",
+			"nicoliveCommunityIds": ["ch2646846"],
+			"twitterKeywords": ["#BS11"],
+			"boardIds": ["BSFREE_BS11", "ANIME_BS11", "NANJ_BS11", "NANG_BS11"],
+			"syobocalId": 128,
+			"annictId": 128
+		},
+		{
+			"name": "BS12トゥエルビ",
+			"type": "BS",
+			"serviceIds": [222],
+			"networkId": 4,
+			"nicojkId": 222,
+			"nicoliveTags": ["TwellV", "BS12"],
+			"miyoutvId": "BS12トゥエルビ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BS12"],
+			"boardIds": ["BSFREE_BS12", "NANJ_BS12", "NANG_BS12"],
+			"syobocalId": 129,
+			"annictId": 129
+		},
+		{
+			"name": "放送大学ex",
+			"type": "BS",
+			"serviceIds": [231],
+			"networkId": 4,
+			"nicojkId": 231,
+			"twitterKeywords": ["#放送大学"],
+			"boardIds": ["BSFREE_OUJ"],
+			"syobocalId": 158,
+			"annictId": 158
+		},
+		{
+			"name": "放送大学on",
+			"type": "BS",
+			"serviceIds": [232, 233],
+			"networkId": 4,
+			"nicojkId": 231,
+			"twitterKeywords": ["#放送大学"],
+			"boardIds": ["BSFREE_OUJ"],
+			"syobocalId": 158,
+			"annictId": 158
+		},
+		{
+			"name": "グリーンチャンネル",
+			"type": "BS",
+			"serviceIds": [234],
+			"networkId": 4,
+			"nicojkId": 234,
+			"nicoliveTags": ["BSグリーンチャンネル", "グリーンチャンネル"],
+			"miyoutvId": "グリーンチャンネル",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#グリーンチャンネル"],
+			"boardIds": ["SKYPER_GREEN"]
+		},
+		{
+			"name": "BSアニマックス",
+			"type": "BS",
+			"serviceIds": [236],
+			"networkId": 4,
+			"nicojkId": 236,
+			"miyoutvId": "BSアニマックス",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#アニマックス"],
+			"boardIds": ["SKYPER_ANIMAX"],
+			"syobocalId": 197,
+			"annictId": 167
+		},
+		{
+			"name": "FOXbs238",
+			"type": "BS",
+			"serviceIds": [238],
+			"networkId": 4,
+			"nicojkId": 238,
+			"miyoutvId": "FOXスポーツエンタ"
+		},
+		{
+			"name": "BSスカパー!",
+			"type": "BS",
+			"serviceIds": [241],
+			"networkId": 4,
+			"nicojkId": 241,
+			"miyoutvId": "BSスカパー",
+			"boardIds": ["BSPAY_SKYPER"],
+			"syobocalId": 196,
+			"annictId": 197
+		},
+		{
+			"name": "J SPORTS 1",
+			"type": "BS",
+			"serviceIds": [242],
+			"networkId": 4,
+			"nicojkId": 242,
+			"twitterKeywords": ["#jsports"],
+			"boardIds": [
+				"NANJ_JSPORTS",
+				"NANG_JSPORTS",
+				"NANJ_JSPORTS1",
+				"NANG_JSPORTS1"
+			],
+			"miyoutvId": "J SPORTS",
+			"syobocalId": 258
+		},
+		{
+			"name": "J SPORTS 2",
+			"type": "BS",
+			"serviceIds": [243],
+			"networkId": 4,
+			"nicojkId": 243,
+			"twitterKeywords": ["#jsports"],
+			"boardIds": ["NANJ_JSPORTS2", "NANG_JSPORTS2"],
+			"miyoutvId": "J SPORTS",
+			"syobocalId": 259
+		},
+		{
+			"name": "J SPORTS 3",
+			"type": "BS",
+			"serviceIds": [244],
+			"networkId": 4,
+			"nicojkId": 244,
+			"twitterKeywords": ["#jsports"],
+			"boardIds": ["NANJ_JSPORTS3", "NANG_JSPORTS3"],
+			"miyoutvId": "J SPORTS",
+			"syobocalId": 260
+		},
+		{
+			"name": "J SPORTS 4",
+			"type": "BS",
+			"serviceIds": [245],
+			"networkId": 4,
+			"nicojkId": 245,
+			"twitterKeywords": ["#jsports"],
+			"boardIds": ["NANJ_JSPORTS4", "NANG_JSPORTS4"],
+			"miyoutvId": "J SPORTS",
+			"syobocalId": 261
+		},
+		{
+			"name": "BS釣りビジョン",
+			"type": "BS",
+			"serviceIds": [251],
+			"networkId": 4,
+			"twitterKeywords": ["#釣りビジョン"],
+			"nicojkId": 251,
+			"miyoutvId": "BS釣りビジョン"
+		},
+		{
+			"name": "WOWOWプラス",
+			"type": "BS",
+			"serviceIds": [252],
+			"networkId": 4,
+			"nicojkId": 252,
+			"twitterKeywords": ["#WOWOW"],
+			"boardIds": ["SKYPER_WOWOWPLUS", "NANJ_WOWOW", "NANG_WOWOW"],
+			"miyoutvId": "イマジカBS・映画",
+			"syobocalId": 251
+		},
+		{
+			"name": "日本映画専門ch",
+			"type": "BS",
+			"serviceIds": [255],
+			"networkId": 4,
+			"nicojkId": 255,
+			"twitterKeywords": ["#日本映画専門CH"],
+			"miyoutvId": "BS日本映画専門",
+			"boardIds": ["SKYPER_225"],
+			"syobocalId": 40,
+			"annictId": 40
+		},
+		{
+			"name": "ディズニーch",
+			"type": "BS",
+			"serviceIds": [256],
+			"networkId": 4,
+			"nicojkId": 256,
+			"twitterKeywords": ["#ディズニーチャンネル"],
+			"miyoutvId": "ディズニーチャンネル",
+			"syobocalId": 163,
+			"annictId": 163
+		},
+		{
+			"name": "Dlife",
+			"type": "BS",
+			"serviceIds": [258],
+			"networkId": 4,
+			"nicojkId": 258,
+			"miyoutvId": "ディーライフ",
+			"twitterKeywords": ["#Dlife"],
+			"boardIds": ["BSFREE_DLIFE"],
+			"syobocalId": 212,
+			"annictId": 212
+		},
+		{
+			"name": "BS松竹東急",
+			"type": "BS",
+			"serviceIds": [260],
+			"networkId": 4,
+			"nicojkId": 260,
+			"nicoliveCommunityIds": [],
+			"boardIds": ["BSFREE_SYOCHIKUTOKYU"],
+			"syobocalId": 271,
+			"annictId": 302,
+			"twitterKeywords": ["#BS松竹東急", "#松竹東急", "#BS260"]
+		},
+		{
+			"name": "BSJapanext",
+			"type": "BS",
+			"serviceIds": [263],
+			"networkId": 4,
+			"nicojkId": 263,
+			"nicoliveCommunityIds": [],
+			"boardIds": ["BSFREE_JAPANEXT"],
+			"syobocalId": 273,
+			"annictId": 303,
+			"twitterKeywords": ["#BSJapanext"]
+		},
+		{
+			"name": "BSよしもと",
+			"type": "BS",
+			"serviceIds": [265],
+			"networkId": 4,
+			"nicojkId": 265,
+			"nicoliveCommunityIds": [],
+			"boardIds": ["BSFREE_YOSHIMOTO"],
+			"syobocalId": 271,
+			"annictId": 304,
+			"twitterKeywords": ["#BSよしもと"]
+		},
+		{
+			"name": "放送大学ラジオ",
+			"type": "BS",
+			"serviceIds": [531],
+			"networkId": 4,
+			"nicojkId": 231,
+			"twitterKeywords": ["#放送大学"],
+			"boardIds": ["BSFREE_OUJ"],
+			"syobocalId": 159,
+			"annictId": 159
+		},
+		{
+			"name": "SOLiVE24",
+			"type": "BS",
+			"serviceIds": [910],
+			"networkId": 4,
+			"nicojkId": 910,
+			"boardIds": ["ENDLESS_WNI", "NANU_WNI"]
+		},
+		{
+			"name": "ショップチャンネル",
+			"type": "CS",
+			"serviceIds": [55],
+			"networkId": 6,
+			"miyoutvId": "ショップチャンネル"
+		},
+		{
+			"name": "QVC",
+			"type": "CS",
+			"serviceIds": [161],
+			"networkId": 7,
+			"miyoutvId": "QVC"
+		},
+		{
+			"name": "東映チャンネル",
+			"type": "CS",
+			"serviceIds": [218],
+			"networkId": 6,
+			"miyoutvId": "東映チャンネル",
+			"boardIds": ["SKYPER_218"],
+			"syobocalId": 39,
+			"annictId": 39
+		},
+		{
+			"name": "衛星劇場",
+			"type": "CS",
+			"serviceIds": [219],
+			"networkId": 6,
+			"miyoutvId": "衛星劇場",
+			"syobocalId": 220,
+			"annictId": 221
+		},
+		{
+			"name": "映画・chNECO",
+			"type": "CS",
+			"serviceIds": [223],
+			"networkId": 7,
+			"miyoutvId": "映画・chNECO",
+			"boardIds": ["SKYPER_NECO"],
+			"syobocalId": 26,
+			"annictId": 26
+		},
+		{
+			"name": "ザ・シネマ",
+			"type": "CS",
+			"serviceIds": [227],
+			"networkId": 7,
+			"miyoutvId": "ザ・シネマ"
+		},
+		{
+			"name": "FOXムービー",
+			"type": "CS",
+			"serviceIds": [229],
+			"networkId": 6
+		},
+		{
+			"name": "ムービープラス",
+			"type": "CS",
+			"serviceIds": [240],
+			"networkId": 7,
+			"miyoutvId": "ムービープラス",
+			"syobocalId": 152,
+			"annictId": 152
+		},
+		{
+			"name": "スカイA",
+			"type": "CS",
+			"serviceIds": [250],
+			"networkId": 7,
+			"miyoutvId": "スカイA",
+			"syobocalId": 84,
+			"annictId": 84,
+			"boardIds": ["NANJ_SKYA", "NANG_SKYA"]
+		},
+		{
+			"name": "GAORA",
+			"type": "CS",
+			"serviceIds": [254],
+			"networkId": 7,
+			"miyoutvId": "GAORA",
+			"syobocalId": 265
+		},
+		{
+			"name": "日テレジータス",
+			"type": "CS",
+			"serviceIds": [257],
+			"networkId": 7,
+			"miyoutvId": "日テレジータス",
+			"boardIds": ["SKYPER_GTASU", "NANJ_GTASU", "NANG_GTASU"],
+			"syobocalId": 266
+		},
+		{
+			"name": "ゴルフネットワーク",
+			"type": "CS",
+			"serviceIds": [262],
+			"networkId": 7,
+			"miyoutvId": "ゴルフネット"
+		},
+		{
+			"name": "SKY STAGE",
+			"type": "CS",
+			"serviceIds": [290],
+			"networkId": 7,
+			"miyoutvId": "SKY STAGE",
+			"boardIds": ["SKYPER_SKYSTAGE"],
+			"syobocalId": 167,
+			"annictId": 169
+		},
+		{
+			"name": "時代劇専門ch",
+			"type": "CS",
+			"serviceIds": [292],
+			"networkId": 7,
+			"miyoutvId": "時代劇専門",
+			"boardIds": ["SKYPER_292"],
+			"syobocalId": 221,
+			"annictId": 222
+		},
+		{
+			"name": "ファミリー劇場",
+			"type": "CS",
+			"serviceIds": [293],
+			"networkId": 7,
+			"miyoutvId": "ファミリー劇場",
+			"boardIds": ["SKYPER_FAMILY"],
+			"syobocalId": 42,
+			"annictId": 42
+		},
+		{
+			"name": "ホームドラマCH",
+			"type": "CS",
+			"serviceIds": [294],
+			"networkId": 7,
+			"miyoutvId": "ホームドラマ",
+			"syobocalId": 153,
+			"annictId": 153
+		},
+		{
+			"name": "MONDO TV",
+			"type": "CS",
+			"serviceIds": [295],
+			"networkId": 7,
+			"miyoutvId": "MONDO TV",
+			"boardIds": ["SKYPER_MONDO"],
+			"syobocalId": 47,
+			"annictId": 47
+		},
+		{
+			"name": "TBSチャンネル1",
+			"type": "CS",
+			"serviceIds": [296],
+			"networkId": 6,
+			"miyoutvId": "TBSチャンネル",
+			"boardIds": ["SKYPER_TBS", "NANJ_TBSCH", "NANG_TBSCH"],
+			"syobocalId": 52,
+			"annictId": 52
+		},
+		{
+			"name": "TBSチャンネル2",
+			"type": "CS",
+			"serviceIds": [297],
+			"networkId": 7,
+			"miyoutvId": "TBSチャンネル",
+			"boardIds": ["SKYPER_TBS", "NANJ_TBSCH", "NANG_TBSCH"],
+			"syobocalId": 215,
+			"annictId": 215
+		},
+		{
+			"name": "テレ朝チャンネル1",
+			"type": "CS",
+			"serviceIds": [298],
+			"networkId": 6,
+			"miyoutvId": "テレ朝チャンネル",
+			"boardIds": ["SKYPER_ANB"],
+			"syobocalId": 224,
+			"annictId": 229
+		},
+		{
+			"name": "テレ朝チャンネル2",
+			"type": "CS",
+			"serviceIds": [299],
+			"networkId": 6,
+			"miyoutvId": "テレ朝チャンネル",
+			"boardIds": ["SKYPER_ANB"],
+			"syobocalId": 243,
+			"annictId": 253
+		},
+		{
+			"name": "日テレプラス",
+			"type": "CS",
+			"serviceIds": [300],
+			"networkId": 7,
+			"miyoutvId": "日テレプラス",
+			"boardIds": ["SKYPER_NTVPLUS"],
+			"syobocalId": 119,
+			"annictId": 119
+		},
+		{
+			"name": "エンタメ〜テレ",
+			"type": "CS",
+			"serviceIds": [301],
+			"networkId": 7
+		},
+		{
+			"name": "銀河◆歴ドラ・サスペ",
+			"type": "CS",
+			"serviceIds": [305],
+			"networkId": 7,
+			"miyoutvId": "銀河",
+			"boardIds": ["SKYPER_GINGA"]
+		},
+		{
+			"name": "フジテレビONE",
+			"type": "CS",
+			"serviceIds": [307],
+			"networkId": 7,
+			"miyoutvId": "フジテレビONE",
+			"boardIds": ["SKYPER_CXONE", "NANJ_CXONE", "NANG_CXONE"],
+			"syobocalId": 109,
+			"annictId": 109
+		},
+		{
+			"name": "フジテレビTWO",
+			"type": "CS",
+			"serviceIds": [308],
+			"networkId": 7,
+			"miyoutvId": "フジテレビTWO",
+			"boardIds": ["SKYPER_CXTWO", "NANJ_CXTWO", "NANG_CXTWO"],
+			"syobocalId": 43,
+			"annictId": 43
+		},
+		{
+			"name": "フジテレビNEXT",
+			"type": "CS",
+			"serviceIds": [309],
+			"networkId": 7,
+			"miyoutvId": "フジテレビNEXT",
+			"boardIds": ["SKYPER_CXNEXT", "NANJ_CXNEXT", "NANG_CXNEXT"],
+			"syobocalId": 131,
+			"annictId": 131
+		},
+		{
+			"name": "スーパー！ドラマTV",
+			"type": "CS",
+			"serviceIds": [310],
+			"networkId": 7,
+			"miyoutvId": "スーパードラマ",
+			"boardIds": ["SKYPER_DRAMA"],
+			"syobocalId": 216,
+			"annictId": 216
+		},
+		{
+			"name": "AXN 海外ドラマ",
+			"type": "CS",
+			"serviceIds": [311],
+			"networkId": 7,
+			"miyoutvId": "AXN 海外ドラマ",
+			"boardIds": ["SKYPER_DRAMA"],
+			"syobocalId": 254
+		},
+		{
+			"name": "FOX",
+			"type": "CS",
+			"serviceIds": [312],
+			"networkId": 7,
+			"miyoutvId": "FOX",
+			"boardIds": ["SKYPER_DRAMA"]
+		},
+		{
+			"name": "女性ch/LaLa",
+			"type": "CS",
+			"serviceIds": [314],
+			"networkId": 7,
+			"miyoutvId": "女性ch/LaLa"
+		},
+		{
+			"name": "FOXプラス",
+			"type": "CS",
+			"serviceIds": [315],
+			"networkId": 6
+		},
+		{
+			"name": "AXNミステリー",
+			"type": "CS",
+			"serviceIds": [316],
+			"networkId": 7,
+			"miyoutvId": "AXNミステリー",
+			"boardIds": ["SKYPER_DRAMA"]
+		},
+		{
+			"name": "KBS World",
+			"type": "CS",
+			"serviceIds": [317],
+			"networkId": 6
+		},
+		{
+			"name": "Mnet",
+			"type": "CS",
+			"serviceIds": [318],
+			"networkId": 6
+		},
+		{
+			"name": "スペシャプラス",
+			"type": "CS",
+			"serviceIds": [321],
+			"networkId": 7,
+			"miyoutvId": "スペシャプラス",
+			"syobocalId": 211,
+			"annictId": 211
+		},
+		{
+			"name": "スペースシャワーTV",
+			"type": "CS",
+			"serviceIds": [322],
+			"networkId": 7,
+			"miyoutvId": "スペースシャワーTV",
+			"syobocalId": 194,
+			"annictId": 195
+		},
+		{
+			"name": "MTV",
+			"type": "CS",
+			"serviceIds": [323],
+			"networkId": 7,
+			"miyoutvId": "MTV",
+			"syobocalId": 235,
+			"annictId": 242
+		},
+		{
+			"name": "ミュージック・エア",
+			"type": "CS",
+			"serviceIds": [324, 326],
+			"networkId": 7,
+			"miyoutvId": "ミュージック・エア"
+		},
+		{
+			"name": "エムオン!",
+			"type": "CS",
+			"serviceIds": [325],
+			"networkId": 7,
+			"miyoutvId": "エムオン",
+			"syobocalId": 151,
+			"annictId": 151
+		},
+		{
+			"name": "歌謡ポップス",
+			"type": "CS",
+			"serviceIds": [329],
+			"networkId": 7,
+			"miyoutvId": "歌謡ポップス",
+			"syobocalId": 222,
+			"annictId": 223
+		},
+		{
+			"name": "キッズステーション",
+			"type": "CS",
+			"serviceIds": [330],
+			"networkId": 7,
+			"miyoutvId": "キッズステーション",
+			"boardIds": ["SKYPER_KIDS"],
+			"syobocalId": 22,
+			"annictId": 22
+		},
+		{
+			"name": "カートゥーン",
+			"type": "CS",
+			"serviceIds": [331],
+			"networkId": 7,
+			"miyoutvId": "カートゥーン",
+			"boardIds": ["SKYPER_CARTOON"],
+			"syobocalId": 23,
+			"annictId": 23
+		},
+		{
+			"name": "AT-X",
+			"type": "CS",
+			"serviceIds": [333],
+			"networkId": 7,
+			"nicojkId": 333,
+			"nicoliveTags": ["AT-X"],
+			"miyoutvId": "AT−X",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#at_x"],
+			"boardIds": ["SKYPER_ATX"],
+			"syobocalId": 20,
+			"annictId": 20
+		},
+		{
+			"name": "ディズニーXD",
+			"type": "CS",
+			"serviceIds": [334],
+			"networkId": 6,
+			"syobocalId": 161,
+			"annictId": 161
+		},
+		{
+			"name": "ディズニージュニア",
+			"type": "CS",
+			"serviceIds": [339],
+			"networkId": 6,
+			"miyoutvId": "ディズニージュニア"
+		},
+		{
+			"name": "ディスカバリー",
+			"type": "CS",
+			"serviceIds": [340],
+			"networkId": 7,
+			"miyoutvId": "ディスカバリー",
+			"boardIds": ["SKYPER_DISCOVERY"],
+			"syobocalId": 61,
+			"annictId": 61
+		},
+		{
+			"name": "アニマルプラネット",
+			"type": "CS",
+			"serviceIds": [341],
+			"networkId": 7,
+			"miyoutvId": "アニマルプラネット",
+			"boardIds": ["SKYPER_ANIMAL"],
+			"syobocalId": 56,
+			"annictId": 56
+		},
+		{
+			"name": "ヒストリーチャンネル",
+			"type": "CS",
+			"serviceIds": [342],
+			"networkId": 7,
+			"miyoutvId": "ヒストリーチャンネル",
+			"boardIds": ["SKYPER_HISTORY"]
+		},
+		{
+			"name": "ナショジオ",
+			"type": "CS",
+			"serviceIds": [343],
+			"networkId": 7,
+			"miyoutvId": "ナショジオ",
+			"boardIds": ["SKYPER_NATIONAL"]
+		},
+		{
+			"name": "日テレNEWS24",
+			"type": "CS",
+			"serviceIds": [349],
+			"networkId": 6,
+			"miyoutvId": "日テレNEWS24",
+			"boardIds": ["SKYPER_NEWS24", "NANJ_NEWS24", "NANG_NEWS24"],
+			"syobocalId": 263
+		},
+		{
+			"name": "TBS NEWS",
+			"type": "CS",
+			"serviceIds": [351],
+			"networkId": 7,
+			"miyoutvId": "TBSニュースバード",
+			"boardIds": ["SKYPER_TBSNEWS"]
+		},
+		{
+			"name": "BBCワールド",
+			"type": "CS",
+			"serviceIds": [353],
+			"networkId": 7,
+			"miyoutvId": "BBCワールド"
+		},
+		{
+			"name": "CNNj",
+			"type": "CS",
+			"serviceIds": [354],
+			"networkId": 7,
+			"miyoutvId": "CNNj"
+		},
+		{
+			"name": "旅チャンネル",
+			"type": "CS",
+			"serviceIds": [362],
+			"networkId": 6,
+			"syobocalId": 176,
+			"annictId": 177
+		},
+		{
+			"name": "囲碁・将棋チャンネル",
+			"type": "CS",
+			"serviceIds": [363],
+			"networkId": 7,
+			"miyoutvId": "囲碁・将棋チャンネル"
+		},
+		{
+			"name": "スポーツライブ+",
+			"type": "CS",
+			"serviceIds": [800],
+			"networkId": 6,
+			"miyoutvId": "スカサカ",
+			"boardIds": ["NANJ_SLPLUS", "NANG_SLPLUS"],
+			"annictId": 150
+		},
+		{
+			"name": "スカチャン1",
+			"type": "CS",
+			"serviceIds": [801],
+			"networkId": 6,
+			"miyoutvId": "スカチャン",
+			"annictId": 175
+		},
+		{
+			"name": "NHK BSP4K",
+			"type": "BS4K",
+			"serviceIds": [101],
+			"networkId": 11,
+			"nicojkId": 1,
+			"nicoliveTags": ["NHK総合"],
+			"hasOfficialNicolive": true,
+			"miyoutvId": "NHK総合",
+			"nicoliveCommunityIds": ["ch2646436"],
+			"twitterKeywords": ["#nhkgtv"],
+			"boardIds": ["NHK", "LOVELIVE_NHK", "NANJ_NHK", "NANG_NHK"],
+			"syobocalId": 1,
+			"annictId": 1
+		},
+		{
+			"name": "BS日テレ 4K",
+			"type": "BS4K",
+			"serviceIds": [141],
+			"networkId": 11,
+			"nicojkId": 141,
+			"nicoliveTags": ["BS_日テレ", "BS日テレ"],
+			"miyoutvId": "BS日テレ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BS日テレ", "#bsntv"],
+			"boardIds": ["BSFREE_NTV", "NANJ_BSNTV", "NANG_BSNTV"],
+			"syobocalId": 71,
+			"annictId": 71
+		},
+		{
+			"name": "BS朝日 4K",
+			"type": "BS4K",
+			"serviceIds": [151],
+			"networkId": 11,
+			"nicojkId": 151,
+			"nicoliveTags": ["BS_朝日", "BS朝日"],
+			"miyoutvId": "BS朝日",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BS朝日", "#bsasahi"],
+			"boardIds": ["BSFREE_ANB", "NANJ_BSANB", "NANG_BSANB"],
+			"syobocalId": 18,
+			"annictId": 18
+		},
+		{
+			"name": "BS-TBS 4K",
+			"type": "BS4K",
+			"serviceIds": [161],
+			"networkId": 11,
+			"nicojkId": 161,
+			"nicoliveTags": ["BS-TBS", "BSTBS"],
+			"miyoutvId": "BS-TBS",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#bstbs"],
+			"boardIds": ["BSFREE_TBS", "NANJ_BSTBS", "NANG_BSTBS"],
+			"syobocalId": 16,
+			"annictId": 16
+		},
+		{
+			"name": "BSテレ東 4K",
+			"type": "BS4K",
+			"serviceIds": [171],
+			"networkId": 11,
+			"nicojkId": 171,
+			"nicoliveTags": ["BSジャパン", "BSテレ東"],
+			"miyoutvId": "BSジャパン",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BSテレ東", "#BSジャパン", "#bstvtokyo"],
+			"boardIds": ["BSFREE_TX", "NANJ_BSTX", "NANG_BSTX"],
+			"syobocalId": 15,
+			"annictId": 15
+		},
+		{
+			"name": "BSフジ 4K",
+			"type": "BS4K",
+			"serviceIds": [181],
+			"networkId": 11,
+			"nicojkId": 181,
+			"nicoliveTags": ["BSフジ"],
+			"miyoutvId": "BSフジ",
+			"nicoliveCommunityIds": [],
+			"twitterKeywords": ["#BSフジ", "#bsfuji"],
+			"boardIds": ["BSFREE_CX", "NANJ_BSCX", "NANG_BSCX"],
+			"syobocalId": 17,
+			"annictId": 17
+		},
+		{
+			"name": "ショップチャンネル 4K",
+			"type": "BS4K",
+			"serviceIds": [211],
+			"networkId": 11
+		},
+		{
+			"name": "4K QVC",
+			"type": "BS4K",
+			"serviceIds": [221],
+			"networkId": 11
+		}
+	],
+	"boards": [
+		{
+			"id": "NHK",
+			"name": "番組ch(NHK)",
+			"server": "nhk2",
+			"board": "livenhk"
+		},
+		{
+			"id": "ETV",
+			"name": "番組ch(教育)",
+			"server": "nhk2",
+			"board": "liveetv"
+		},
+		{
+			"id": "NTV",
+			"name": "番組ch(NTV)",
+			"server": "sora",
+			"board": "liventv"
+		},
+		{
+			"id": "TBS",
+			"name": "番組ch(TBS)",
+			"server": "sora",
+			"board": "livetbs"
+		},
+		{
+			"id": "CX",
+			"name": "番組ch(フジ)",
+			"server": "sora",
+			"board": "livecx"
+		},
+		{
+			"id": "ANB",
+			"name": "番組ch(朝日)",
+			"server": "sora",
+			"board": "liveanb"
+		},
+		{
+			"id": "TX",
+			"name": "番組ch(TX)",
+			"server": "sora",
+			"board": "livetx"
+		},
+		{
+			"id": "MX",
+			"name": "番組ch(MX)",
+			"server": "fate",
+			"board": "livemx"
+		},
+		{
+			"id": "BSNHK_BS1",
+			"name": "BS実況(NHK)",
+			"server": "nhk2",
+			"board": "livebs",
+			"keywords": ["BS1"]
+		},
+		{
+			"id": "BSNHK_BSP",
+			"name": "BS実況(NHK)",
+			"server": "nhk2",
+			"board": "livebs",
+			"keywords": ["BSプレミアム"]
+		},
+		{
+			"id": "BSFREE_NTV",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS日テレ"]
+		},
+		{
+			"id": "BSFREE_ANB",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS朝日"]
+		},
+		{
+			"id": "BSFREE_TBS",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS-TBS"]
+		},
+		{
+			"id": "BSFREE_TX",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BSテレ東", "BSジャパン"]
+		},
+		{
+			"id": "BSFREE_CX",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BSフジ"]
+		},
+		{
+			"id": "BSFREE_BS11",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS11"]
+		},
+		{
+			"id": "BSFREE_BS12",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS12", "TwellV"]
+		},
+		{
+			"id": "BSFREE_OUJ",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["放送大学"]
+		},
+		{
+			"id": "BSFREE_DLIFE",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["Dlife"]
+		},
+		{
+			"id": "BSFREE_SYOCHIKUTOKYU",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BS松竹東急"]
+		},
+		{
+			"id": "BSFREE_JAPANEXT",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BSJapanext"]
+		},
+		{
+			"id": "BSFREE_YOSHIMOTO",
+			"name": "BS実況(無料)",
+			"server": "tanuki",
+			"board": "livebs2",
+			"keywords": ["BSよしもと"]
+		},
+		{
+			"id": "BSPAY_WOWOWP",
+			"name": "BS実況(有料)",
+			"server": "sora",
+			"board": "livewowow",
+			"keywords": ["WOWOWプライム"]
+		},
+		{
+			"id": "BSPAY_WOWOWC",
+			"name": "BS実況(有料)",
+			"server": "sora",
+			"board": "livewowow",
+			"keywords": ["WOWOWシネマ"]
+		},
+		{
+			"id": "BSPAY_WOWOWL",
+			"name": "BS実況(有料)",
+			"server": "sora",
+			"board": "livewowow",
+			"keywords": ["WOWOWライブ"]
+		},
+		{
+			"id": "BSPAY_STAR",
+			"name": "BS実況(有料)",
+			"server": "sora",
+			"board": "livewowow",
+			"keywords": ["スターチャンネル", "スタチャン"]
+		},
+		{
+			"id": "BSPAY_SKYPER",
+			"name": "BS実況(有料)",
+			"server": "sora",
+			"board": "livewowow",
+			"keywords": ["BSスカパー"]
+		},
+		{
+			"id": "SKYPER",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp"
+		},
+		{
+			"id": "SKYPER_GREEN",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["グリーンチャンネル"]
+		},
+		{
+			"id": "SKYPER_ANIMAX",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["アニマックス"]
+		},
+		{
+			"id": "SKYPER_WOWOWPLUS",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["WOWOWプラス"]
+		},
+		{
+			"id": "SKYPER_225",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["日本映画専門"]
+		},
+		{
+			"id": "SKYPER_218",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["東映チャンネル"]
+		},
+		{
+			"id": "SKYPER_NECO",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["NECO", "NEKO"]
+		},
+		{
+			"id": "SKYPER_GTASU",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["G+"]
+		},
+		{
+			"id": "SKYPER_KIDS",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["キッズステーション", "ｷｯｽﾞｽﾃｰｼｮﾝ"]
+		},
+		{
+			"id": "SKYPER_CARTOON",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["カートゥーン"]
+		},
+		{
+			"id": "SKYPER_ATX",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["AT-X"]
+		},
+		{
+			"id": "SKYPER_TBS",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["TBSチャンネル"]
+		},
+		{
+			"id": "SKYPER_ANB",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["テレ朝チャンネル"]
+		},
+		{
+			"id": "SKYPER_NTVPLUS",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["日テレプラス"]
+		},
+		{
+			"id": "SKYPER_GINGA",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["チャンネル銀河"]
+		},
+		{
+			"id": "SKYPER_CXONE",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ONE", "ゲームセンターCX", "競馬予想TV"]
+		},
+		{
+			"id": "SKYPER_CXTWO",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["TWO"]
+		},
+		{
+			"id": "SKYPER_CXNEXT",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["NEXT"]
+		},
+		{
+			"id": "SKYPER_SKYSTAGE",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["タカラヅカスカイステージ"]
+		},
+		{
+			"id": "SKYPER_292",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["時代劇専門"]
+		},
+		{
+			"id": "SKYPER_FAMILY",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ファミリー劇場"]
+		},
+		{
+			"id": "SKYPER_MONDO",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["MONDOTV"]
+		},
+		{
+			"id": "SKYPER_DISCOVERY",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ﾃﾞｨｽｶﾊﾞ", "ディスカバ"]
+		},
+		{
+			"id": "SKYPER_ANIMAL",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ｱﾆﾌﾟﾗ", "アニプラ"]
+		},
+		{
+			"id": "SKYPER_HISTORY",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ﾋｽﾄﾘ", "ヒストリ"]
+		},
+		{
+			"id": "SKYPER_NATIONAL",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["ﾅｼｮｼﾞｵ", "ナショジオ"]
+		},
+		{
+			"id": "SKYPER_NEWS24",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["NEWS24"]
+		},
+		{
+			"id": "SKYPER_TBSNEWS",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["TBS NEWS"]
+		},
+		{
+			"id": "SKYPER_DRAMA",
+			"name": "スカパー実況",
+			"server": "sora",
+			"board": "liveskyp",
+			"keywords": ["FOX・スパドラ・AXN・AXNミステリー"]
+		},
+		{
+			"id": "ANIME_BS11",
+			"name": "アニメ特撮実況",
+			"server": "mao",
+			"board": "liveanime",
+			"keywords": ["BS11"]
+		},
+		{
+			"id": "ANIME_MX",
+			"name": "アニメ特撮実況",
+			"server": "mao",
+			"board": "liveanime",
+			"keywords": ["TOKYO MX"]
+		},
+		{
+			"id": "LOCAL_MX",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["MX"]
+		},
+		{
+			"id": "LOCAL_TVK",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["tvk"]
+		},
+		{
+			"id": "LOCAL_TVS",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["テレ玉"]
+		},
+		{
+			"id": "LOCAL_CTC",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["チバ"]
+		},
+		{
+			"id": "LOCAL_GTV",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["群馬"]
+		},
+		{
+			"id": "LOCAL_GYT",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["とちぎ"]
+		},
+		{
+			"id": "LOCAL_TOKAI",
+			"name": "番組ch",
+			"server": "sora",
+			"board": "weekly",
+			"keywords": ["東海"]
+		},
+		{
+			"id": "LOCAL_WEST",
+			"name": "番組ch(西日本)",
+			"server": "sora",
+			"board": "livewkwest",
+			"keywords": ["関西ローカル", "ｱﾆﾒ関西ﾛｰｶﾙ"]
+		},
+		{
+			"id": "ENDLESS_JCOM",
+			"name": "実況ch",
+			"server": "mao",
+			"board": "endless",
+			"keywords": ["J:COM"]
+		},
+		{
+			"id": "ENDLESS_WNI",
+			"name": "実況ch",
+			"server": "mao",
+			"board": "endless",
+			"keywords": ["WNI"]
+		},
+		{
+			"id": "NANU_WNI",
+			"name": "なんでも実況U",
+			"server": "fate",
+			"board": "liveuranus",
+			"keywords": ["WNI"]
+		},
+		{
+			"id": "LOVELIVE_NHK",
+			"name": "ラブライブ！",
+			"server": "fate",
+			"board": "lovelive",
+			"keywords": ["NHK"]
+		},
+		{
+			"id": "LOVELIVE_ETV",
+			"name": "ラブライブ！",
+			"server": "fate",
+			"board": "lovelive",
+			"keywords": ["Eテレ", "ETV"]
+		},
+		{
+			"id": "NANJ_NHK",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["NHK"]
+		},
+		{
+			"id": "NANJ_ETV",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["Eテレ", "ETV"]
+		},
+		{
+			"id": "NANJ_NTV",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["日テレ", "NTV"]
+		},
+		{
+			"id": "NANJ_TBS",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["TBS"]
+		},
+		{
+			"id": "NANJ_CX",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["フジ", "CX"]
+		},
+		{
+			"id": "NANJ_ANB",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["テレ朝", "【EX】", "ﾆﾁｱｻ"]
+		},
+		{
+			"id": "NANJ_TX",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["テレ東", "TX"]
+		},
+		{
+			"id": "NANJ_MX",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["MX"]
+		},
+		{
+			"id": "NANJ_TVK",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["TVK"]
+		},
+		{
+			"id": "NANJ_SUN",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["SUN", "サンテレビ"]
+		},
+		{
+			"id": "NANJ_MBS",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["MBS"]
+		},
+		{
+			"id": "NANJ_ABC",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["ABC"]
+		},
+		{
+			"id": "NANJ_CBC",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["CBC"]
+		},
+		{
+			"id": "NANJ_JCOM",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["JCOM"]
+		},
+		{
+			"id": "NANJ_NHKBS1",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BS1", "NHKBS"]
+		},
+		{
+			"id": "NANJ_NHKBS2",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BS2"]
+		},
+		{
+			"id": "NANJ_NHKBSP",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BSプレミアム", "BSP", "BS3", "bsシネマ"]
+		},
+		{
+			"id": "NANJ_BSNTV",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BS日テレ", "BS4"]
+		},
+		{
+			"id": "NANJ_BSANB",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BS朝日"]
+		},
+		{
+			"id": "NANJ_BSTBS",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BSTBS", "BS-TBS"]
+		},
+		{
+			"id": "NANJ_BSTX",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BSテレ東", "BSジャパン"]
+		},
+		{
+			"id": "NANJ_BSCX",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BSフジ"]
+		},
+		{
+			"id": "NANJ_WOWOW",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["WOWOW", "【wowwow】"]
+		},
+		{
+			"id": "NANJ_BS11",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": [
+				"BS11",
+				"BS12",
+				"BS13",
+				"BS14",
+				"BS15",
+				"BS16",
+				"BS17",
+				"BS18",
+				"BS19",
+				"BS20",
+				"BS21"
+			]
+		},
+		{
+			"id": "NANJ_BS12",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["BS12", "TwellV", "BS十二"]
+		},
+		{
+			"id": "NANJ_JSPORTS",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["JSPORTS", "Jスポ", "SPORTS", "Jspo"]
+		},
+		{
+			"id": "NANJ_JSPORTS1",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["Jスポ1", "SPORTS1", "Jspo1"]
+		},
+		{
+			"id": "NANJ_JSPORTS2",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["Jスポ2", "SPORTS2", "Jspo2"]
+		},
+		{
+			"id": "NANJ_JSPORTS3",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["Jスポ3", "SPORTS3", "Jspo3"]
+		},
+		{
+			"id": "NANJ_JSPORTS4",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["Jスポ4", "SPORTS4", "Jspo4"]
+		},
+		{
+			"id": "NANJ_CXONE",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["ONE"]
+		},
+		{
+			"id": "NANJ_CXTWO",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["TWO"]
+		},
+		{
+			"id": "NANJ_CXNEXT",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["NEXT"]
+		},
+		{
+			"id": "NANJ_NEWS24",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["NEWS24"]
+		},
+		{
+			"id": "NANJ_SKYA",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["スカイA"]
+		},
+		{
+			"id": "NANJ_GTASU",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["G+"]
+		},
+		{
+			"id": "NANJ_TBSCH",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["TBSch"]
+		},
+		{
+			"id": "NANJ_SLPLUS",
+			"name": "なんでも実況(ジュピター)",
+			"server": "eagle",
+			"board": "livejupiter",
+			"keywords": ["SL+"]
+		},
+		{
+			"id": "NANG_NHK",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["NHK"]
+		},
+		{
+			"id": "NANG_ETV",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["Eテレ", "ETV"]
+		},
+		{
+			"id": "NANG_NTV",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["日テレ", "NTV"]
+		},
+		{
+			"id": "NANG_TBS",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["TBS"]
+		},
+		{
+			"id": "NANG_CX",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["フジ", "CX"]
+		},
+		{
+			"id": "NANG_ANB",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["テレ朝", "【EX】", "ﾆﾁｱｻ"]
+		},
+		{
+			"id": "NANG_TX",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["テレ東", "TX"]
+		},
+		{
+			"id": "NANG_MX",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["MX"]
+		},
+		{
+			"id": "NANG_TVK",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["TVK"]
+		},
+		{
+			"id": "NANG_SUN",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["SUN", "サンテレビ"]
+		},
+		{
+			"id": "NANG_MBS",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["MBS"]
+		},
+		{
+			"id": "NANG_ABC",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["ABC"]
+		},
+		{
+			"id": "NANG_CBC",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["CBC"]
+		},
+		{
+			"id": "NANG_JCOM",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["JCOM"]
+		},
+		{
+			"id": "NANG_NHKBS1",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BS1", "NHKBS"]
+		},
+		{
+			"id": "NANG_NHKBS2",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BS2"]
+		},
+		{
+			"id": "NANG_NHKBSP",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BSプレミアム", "BSP", "BS3", "bsシネマ"]
+		},
+		{
+			"id": "NANG_BSNTV",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BS日テレ", "BS4"]
+		},
+		{
+			"id": "NANG_BSANB",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BS朝日"]
+		},
+		{
+			"id": "NANG_BSTBS",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BSTBS", "BS-TBS"]
+		},
+		{
+			"id": "NANG_BSTX",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BSテレ東", "BSジャパン"]
+		},
+		{
+			"id": "NANG_BSCX",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BSフジ"]
+		},
+		{
+			"id": "NANG_WOWOW",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["WOWOW", "【wowwow】"]
+		},
+		{
+			"id": "NANG_BS11",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": [
+				"BS11",
+				"BS12",
+				"BS13",
+				"BS14",
+				"BS15",
+				"BS16",
+				"BS17",
+				"BS18",
+				"BS19",
+				"BS20",
+				"BS21"
+			]
+		},
+		{
+			"id": "NANG_BS12",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["BS12", "TwellV", "BS十二"]
+		},
+		{
+			"id": "NANG_JSPORTS",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["JSPORTS", "Jスポ", "SPORTS", "Jspo"]
+		},
+		{
+			"id": "NANG_JSPORTS1",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["Jスポ1", "SPORTS1", "Jspo1"]
+		},
+		{
+			"id": "NANG_JSPORTS2",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["Jスポ2", "SPORTS2", "Jspo2"]
+		},
+		{
+			"id": "NANG_JSPORTS3",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["Jスポ3", "SPORTS3", "Jspo3"]
+		},
+		{
+			"id": "NANG_JSPORTS4",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["Jスポ4", "SPORTS4", "Jspo4"]
+		},
+		{
+			"id": "NANG_CXONE",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["ONE"]
+		},
+		{
+			"id": "NANG_CXTWO",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["TWO"]
+		},
+		{
+			"id": "NANG_CXNEXT",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["NEXT"]
+		},
+		{
+			"id": "NANG_NEWS24",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["NEWS24"]
+		},
+		{
+			"id": "NANG_SKYA",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["スカイA"]
+		},
+		{
+			"id": "NANG_GTASU",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["G+"]
+		},
+		{
+			"id": "NANG_TBSCH",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["TBSch"]
+		},
+		{
+			"id": "NANG_SLPLUS",
+			"name": "なんでも実況(ガリレオ)",
+			"has2chSc": false,
+			"server": "nova",
+			"board": "livegalileo",
+			"keywords": ["SL+"]
+		}
+	]
+}

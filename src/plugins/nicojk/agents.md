@@ -11,7 +11,7 @@
 - 現在の表示面は `window.kiririn.getRuntimeInfo().displayAreaType` で判定します。
 - 表示面は別 page として扱い、nicojk は `BroadcastChannel` と storage で疎結合に連携します。
 - 設定は `browser.storage.local` を使います。
-- `nicojk_definitions_cache_json` だけは `localStorage` に保存します。
+- saya-definitions は `src/plugins/nicojk/vendor/saya-definitions.json` を直接読み込みます。
   - この領域は 1 アプリあたり複数表示される可能性があります。
   - Player 領域ごとに再生コンテンツが異なり、Playable として取得できます。
   - nicojk では npm パッケージ niconicomments を使用してコメントのレンダラーの表示と、コンテンツに沿ったコメントの取得処理を行います。
