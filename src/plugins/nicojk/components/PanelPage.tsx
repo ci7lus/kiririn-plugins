@@ -17,7 +17,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PlayerPlaybackState } from "../../../Plugin";
+import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import { type ChapterPoint, detectChapterPoints } from "../chapter-comments";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";

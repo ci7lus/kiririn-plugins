@@ -2,7 +2,7 @@ import NiconiComments, {
 	type FormattedComment,
 } from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
-import type { PlayerPlaybackState } from "../../../Plugin";
+import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import type { NiconicoComment } from "../comment-client";
 import type { NicoJKContext } from "../context";
 import {

@@ -6,7 +6,7 @@ import type {
 	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "../../Plugin";
+} from "../../vendor/Plugin";
 
 export type ExampleBridge = KiririnPluginBridge & {
 	__example?: {
@@ -101,6 +101,8 @@ function createStatus(playable: Playable): PlayerPlaybackState {
 		time: initialTime,
 		position: initialPosition,
 		rate: 1,
+		isScrubbing: false,
+		scrubPosition: null,
 		televisionDisplayRect:
 			playable.playerID === "player-vod"
 				? { x: 0.08, y: 0.1, width: 0.84, height: 0.8 }

@@ -19,7 +19,7 @@
 					"https://example.com/*",
 					"https://o481625.ingest.us.sentry.io/*"
 				],
-				"strictMinVersion": "0.2.0",
+				"strictMinVersion": "0.3.0",
 				"updateURL": "https://cdn.jsdelivr.net/gh/ci7lus/kiririn-plugins@main/update.json"
 			}
 		},
