@@ -5,7 +5,6 @@ import protobuf from "@n-air-app/nicolive-comment-protobuf";
 import { LengthDelimitedReader } from "../src/plugins/nicojk/ndgr-protobuf";
 import {
 	getNiconicoLiveVpos,
-	hasPendingNdgrFrame,
 	modifierToMail,
 	NiconicoCommentClient,
 } from "../src/plugins/nicojk/niconico-comment-client";
@@ -125,6 +124,33 @@ class FakeWebSocket {
 	}
 }
 
+class FakeBroadcastChannel {
+	static channels = new Map<string, Set<FakeBroadcastChannel>>();
+	onmessage: ((event: MessageEvent) => void) | null = null;
+	private closed = false;
+	private readonly name: string;
+
+	constructor(name: string) {
+		this.name = name;
+		const channels = FakeBroadcastChannel.channels.get(name) ?? new Set();
+		channels.add(this);
+		FakeBroadcastChannel.channels.set(name, channels);
+	}
+
+	postMessage(data: unknown) {
+		if (this.closed) return;
+		for (const channel of FakeBroadcastChannel.channels.get(this.name) ?? []) {
+			if (channel === this || channel.closed) continue;
+			queueMicrotask(() => channel.onmessage?.({ data } as MessageEvent));
+		}
+	}
+
+	close() {
+		this.closed = true;
+		FakeBroadcastChannel.channels.get(this.name)?.delete(this);
+	}
+}
+
 test("converts NDGR modifiers to renderer mail commands", () => {
 	assert.deepEqual(
 		modifierToMail({
@@ -143,7 +169,7 @@ test("converts NDGR modifiers to renderer mail commands", () => {
 test("reports an incomplete length-delimited frame at end of stream", () => {
 	const reader = new LengthDelimitedReader();
 	assert.deepEqual(reader.push(Uint8Array.of(3, 1)), []);
-	assert.equal(hasPendingNdgrFrame(reader), true);
+	assert.equal(reader.hasPendingFrame(), true);
 });
 
 test("anchors live comments to receive time while preserving their timestamp", () => {
@@ -261,6 +287,121 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		(
 			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
 		).WebSocket = originalWebSocket;
+	}
+});
+
+test("propagates comments across clients via BroadcastChannel", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalBroadcastChannel = globalThis.BroadcastChannel;
+	const originalFetch = globalThis.fetch;
+	const originalNavigatorLocks = globalThis.navigator?.locks;
+	const segment = frame(
+		Uint8Array.from(
+			ChunkedMessage.encode({
+				message: {
+					chat: Chat.fromObject({
+						content: "broadcast comment",
+						no: 1,
+						vpos: 100,
+					}),
+				},
+			}).finish(),
+		),
+	);
+	const view = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({ uri: "https://example.test/segment" }),
+			}).finish(),
+		),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	(
+		globalThis as typeof globalThis & {
+			BroadcastChannel: typeof FakeBroadcastChannel;
+		}
+	).BroadcastChannel = FakeBroadcastChannel as never;
+	if (globalThis.navigator) {
+		Object.defineProperty(globalThis.navigator, "locks", {
+			configurable: true,
+			value: undefined,
+		});
+	}
+	globalThis.fetch = async (input) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view/a")) {
+			return new Response(streamOf(view), { status: 200 });
+		}
+		if (url.includes("/view/b")) {
+			return new Response(streamOf(), { status: 200 });
+		}
+		return new Response(streamOf(segment), { status: 200 });
+	};
+
+	const clientA = new NiconicoCommentClient();
+	const clientB = new NiconicoCommentClient();
+	const commentsA: { origin?: string; content: string }[] = [];
+	const commentsB: { origin?: string; content: string }[] = [];
+	clientA.onComment((comment) => commentsA.push(comment));
+	clientB.onComment((comment) => commentsB.push(comment));
+
+	try {
+		clientA.connect(source());
+		clientB.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.equal(FakeWebSocket.instances.length, 2);
+
+		FakeWebSocket.instances[0]?.open();
+		FakeWebSocket.instances[1]?.open();
+		FakeWebSocket.instances[0]?.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view/a" },
+			}),
+		);
+		FakeWebSocket.instances[1]?.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view/b" },
+			}),
+		);
+
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(commentsA.length, 1);
+		assert.equal(commentsA[0]?.content, "broadcast comment");
+		assert.equal(commentsA[0]?.origin, "ws");
+		assert.equal(commentsB.length, 1);
+		assert.equal(commentsB[0]?.content, "broadcast comment");
+		assert.equal(commentsB[0]?.origin, "broadcast");
+	} finally {
+		clientA.disconnect();
+		clientB.disconnect();
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+		(
+			globalThis as typeof globalThis & {
+				BroadcastChannel: typeof BroadcastChannel;
+			}
+		).BroadcastChannel = originalBroadcastChannel;
+		if (globalThis.navigator) {
+			Object.defineProperty(globalThis.navigator, "locks", {
+				configurable: true,
+				value: originalNavigatorLocks,
+			});
+		}
 	}
 });
 

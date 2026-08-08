@@ -98,7 +98,7 @@ function isCandidateProgramMatch(
 function dedupeSources(sources: ResolvedCommentSource[]) {
 	const seen = new Set<string>();
 	return sources.filter((source) => {
-		const key = `${source.jkId}:${source.startAt}`;
+		const key = source.key;
 		if (seen.has(key)) {
 			return false;
 		}

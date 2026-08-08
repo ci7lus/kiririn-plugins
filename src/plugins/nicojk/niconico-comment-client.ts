@@ -58,11 +58,6 @@ function waitForReconnect(signal: AbortSignal): Promise<boolean> {
 	});
 }
 
-export function hasPendingNdgrFrame(reader: LengthDelimitedReader): boolean {
-	const state = reader as unknown as { pending?: Uint8Array };
-	return (state.pending?.length ?? 0) > 0;
-}
-
 export function modifierToMail(modifier: DecodedChat["modifier"]): string[] {
 	if (!modifier) return [];
 	const commands = [
@@ -374,7 +369,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 					if (entry.next) nextAt = entry.next.at;
 				}
 			}
-			if (hasPendingNdgrFrame(frames)) {
+			if (frames.hasPendingFrame()) {
 				throw new Error("NicoNico view stream ended with a truncated frame");
 			}
 		} finally {
@@ -408,7 +403,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 						this.notifyListeners(this.toComment(chat, vposBaseTime));
 				}
 			}
-			if (hasPendingNdgrFrame(frames)) {
+			if (frames.hasPendingFrame()) {
 				throw new Error("NicoNico segment stream ended with a truncated frame");
 			}
 		} finally {

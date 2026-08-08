@@ -73,6 +73,10 @@ export class LengthDelimitedReader {
 		this.maxMessageSize = maxMessageSize;
 	}
 
+	hasPendingFrame(): boolean {
+		return this.pending.length > 0;
+	}
+
 	push(chunk: Uint8Array): Uint8Array[] {
 		if (chunk.length > 0) {
 			this.pending = concatBytes(this.pending, chunk);
