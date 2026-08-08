@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	buildPrimarySource,
 	createLiveCommentClient,
 	getLiveClientKey,
 } from "../src/plugins/nicojk/App";
 import { CommentClient } from "../src/plugins/nicojk/comment-client";
+import type { NicoJKChannelDefinition } from "../src/plugins/nicojk/definitions";
 import { NiconicoCommentClient } from "../src/plugins/nicojk/niconico-comment-client";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
@@ -38,4 +40,30 @@ test("live client factory selects the configured transport", () => {
 		createLiveCommentClient("niconico") instanceof NiconicoCommentClient,
 	);
 	assert.ok(createLiveCommentClient("nx-jikkyo") instanceof CommentClient);
+});
+
+test("fallback primary source carries NicoNico metadata before resolution", () => {
+	const fallback = buildPrimarySource(
+		{
+			jkId: "jk1",
+			name: "Test",
+			type: "terrestrial",
+			serviceIds: [1],
+			networkId: 1,
+			nicoliveCommunityIds: ["co123"],
+		} satisfies NicoJKChannelDefinition,
+		1,
+		1,
+		2,
+	);
+
+	assert.ok(fallback);
+	assert.equal(fallback.nicoliveCommunityId, "co123");
+	assert.equal(
+		getLiveClientKey("niconico", fallback),
+		getLiveClientKey("niconico", {
+			...fallback,
+			nicoliveCommunityId: "co123",
+		}),
+	);
 });

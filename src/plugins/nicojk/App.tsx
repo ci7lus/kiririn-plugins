@@ -110,7 +110,7 @@ function getProgramResolutionSignature(playable: Playable) {
 	].join(":");
 }
 
-function buildPrimarySource(
+export function buildPrimarySource(
 	channel: NicoJKChannelDefinition,
 	startAt: number,
 	programStartAt: number,
@@ -125,6 +125,7 @@ function buildPrimarySource(
 		kind: "primary",
 		jkId: channel.jkId,
 		channelName: channel.name,
+		nicoliveCommunityId: channel.nicoliveCommunityIds?.[0],
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt: startAt + duration,
