@@ -261,10 +261,22 @@ function formatPercent(value: number | null | undefined) {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
-function getDisplayedPosition(status: PlayerPlaybackState | null) {
-	return status?.isScrubbing && status.scrubPosition != null
-		? status.scrubPosition
-		: status?.position;
+function getDisplayedPosition(
+	status: PlayerPlaybackState | null | undefined,
+): number | null {
+	if (status == null) {
+		return null;
+	}
+
+	if (status.isScrubbing && status.scrubPosition != null) {
+		return status.scrubPosition;
+	}
+
+	return status.position ?? null;
+}
+
+function clampNormalizedPosition(value: number) {
+	return Math.max(0, Math.min(1, value));
 }
 
 function formatJSON(value: unknown) {
@@ -423,13 +435,13 @@ function PlayerBadge({
 					aria-valuemin={0}
 					aria-valuemax={100}
 					aria-valuenow={Math.round(
-						Math.max(0, Math.min(1, status.scrubPosition)) * 100,
+						clampNormalizedPosition(status.scrubPosition) * 100,
 					)}
 				>
 					<div
 						className="example-scrub-indicator-fill"
 						style={{
-							width: `${Math.max(0, Math.min(1, status.scrubPosition)) * 100}%`,
+							width: `${clampNormalizedPosition(status.scrubPosition) * 100}%`,
 						}}
 					/>
 				</div>
