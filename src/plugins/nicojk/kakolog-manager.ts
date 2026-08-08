@@ -765,13 +765,11 @@ export class KakologManager {
 		sourceOrdinal: number;
 	}): Promise<NiconicoComment[]> {
 		const { source, offset, windowDuration, sourceOrdinal } = params;
-		const sourceStart = source.startAt + offset;
+		const sourceStart = Math.floor(source.startAt + offset);
 		// 過去ログ API の終端は現在時刻の分開始（秒=0）を超えないようにする。
 		const currentMinuteStart = Math.floor(Date.now() / 60_000) * 60;
-		const sourceEnd = Math.min(
-			sourceStart + windowDuration,
-			source.endAt,
-			currentMinuteStart,
+		const sourceEnd = Math.floor(
+			Math.min(sourceStart + windowDuration, source.endAt, currentMinuteStart),
 		);
 		if (sourceStart >= sourceEnd) {
 			return [];
