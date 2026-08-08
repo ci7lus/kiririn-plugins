@@ -32,6 +32,8 @@ type RecordedRendererPhase = "none" | "partial" | "complete";
 const RENDER_SEGMENT_SIZE = 3600;
 // 次の枠に切り替わる際、前の枠の最後1分間（60秒）を交差させる
 const RENDER_SEGMENT_OVERLAP = 60;
+// App側のライブコメント上限に余裕を加えた件数でrendererを再構築し、内部保持量を固定する
+const MAX_LIVE_RENDERER_COMMENTS = 1200;
 
 function getSegmentComments(
 	comments: NiconicoComment[],
@@ -128,10 +130,6 @@ function formatOpacityMailValue(value: number) {
 	return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function getMaxCommentId(comments: NiconicoComment[]) {
-	return comments.reduce((max, comment) => Math.max(max, comment.id), 0);
-}
-
 function sortComments(comments: NiconicoComment[]) {
 	return [...comments].sort(
 		(a, b) =>
@@ -217,16 +215,19 @@ export default function OverlayPage({
 		commentTimingSignature: string;
 		recordedPhase: RecordedRendererPhase;
 		segment: number;
+		liveRevision: number;
 	} | null>(null);
 	const filterSignatureRef = useRef(
 		getFilterSignature(getSettings(), visibleSourceKeys),
 	);
 	const visibleSourceKeysRef = useRef(visibleSourceKeys);
-	const lastCommentIdRef = useRef<number>(0);
+	const renderedLiveCommentIdsRef = useRef<Set<number>>(new Set());
+	const liveRendererCommentCountRef = useRef(0);
 	const [showComments, setShowComments] = useState(getSettings().showComments);
 	const [opacity, setOpacity] = useState(getSettings().opacity);
 	const [filterVersion, setFilterVersion] = useState(0);
 	const [rendererInitialized, setRendererInitialized] = useState(false);
+	const [liveRendererRevision, setLiveRendererRevision] = useState(0);
 	const [currentSegment, setCurrentSegment] = useState(0);
 	const currentSegmentRef = useRef(0);
 
@@ -304,7 +305,8 @@ export default function OverlayPage({
 			rendererRef.current?.clear();
 			rendererRef.current = null;
 			rendererMetaRef.current = null;
-			lastCommentIdRef.current = 0;
+			renderedLiveCommentIdsRef.current.clear();
+			liveRendererCommentCountRef.current = 0;
 		};
 	}, []);
 
@@ -328,7 +330,8 @@ export default function OverlayPage({
 				rendererRef.current.clear();
 				rendererRef.current = null;
 				rendererMetaRef.current = null;
-				lastCommentIdRef.current = 0;
+				renderedLiveCommentIdsRef.current.clear();
+				liveRendererCommentCountRef.current = 0;
 				setRendererInitialized(false);
 			}
 			return;
@@ -345,7 +348,9 @@ export default function OverlayPage({
 				commentTimingSignature ||
 			(!isLive &&
 				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase) ||
-			(!isLive && rendererMetaRef.current?.segment !== currentSegment);
+			(!isLive && rendererMetaRef.current?.segment !== currentSegment) ||
+			(isLive &&
+				rendererMetaRef.current?.liveRevision !== liveRendererRevision);
 		if (!shouldRecreate) {
 			return;
 		}
@@ -388,8 +393,17 @@ export default function OverlayPage({
 			commentTimingSignature,
 			recordedPhase: isLive ? "none" : recordedRendererPhase,
 			segment: currentSegment,
+			liveRevision: liveRendererRevision,
 		};
-		lastCommentIdRef.current = getMaxCommentId(segmentComments);
+		if (isLive) {
+			renderedLiveCommentIdsRef.current = new Set(
+				segmentComments.map((comment) => comment.id),
+			);
+			liveRendererCommentCountRef.current = liveComments.length;
+		} else {
+			renderedLiveCommentIdsRef.current.clear();
+			liveRendererCommentCountRef.current = 0;
+		}
 		setRendererInitialized(true);
 	}, [
 		comments,
@@ -403,6 +417,7 @@ export default function OverlayPage({
 		showComments,
 		visibleSourceKeys,
 		currentSegment,
+		liveRendererRevision,
 	]);
 
 	useEffect(() => {
@@ -447,20 +462,31 @@ export default function OverlayPage({
 		if (!isLive || !rendererInitialized || !rendererRef.current) return;
 		if (rendererMetaRef.current?.mode !== "live") return;
 		if (comments.length === 0) {
-			lastCommentIdRef.current = 0;
+			renderedLiveCommentIdsRef.current.clear();
+			if (liveRendererCommentCountRef.current > 0) {
+				liveRendererCommentCountRef.current = 0;
+				setLiveRendererRevision((revision) => revision + 1);
+			}
 			return;
 		}
 
-		const lastCommentId = lastCommentIdRef.current;
-		const pendingComments = sortComments(comments).filter(
-			(comment) => comment.id > lastCommentId,
+		const pendingComments = comments.filter(
+			(comment) => !renderedLiveCommentIdsRef.current.has(comment.id),
 		);
 		if (pendingComments.length === 0) {
 			return;
 		}
 
+		if (
+			liveRendererCommentCountRef.current + pendingComments.length >
+			MAX_LIVE_RENDERER_COMMENTS
+		) {
+			setLiveRendererRevision((revision) => revision + 1);
+			return;
+		}
+
 		const currentSettings = getSettings();
-		const parsedComments = pendingComments
+		const parsedComments = sortComments(pendingComments)
 			.map((comment) =>
 				toFormattedComment(
 					comment,
@@ -473,11 +499,10 @@ export default function OverlayPage({
 		if (parsedComments.length > 0) {
 			rendererRef.current?.addComments(...parsedComments);
 		}
-
-		lastCommentIdRef.current = pendingComments.reduce(
-			(max, comment) => Math.max(max, comment.id),
-			lastCommentId,
-		);
+		for (const comment of pendingComments) {
+			renderedLiveCommentIdsRef.current.add(comment.id);
+		}
+		liveRendererCommentCountRef.current += parsedComments.length;
 	}, [comments, isLive, jkContext, rendererInitialized, visibleSourceKeys]);
 
 	// 16:9 calculation
