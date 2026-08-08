@@ -1,4 +1,8 @@
 import ReconnectingWebSocket from "reconnecting-websocket";
+import type { LiveCommentClient, ConnectionStatus } from "./live-comment-client";
+import type { ResolvedCommentSource } from "./source-resolver";
+
+export type { ConnectionStatus } from "./live-comment-client";
 
 export interface NiconicoComment {
 	id: number;
@@ -16,11 +20,6 @@ export interface NiconicoComment {
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;
-export type ConnectionStatus =
-	| "disconnected"
-	| "connecting"
-	| "connected"
-	| "error";
 type StatusCallback = (status: ConnectionStatus) => void;
 
 interface RoomData {
@@ -32,7 +31,7 @@ interface RoomData {
 	keepIntervalSec?: number;
 }
 
-export class CommentClient {
+export class CommentClient implements LiveCommentClient {
 	private watchWs: ReconnectingWebSocket | null = null;
 	private commentWs: ReconnectingWebSocket | null = null;
 	private bc: BroadcastChannel | null = null;
@@ -64,7 +63,13 @@ export class CommentClient {
 		};
 	}
 
-	public async connect(jkId: string, options?: { passive?: boolean }) {
+	public connect(source: ResolvedCommentSource, options?: { passive?: boolean }): void;
+	public connect(jkId: string, options?: { passive?: boolean }): void;
+	public connect(
+		sourceOrJkId: ResolvedCommentSource | string,
+		options?: { passive?: boolean },
+	): void {
+		const jkId = typeof sourceOrJkId === "string" ? sourceOrJkId : sourceOrJkId.jkId;
 		if (this.jkId === jkId) return;
 		this.disconnect();
 		this.jkId = jkId;
