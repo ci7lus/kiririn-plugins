@@ -331,6 +331,29 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		signal: AbortSignal,
 		generation: number,
 	): Promise<void> {
+		let cursorAt: number | "now" | undefined = at;
+		while (
+			cursorAt !== undefined &&
+			this.isCurrent(generation) &&
+			!signal.aborted
+		) {
+			cursorAt = await this.consumeViewSegment(
+				viewUri,
+				cursorAt,
+				vposBaseTime,
+				signal,
+				generation,
+			);
+		}
+	}
+
+	private async consumeViewSegment(
+		viewUri: string,
+		at: number | "now",
+		vposBaseTime: number,
+		signal: AbortSignal,
+		generation: number,
+	): Promise<number | undefined> {
 		const url = new URL(viewUri);
 		url.searchParams.set("at", String(at));
 		const response = await fetch(url, { credentials: "omit", signal });
@@ -376,9 +399,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			reader.releaseLock();
 			await Promise.allSettled(segmentTasks);
 		}
-		if (nextAt !== undefined && this.isCurrent(generation) && !signal.aborted) {
-			await this.consumeView(viewUri, nextAt, vposBaseTime, signal, generation);
-		}
+		return nextAt;
 	}
 
 	private async consumeSegment(

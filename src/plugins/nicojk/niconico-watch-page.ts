@@ -52,15 +52,53 @@ function decodeAttributeEntities(value: string) {
 	);
 }
 
+function findTagEnd(html: string, startAt: number) {
+	let quote: '"' | "'" | undefined;
+	for (let index = startAt; index < html.length; index += 1) {
+		const character = html[index];
+		if (quote) {
+			if (character === quote) quote = undefined;
+		} else if (character === '"' || character === "'") {
+			quote = character;
+		} else if (character === ">") {
+			return index;
+		}
+	}
+	return -1;
+}
+
+function getAttributeValue(element: string, attributeName: string) {
+	const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = new RegExp(
+		`\\b${escapedName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
+		"i",
+	).exec(element);
+	return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function findElementById(html: string, id: string) {
+	const tagPattern = /<[A-Za-z][A-Za-z0-9:-]*\b/g;
+	let match = tagPattern.exec(html);
+	while (match) {
+		const tagEnd = findTagEnd(html, match.index + match[0].length);
+		if (tagEnd >= 0) {
+			const element = html.slice(match.index, tagEnd + 1);
+			if (getAttributeValue(element, "id")?.toLowerCase() === id) {
+				return element;
+			}
+		}
+		match = tagPattern.exec(html);
+	}
+	return undefined;
+}
+
 function extractEmbeddedDataProps(html: string) {
-	const element = html.match(
-		/<[^>]*\bid\s*=\s*(["'])embedded-data\1[^>]*>/i,
-	)?.[0];
+	const element = findElementById(html, "embedded-data");
 	if (!element) {
 		fail("missing-embedded-data", "The embedded-data element is missing");
 	}
 
-	const props = element.match(/\bdata-props\s*=\s*(["'])(.*?)\1/i)?.[2];
+	const props = getAttributeValue(element, "data-props");
 	if (props === undefined) {
 		fail(
 			"missing-embedded-data",

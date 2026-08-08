@@ -183,6 +183,55 @@ test("anchors live comments to receive time while preserving their timestamp", (
 	);
 });
 
+test("moves to error without fetching when the community ID is missing", () => {
+	FakeWebSocket.instances = [];
+	const originalFetch = globalThis.fetch;
+	let fetchCalled = false;
+	globalThis.fetch = async () => {
+		fetchCalled = true;
+		return new Response();
+	};
+
+	const client = new NiconicoCommentClient();
+	try {
+		client.connect({ ...source(), nicoliveCommunityId: undefined });
+		assert.equal(client.getStatus(), "error");
+		assert.equal(fetchCalled, false);
+		assert.equal(FakeWebSocket.instances.length, 0);
+	} finally {
+		client.disconnect();
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("passive mode connects without opening sockets or fetching streams", () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	let fetchCalled = false;
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async () => {
+		fetchCalled = true;
+		return new Response();
+	};
+
+	const client = new NiconicoCommentClient();
+	try {
+		client.connect(source(), { passive: true });
+		assert.equal(client.getStatus(), "connected");
+		assert.equal(fetchCalled, false);
+		assert.equal(FakeWebSocket.instances.length, 0);
+	} finally {
+		client.disconnect();
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
 test("receives anonymous NDGR comments through the shared client boundary", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;

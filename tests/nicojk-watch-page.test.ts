@@ -47,6 +47,17 @@ test("embedded-data の属性を復号して放送ページの4項目を抽出�
 	});
 });
 
+test("embedded-data の属性順や属性値内の > に依存せず抽出する", () => {
+	const props = watchPageHtml().match(/data-props="([^"]*)"/)?.[1];
+	assert.ok(props);
+
+	const page = parseNiconicoWatchPageHtml(
+		`<div data-note=">" data-props="${props}" id=embedded-data></div>`,
+		FINAL_URL,
+	);
+	assert.equal(page.programId, EXPECTED_PAGE.programId);
+});
+
 test("ISO-8601 の vposBaseTime を Unix epoch 秒へ正規化する", () => {
 	const page = parseNiconicoWatchPageHtml(
 		watchPageHtml({
@@ -209,5 +220,14 @@ test("HTTP失敗を typed error にする", async () => {
 		),
 		(error: unknown) =>
 			error instanceof NiconicoWatchPageError && error.reason === "http-error",
+	);
+});
+
+test("空の community ID を unsupported-community として扱う", async () => {
+	await assert.rejects(
+		resolveNiconicoWatchPage(""),
+		(error: unknown) =>
+			error instanceof NiconicoWatchPageError &&
+			error.reason === "unsupported-community",
 	);
 });
