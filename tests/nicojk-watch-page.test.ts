@@ -8,6 +8,7 @@ import {
 } from "../src/plugins/nicojk/niconico-watch-page";
 
 const FINAL_URL = "https://live.nicovideo.jp/watch/lv123456789";
+const CHANNEL_FINAL_URL = "https://live.nicovideo.jp/watch/ch2646436";
 const REQUESTED_URL = "https://live.nicovideo.jp/watch/co%2F123";
 const EXPECTED_PAGE: NiconicoWatchPage = {
 	requestedUrl: REQUESTED_URL,
@@ -60,6 +61,21 @@ test("ISO-8601 の vposBaseTime を Unix epoch 秒へ正規化する", () => {
 	assert.equal(page.vposBaseTime, 1_700_000_000);
 });
 
+test("チャンネルの最終URLを受け入れ、embedded-data の program ID を使う", () => {
+	const page = parseNiconicoWatchPageHtml(
+		watchPageHtml({
+			program: {
+				nicoliveProgramId: "lv987654321",
+				vposBaseTime: 1_700_000_001,
+			},
+		}),
+		CHANNEL_FINAL_URL,
+	);
+
+	assert.equal(page.finalUrl, CHANNEL_FINAL_URL);
+	assert.equal(page.programId, "lv987654321");
+});
+
 test("非有限または正でない vposBaseTime を拒否する", () => {
 	for (const value of [0, -1, "not-a-date"]) {
 		assert.throws(
@@ -81,7 +97,9 @@ test("非有限または正でない vposBaseTime を拒否する", () => {
 });
 
 for (const [name, html, reason] of [
-	["final URL が lv ページでない", watchPageHtml(), "invalid-final-url"],
+	["final URL のホストが違う", watchPageHtml(), "invalid-final-url"],
+	["final URL のパスが違う", watchPageHtml(), "invalid-final-url"],
+	["final URL のパスが不正", watchPageHtml(), "invalid-final-url"],
 	["embedded-data がない", "<html></html>", "missing-embedded-data"],
 	[
 		"program ID がない",
@@ -104,9 +122,13 @@ for (const [name, html, reason] of [
 			() =>
 				parseNiconicoWatchPageHtml(
 					html,
-					name === "final URL が lv ページでない"
-						? "https://live.nicovideo.jp/watch/co123"
-						: FINAL_URL,
+					name === "final URL のホストが違う"
+						? "https://www.nicovideo.jp/watch/lv123456789"
+						: name === "final URL のパスが違う"
+							? "https://live.nicovideo.jp/live/lv123456789"
+							: name === "final URL のパスが不正"
+								? "https://live.nicovideo.jp/watch/"
+								: FINAL_URL,
 				),
 			(error: unknown) =>
 				error instanceof NiconicoWatchPageError && error.reason === reason,
@@ -134,6 +156,46 @@ test("HTTP成功・最終URL・HTMLを検証し、omit/follow で解決する", 
 		redirect: "follow",
 		credentials: "omit",
 	});
+});
+
+test("解決のたびに最終ページの embedded-data を新しく解析する", async () => {
+	const responseUrls = [CHANNEL_FINAL_URL, CHANNEL_FINAL_URL];
+	const programIds = ["lv111111111", "lv222222222"];
+	let callIndex = 0;
+
+	const firstPage = await resolveNiconicoWatchPage("ch2646436", async () => {
+		const response = new Response(
+			watchPageHtml({
+				program: {
+					nicoliveProgramId: programIds[callIndex],
+					vposBaseTime: 1_700_000_000 + callIndex,
+				},
+			}),
+			{ status: 200 },
+		);
+		Object.defineProperty(response, "url", { value: responseUrls[callIndex] });
+		callIndex += 1;
+		return response;
+	});
+	const secondPage = await resolveNiconicoWatchPage("ch2646436", async () => {
+		const response = new Response(
+			watchPageHtml({
+				program: {
+					nicoliveProgramId: programIds[callIndex],
+					vposBaseTime: 1_700_000_000 + callIndex,
+				},
+			}),
+			{ status: 200 },
+		);
+		Object.defineProperty(response, "url", { value: responseUrls[callIndex] });
+		callIndex += 1;
+		return response;
+	});
+
+	assert.equal(firstPage.programId, "lv111111111");
+	assert.equal(secondPage.programId, "lv222222222");
+	assert.equal(firstPage.requestedUrl, "https://live.nicovideo.jp/watch/ch2646436");
+	assert.equal(secondPage.finalUrl, CHANNEL_FINAL_URL);
 });
 
 test("HTTP失敗を typed error にする", async () => {

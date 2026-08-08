@@ -81,7 +81,7 @@ function parseFinalUrl(finalUrl: string) {
 
 	if (
 		url.hostname !== "live.nicovideo.jp" ||
-		!/^(\/watch\/lv[^/]+)$/.test(url.pathname)
+		!/^\/watch\/[^/]+$/.test(url.pathname)
 	) {
 		fail("invalid-final-url", "The final URL is not a nicolive watch page");
 	}
