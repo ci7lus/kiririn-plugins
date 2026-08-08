@@ -142,6 +142,7 @@ export class KakologManager {
 	private batchStartCount = 0;
 	private batchLimit = MAX_FETCH_COMMENTS;
 	private isFetching = false;
+	private lastFetchDuration: number | null = null;
 	private interruptOffset: number | null = null;
 	private progressListener:
 		| ((progress: KakologFetchProgress | null) => void)
@@ -172,6 +173,10 @@ export class KakologManager {
 			return;
 		}
 
+		if (this.tryAppendSources(sources, signature)) {
+			return;
+		}
+
 		this.sourceSignature = signature;
 		this.sources = sources;
 		this.fetchRevision += 1;
@@ -191,9 +196,64 @@ export class KakologManager {
 		this.batchStartCount = 0;
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
+		this.lastFetchDuration = null;
 		this.interruptOffset = null;
 		this.resetChapterCorrectionState();
 		this.resetProgress();
+	}
+
+	/**
+	 * 既存ソースを新しい配列の先頭に同じ順序で残した追記だけを許可する。
+	 * それ以外の変更は setSources の全リセットへ委ねる。
+	 */
+	private tryAppendSources(
+		sources: ResolvedCommentSource[],
+		signature: string,
+	): boolean {
+		if (
+			this.sources.length === 0 ||
+			sources.length < this.sources.length ||
+			!this.sources.every((source, index) => source.key === sources[index]?.key)
+		) {
+			return false;
+		}
+
+		const previousSourceCount = this.sourceStates.length;
+		this.sources = sources;
+		for (const [sourceOrdinal, source] of sources.entries()) {
+			const existingState = this.sourceStates[sourceOrdinal];
+			if (existingState) {
+				existingState.source = source;
+				continue;
+			}
+
+			const applicableOffsets =
+				this.lastFetchDuration != null
+					? getChunkOffsets(this.lastFetchDuration).filter(
+							(offset) => offset < source.endAt - source.startAt,
+						)
+					: [];
+			this.sourceStates.push({
+				sourceKey: source.key,
+				sourceOrdinal,
+				source,
+				applicableOffsets,
+				fetchedOffsets: new Set<number>(),
+				completed: false,
+				interrupted: false,
+				ignoreLimit: false,
+				commentCount: 0,
+			});
+		}
+		this.sourceSignature = signature;
+
+		if (this.isFetching && this.progressState) {
+			const addedStates = this.sourceStates.slice(previousSourceCount);
+			this.progressState.totalRequests +=
+				this.countRemainingRequests(addedStates);
+			this.emitProgress();
+		}
+		return true;
 	}
 
 	public clearCache() {
@@ -482,6 +542,7 @@ export class KakologManager {
 	): Promise<void> {
 		const revision = this.fetchRevision;
 		this.isFetching = true;
+		this.lastFetchDuration = duration;
 
 		const priorityOffset = getPriorityChunkStart(
 			options?.priorityTime || 0,
