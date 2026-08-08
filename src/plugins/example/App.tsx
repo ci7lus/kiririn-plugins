@@ -13,7 +13,7 @@ import type {
 	Playable,
 	PlayerDisplayRect,
 	PlayerPlaybackState,
-} from "../../Plugin";
+} from "../../vendor/Plugin";
 import { type ExampleBridge, getExampleBridge } from "./mock-bridge";
 import "./App.css";
 
@@ -261,6 +261,12 @@ function formatPercent(value: number | null | undefined) {
 	return `${(value * 100).toFixed(1)}%`;
 }
 
+function getDisplayedPosition(status: PlayerPlaybackState | null) {
+	return status?.isScrubbing && status.scrubPosition != null
+		? status.scrubPosition
+		: status?.position;
+}
+
 function formatJSON(value: unknown) {
 	return JSON.stringify(value, null, 2) ?? "-";
 }
@@ -402,10 +408,32 @@ function PlayerBadge({
 				<div className="example-chip-row">
 					<span className="example-chip">player: {playable.playerID}</span>
 					<span className="example-chip">
-						progress: {formatPercent(status.position)}
+						progress: {formatPercent(getDisplayedPosition(status))}
+					</span>
+					<span className="example-chip">
+						{status.isScrubbing ? "シーク中" : "通常再生位置"}
 					</span>
 				</div>
 			</div>
+			{status.isScrubbing && status.scrubPosition != null ? (
+				<div
+					className="example-scrub-indicator"
+					role="progressbar"
+					aria-label="シーク位置"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(
+						Math.max(0, Math.min(1, status.scrubPosition)) * 100,
+					)}
+				>
+					<div
+						className="example-scrub-indicator-fill"
+						style={{
+							width: `${Math.max(0, Math.min(1, status.scrubPosition)) * 100}%`,
+						}}
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -547,6 +575,14 @@ function PanelView({
 							value={formatPercent(activeStatus?.position)}
 						/>
 						<SummaryItem
+							label="Scrubbing"
+							value={activeStatus ? String(activeStatus.isScrubbing) : "-"}
+						/>
+						<SummaryItem
+							label="Scrub Position"
+							value={formatPercent(activeStatus?.scrubPosition)}
+						/>
+						<SummaryItem
 							label="Rate"
 							value={
 								typeof activeStatus?.rate === "number"
@@ -683,6 +719,10 @@ function PanelView({
 										{typeof status?.rate === "number"
 											? `${status.rate.toFixed(2)}x`
 											: "-"}
+									</p>
+									<p className="example-list-copy">
+										scrubbing: {String(status?.isScrubbing ?? false)} / scrub
+										position: {formatPercent(status?.scrubPosition)}
 									</p>
 									<p className="example-list-copy">
 										service: {playable.service?.name ?? "-"}

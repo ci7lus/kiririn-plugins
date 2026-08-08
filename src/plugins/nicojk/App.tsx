@@ -5,7 +5,7 @@ import type {
 	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "../../Plugin";
+} from "../../vendor/Plugin";
 import {
 	CommentClient,
 	type ConnectionStatus,

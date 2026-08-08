@@ -6,7 +6,7 @@ import type {
 	KiririnRuntimeInfo,
 	Playable,
 	PlayerPlaybackState,
-} from "./Plugin";
+} from "./vendor/Plugin";
 
 const mockPlayable: Playable = {
 	playerID: "mock-player",
@@ -64,6 +64,8 @@ function createStatus(playable: Playable): PlayerPlaybackState {
 		time: initialTime,
 		position: initialPosition,
 		rate: 1,
+		isScrubbing: false,
+		scrubPosition: null,
 		televisionDisplayRect: { x: 0, y: 0, width: 1, height: 1 },
 		videoDisplayRect: { x: 0, y: 0, width: 1, height: 1 },
 	};
