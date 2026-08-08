@@ -41,6 +41,7 @@
 					"https://cal.syoboi.jp/*",
 					"https://jikkyo.tsukumijima.net/*",
 					"https://live.nicovideo.jp/*",
+					"https://a.live2.nicovideo.jp/*",
 					"https://mpn.live.nicovideo.jp/*"
 				],
 				"strictMinVersion": "0.1.0",
