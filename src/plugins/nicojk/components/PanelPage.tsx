@@ -568,7 +568,9 @@ export default function PanelPage({
 	};
 
 	const formatSourceLabel = (source: NicoJKContext["sources"][number]) => {
-		return `${source.channelName} (${source.jkId}) ${formatTimeRange(source.startAt, source.endAt)}`;
+		return isLive
+			? `${source.channelName} (${source.jkId})`
+			: `${source.channelName} (${source.jkId}) ${formatTimeRange(source.startAt, source.endAt)}`;
 	};
 
 	const formatPlaybackTime = (vpos: number) => {
