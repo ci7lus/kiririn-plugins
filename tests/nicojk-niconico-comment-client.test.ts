@@ -57,6 +57,28 @@ function streamThatErrorsAfter(chunk: Uint8Array, error: Error, delay = 0) {
 	});
 }
 
+function streamUntilAbort(chunks: Uint8Array[], signal: AbortSignal) {
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk);
+			if (signal.aborted) {
+				controller.error(
+					new DOMException("The stream was aborted", "AbortError"),
+				);
+				return;
+			}
+			signal.addEventListener(
+				"abort",
+				() =>
+					controller.error(
+						new DOMException("The stream was aborted", "AbortError"),
+					),
+				{ once: true },
+			);
+		},
+	});
+}
+
 function source(): ResolvedCommentSource {
 	return {
 		key: "primary:jk1:na:1700000000",
@@ -194,6 +216,8 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 	try {
 		const client = new NiconicoCommentClient();
 		const comments: unknown[] = [];
+		const statuses: string[] = [];
+		client.onStatusUpdate((status) => statuses.push(status));
 		client.onComment((comment) => comments.push(comment));
 		client.connect(source());
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -204,6 +228,8 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 			type: "startWatching",
 			data: { reconnect: false },
 		});
+		socket.message(JSON.stringify({ type: "ping", data: {} }));
+		assert.deepEqual(JSON.parse(socket.sent[1]), { type: "pong" });
 		socket.message(
 			JSON.stringify({
 				type: "messageServer",
@@ -211,6 +237,7 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 			}),
 		);
 		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.ok(statuses.includes("connected"));
 		assert.ok(requests.includes("https://example.test/view?at=now"));
 		assert.ok(requests.includes("https://example.test/view?at=123"));
 		assert.deepEqual(comments[0], {
@@ -237,7 +264,159 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 	}
 });
 
-test("handles a segment rejection after the view stream fails without an unhandled rejection", async () => {
+test("keeps connected status when an individual segment fails", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	const originalConsoleError = console.error;
+	const segmentError = new Error("segment stream failed");
+	const view = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({ uri: "https://example.test/segment" }),
+			}).finish(),
+		),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	const errors: unknown[][] = [];
+	console.error = (...args: unknown[]) => errors.push(args);
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async (input, init) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view?at=now")) {
+			if (!init?.signal) throw new Error("view signal is missing");
+			return new Response(streamUntilAbort([view], init.signal), {
+				status: 200,
+			});
+		}
+		return new Response(streamThatErrorsAfter(new Uint8Array(), segmentError), {
+			status: 200,
+		});
+	};
+
+	try {
+		const client = new NiconicoCommentClient();
+		const statuses: string[] = [];
+		client.onStatusUpdate((status) => statuses.push(status));
+		client.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const socket = FakeWebSocket.instances[0];
+		assert.ok(socket);
+		socket.open();
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(statuses.at(-1), "connected");
+		assert.ok(
+			errors.some((args) =>
+				args.some(
+					(arg) =>
+						typeof arg === "string" &&
+						arg.includes("NicoNico comment segment failed"),
+				),
+			),
+		);
+		client.disconnect();
+	} finally {
+		console.error = originalConsoleError;
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
+test("aborts view and segment streams when NicoNico disconnects", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	const view = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({ uri: "https://example.test/segment" }),
+			}).finish(),
+		),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	let viewSignal: AbortSignal | undefined;
+	let segmentSignal: AbortSignal | undefined;
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async (input, init) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view?at=now")) {
+			if (!init?.signal) throw new Error("view signal is missing");
+			viewSignal = init.signal;
+			return new Response(streamUntilAbort([view], init.signal), {
+				status: 200,
+			});
+		}
+		if (url.includes("/segment")) {
+			if (!init?.signal) throw new Error("segment signal is missing");
+			segmentSignal = init.signal;
+			return new Response(streamUntilAbort([], init.signal), { status: 200 });
+		}
+		throw new Error(`Unexpected request: ${url}`);
+	};
+
+	try {
+		const client = new NiconicoCommentClient();
+		client.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const socket = FakeWebSocket.instances[0];
+		assert.ok(socket);
+		socket.open();
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.ok(viewSignal);
+		assert.ok(segmentSignal);
+
+		socket.message(
+			JSON.stringify({
+				type: "disconnect",
+				data: { reason: "PING_TIMEOUT" },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(viewSignal.aborted, true);
+		assert.equal(segmentSignal.aborted, true);
+		assert.equal(client.getStatus(), "connecting");
+		client.disconnect();
+	} finally {
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
+test("reconnects after the view stream fails without an unhandled rejection", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;
 	const originalFetch = globalThis.fetch;
@@ -297,16 +476,18 @@ test("handles a segment rejection after the view stream fails without an unhandl
 		);
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		assert.deepEqual(unhandled, []);
-		assert.equal(statuses.at(-1), "error");
+		assert.equal(statuses.at(-1), "connecting");
 		assert.ok(
 			errors.some((args) =>
 				args.some(
 					(arg) =>
 						typeof arg === "string" &&
-						arg.includes("NicoNico comment connection failed"),
+						arg.includes("NicoNico comment session failed; reconnecting"),
 				),
 			),
 		);
+		await new Promise((resolve) => setTimeout(resolve, 5_100));
+		assert.equal(FakeWebSocket.instances.length, 2);
 		client.disconnect();
 	} finally {
 		process.removeListener("unhandledRejection", onUnhandledRejection);

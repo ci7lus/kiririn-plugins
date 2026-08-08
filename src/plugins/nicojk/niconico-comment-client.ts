@@ -17,6 +17,7 @@ type StatusCallback = (status: ConnectionStatus) => void;
 type SocketLike = WebSocket;
 
 const WATCH_TIMEOUT_MS = 15_000;
+const RECONNECT_DELAY_MS = 5_000;
 const ANONYMOUS_USER_ID = "guest";
 
 const OPACITY_MAIL_VALUES: Record<string, string> = {
@@ -39,6 +40,22 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
 	return new Promise((resolve) =>
 		signal.addEventListener("abort", () => resolve(), { once: true }),
 	);
+}
+
+function waitForReconnect(signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(true);
+		}, RECONNECT_DELAY_MS);
+		const onAbort = () => {
+			clearTimeout(timeout);
+			signal.removeEventListener("abort", onAbort);
+			resolve(false);
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 export function hasPendingNdgrFrame(reader: LengthDelimitedReader): boolean {
@@ -179,27 +196,57 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		const page = await resolveNiconicoWatchPage(source.nicoliveCommunityId);
 		if (!this.isCurrent(generation)) return;
 
-		const messageServer = await this.openWatchSocket(
-			page.webSocketUrl,
-			signal,
-			generation,
-		);
-		if (!this.isCurrent(generation)) return;
-		this.updateStatus("connected");
-		await this.consumeView(
-			messageServer,
-			"now",
-			page.vposBaseTime,
-			signal,
-			generation,
-		);
+		while (this.isCurrent(generation) && !signal.aborted) {
+			const sessionController = new AbortController();
+			const abortSession = () => sessionController.abort();
+			signal.addEventListener("abort", abortSession, { once: true });
+			let sessionSocket: SocketLike | null = null;
+			try {
+				const { viewUri, socket } = await this.openWatchSocket(
+					page.webSocketUrl,
+					sessionController.signal,
+					generation,
+					abortSession,
+				);
+				sessionSocket = socket;
+				if (!this.isCurrent(generation) || signal.aborted) return;
+				this.updateStatus("connected");
+				await this.consumeView(
+					viewUri,
+					"now",
+					page.vposBaseTime,
+					sessionController.signal,
+					generation,
+				);
+			} catch (error) {
+				if (signal.aborted || !this.isCurrent(generation)) return;
+				if (!isAbortError(error)) {
+					console.error(
+						"[NicoJK] NicoNico comment session failed; reconnecting",
+						error,
+					);
+				}
+			} finally {
+				signal.removeEventListener("abort", abortSession);
+				sessionController.abort();
+				if (sessionSocket && this.socket === sessionSocket) {
+					sessionSocket.close();
+					this.socket = null;
+				}
+			}
+
+			if (signal.aborted || !this.isCurrent(generation)) return;
+			this.updateStatus("connecting");
+			if (!(await waitForReconnect(signal))) return;
+		}
 	}
 
 	private openWatchSocket(
 		url: string,
 		signal: AbortSignal,
 		generation: number,
-	): Promise<string> {
+		onDisconnected: () => void,
+	): Promise<{ viewUri: string; socket: SocketLike }> {
 		return new Promise((resolve, reject) => {
 			const socket = new WebSocket(url);
 			this.socket = socket;
@@ -229,6 +276,23 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			socket.onmessage = (event) => {
 				try {
 					const message = JSON.parse(String(event.data));
+					if (message.type === "ping") {
+						socket.send(JSON.stringify({ type: "pong" }));
+						return;
+					}
+					if (message.type === "disconnect") {
+						onDisconnected();
+						if (!settled) {
+							settled = true;
+							clearTimeout(timeout);
+							reject(
+								new Error(
+									`NicoNico message-server disconnected: ${String(message.data?.reason || "unknown")}`,
+								),
+							);
+						}
+						return;
+					}
 					const viewUri =
 						message.type === "messageServer"
 							? message.data?.viewUri
@@ -237,7 +301,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 					settled = true;
 					clearTimeout(timeout);
 					signal.removeEventListener("abort", abort);
-					resolve(viewUri);
+					resolve({ viewUri, socket });
 				} catch (error) {
 					if (!settled) {
 						settled = true;
@@ -247,10 +311,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				}
 			};
 			socket.onerror = () => {
-				if (settled && this.isCurrent(generation) && !signal.aborted) {
-					this.updateStatus("error");
-					return;
-				}
+				if (settled) onDisconnected();
 				if (!settled) {
 					settled = true;
 					clearTimeout(timeout);
@@ -258,10 +319,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				}
 			};
 			socket.onclose = () => {
-				if (settled && this.isCurrent(generation) && !signal.aborted) {
-					this.updateStatus("error");
-					return;
-				}
+				if (settled && !signal.aborted) onDisconnected();
 				if (!settled && !signal.aborted) {
 					settled = true;
 					clearTimeout(timeout);
@@ -303,13 +361,13 @@ export class NiconicoCommentClient implements LiveCommentClient {
 						segmentTasks.push(
 							segmentTask.catch((error) => {
 								if (!this.isIntentionalFailure(error, signal, generation)) {
+									// A segment is independent of the view stream. Its failure
+									// should not make an otherwise active live connection red.
 									console.error(
 										"[NicoJK] NicoNico comment segment failed",
 										error,
 									);
-									this.updateStatus("error");
 								}
-								throw error;
 							}),
 						);
 					}
