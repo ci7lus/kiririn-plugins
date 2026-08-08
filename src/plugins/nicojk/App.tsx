@@ -60,6 +60,7 @@ type PlayerData = {
 	recordedCommentsReady: boolean;
 	isLoadingRecordedComments: boolean;
 	recordedCommentsLoadToken: number;
+	recordedSourcesPendingFetch: boolean;
 	recordedFetchProgress: KakologFetchProgress | null;
 	interruptedSources: InterruptedSourceInfo[];
 	/** 最後に jkContext に反映した startAt（initialNetworkTime 判明時の軽量差し替え用） */
@@ -85,6 +86,7 @@ function createPlayerData(playableId: string | null): PlayerData {
 		recordedCommentsReady: false,
 		isLoadingRecordedComments: false,
 		recordedCommentsLoadToken: 0,
+		recordedSourcesPendingFetch: false,
 		recordedFetchProgress: null,
 		interruptedSources: [],
 		lastStartAt: 0,
@@ -261,6 +263,7 @@ function resetRecordedCommentsState(data: PlayerData) {
 	data.recordedCommentsReady = false;
 	data.isLoadingRecordedComments = false;
 	data.recordedCommentsLoadToken += 1;
+	data.recordedSourcesPendingFetch = false;
 	data.recordedFetchProgress = null;
 	data.interruptedSources = [];
 }
@@ -273,11 +276,19 @@ function getHasDisplayCandidates(
 		return false;
 	}
 	// 再取得中（isResolvingSources）は既存ソースがあれば描画を継続する
-	if (!data.areSourcesResolved && !data.isResolvingSources) {
+	if (
+		!hasCommentSources(data) &&
+		!data.areSourcesResolved &&
+		!data.isResolvingSources
+	) {
 		return false;
 	}
 
 	return isLive ? data.liveSources.length > 0 : data.replaySources.length > 0;
+}
+
+function hasCommentSources(data: PlayerData | undefined) {
+	return Boolean(data?.liveSources.length || data?.replaySources.length);
 }
 
 function getEffectiveIsLive(
@@ -403,7 +414,16 @@ function getChannelDisplayState(
 		});
 	}
 
-	if (data.isResolvingSources) {
+	if (playable.isSeekable && data.isLoadingRecordedComments) {
+		return createChannelDisplayState({
+			message: "コメントデータを取得中",
+			detail: formatRecordedFetchProgress(data.recordedFetchProgress),
+			isLoading: true,
+			fetchedCommentCount,
+		});
+	}
+
+	if (data.isResolvingSources && !data.recordedCommentsReady) {
 		return createChannelDisplayState({
 			message: data.primaryChannel.syobocalId
 				? "しょぼかるから実況ソースを取得中"
@@ -413,7 +433,7 @@ function getChannelDisplayState(
 		});
 	}
 
-	if (!data.areSourcesResolved) {
+	if (!hasCommentSources(data) && !data.areSourcesResolved) {
 		return createChannelDisplayState({
 			message: data.primaryChannel.syobocalId
 				? "しょぼかる取得開始待ち"
@@ -424,7 +444,7 @@ function getChannelDisplayState(
 
 	if (
 		!data.jkContext &&
-		data.areSourcesResolved &&
+		(hasCommentSources(data) || data.areSourcesResolved) &&
 		!getHasDisplayCandidates(data, !playable.isSeekable)
 	) {
 		return createChannelDisplayState({
@@ -449,15 +469,6 @@ function getChannelDisplayState(
 	) {
 		return createChannelDisplayState({
 			message: "コメントデータ取得待ち",
-			fetchedCommentCount,
-		});
-	}
-
-	if (data.isLoadingRecordedComments) {
-		return createChannelDisplayState({
-			message: "コメントデータを取得中",
-			detail: formatRecordedFetchProgress(data.recordedFetchProgress),
-			isLoading: true,
 			fetchedCommentCount,
 		});
 	}
@@ -1121,7 +1132,7 @@ export default function App() {
 			const data = playersDataRef.current.get(playerID);
 			const mgr = kakologManagersRef.current.get(playerID);
 			if (!data || !mgr) return false;
-			if (!data.areSourcesResolved) return false;
+			if (data.replaySources.length === 0) return false;
 			if (!data.recordedCommentsReady) return false;
 			if (data.isLoadingRecordedComments) return false;
 			if (pendingResumeRef.current.has(playerID)) return false;
@@ -1299,7 +1310,9 @@ export default function App() {
 				const data = playersDataRef.current.get(pid);
 				const mgr = kakologManagersRef.current.get(pid);
 				if (!data || !mgr) continue;
-				if (!data.areSourcesResolved || !data.recordedCommentsReady) continue;
+				if (data.replaySources.length === 0 || !data.recordedCommentsReady) {
+					continue;
+				}
 				if (data.isLoadingRecordedComments) continue;
 				if (pendingResumeRef.current.has(pid)) continue;
 				if (!mgr.isUnfetchedAt(status.time)) continue;
@@ -1421,6 +1434,7 @@ export default function App() {
 					data.recordedCommentsReady = false;
 					data.isLoadingRecordedComments = false;
 					data.recordedCommentsLoadToken += 1;
+					data.recordedSourcesPendingFetch = false;
 					data.recordedFetchProgress = null;
 					data.interruptedSources = [];
 					data.sourceResolutionKey = null;
@@ -1544,7 +1558,6 @@ export default function App() {
 					data.sourceResolutionKey !== sourceResolutionKey &&
 					!data.isResolvingSources
 				) {
-					data.areSourcesResolved = false;
 					if (effectiveIsSeekable) {
 						resetRecordedCommentsState(data);
 					}
@@ -1589,6 +1602,8 @@ export default function App() {
 								startAt,
 								duration,
 							);
+							latest.recordedSourcesPendingFetch =
+								isSeekable && resolved.replaySources.length > 1;
 							syncTargetState(p.playerID);
 						})
 						.catch((error) => {
@@ -1703,7 +1718,7 @@ export default function App() {
 						const pendingResumeKey = pendingResumeRef.current.get(p.playerID);
 						if (
 							pendingResumeKey &&
-							data.areSourcesResolved &&
+							data.replaySources.length > 0 &&
 							!data.isLoadingRecordedComments
 						) {
 							pendingResumeRef.current.delete(p.playerID);
@@ -1783,11 +1798,13 @@ export default function App() {
 
 						// 初回取得（10k制限）
 						if (
-							data.areSourcesResolved &&
-							!data.recordedCommentsReady &&
+							data.replaySources.length > 0 &&
+							(!data.recordedCommentsReady ||
+								data.recordedSourcesPendingFetch) &&
 							!data.isLoadingRecordedComments
 						) {
 							data.isLoadingRecordedComments = true;
+							data.recordedSourcesPendingFetch = false;
 							if (targetPlayableRef.current?.playerID === p.playerID) {
 								syncTargetState(p.playerID);
 							}
@@ -1887,7 +1904,7 @@ export default function App() {
 
 						// 自動再開（シーク位置基準で次の未取得が1分前に到達で10k追加取得）
 						if (
-							data.areSourcesResolved &&
+							data.replaySources.length > 0 &&
 							data.recordedCommentsReady &&
 							!data.isLoadingRecordedComments &&
 							!pendingResumeRef.current.has(p.playerID)
