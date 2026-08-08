@@ -194,7 +194,10 @@ test("解決のたびに最終ページの embedded-data を新しく解析す�
 
 	assert.equal(firstPage.programId, "lv111111111");
 	assert.equal(secondPage.programId, "lv222222222");
-	assert.equal(firstPage.requestedUrl, "https://live.nicovideo.jp/watch/ch2646436");
+	assert.equal(
+		firstPage.requestedUrl,
+		"https://live.nicovideo.jp/watch/ch2646436",
+	);
 	assert.equal(secondPage.finalUrl, CHANNEL_FINAL_URL);
 });
 
