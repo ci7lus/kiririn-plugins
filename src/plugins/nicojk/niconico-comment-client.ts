@@ -24,6 +24,16 @@ const OPACITY_MAIL_VALUES: Record<string, string> = {
 	Translucent: "nico:opacity:0.5",
 };
 
+export function getNiconicoLiveVpos(receivedAtMs: number, dateUsec: number) {
+	const baseVpos = Math.floor(receivedAtMs / 10);
+	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
+	return baseVpos + 200 + jitter;
+}
+
+function isAbortError(error: unknown) {
+	return error instanceof Error && error.name === "AbortError";
+}
+
 function waitForAbort(signal: AbortSignal): Promise<void> {
 	if (signal.aborted) return Promise.resolve();
 	return new Promise((resolve) =>
@@ -284,13 +294,23 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				for (const frame of frames.push(result.value)) {
 					const entry = decodeChunkedEntry(frame);
 					if (entry.segment?.uri) {
+						const segmentTask = this.consumeSegment(
+							entry.segment.uri,
+							vposBaseTime,
+							signal,
+							generation,
+						);
 						segmentTasks.push(
-							this.consumeSegment(
-								entry.segment.uri,
-								vposBaseTime,
-								signal,
-								generation,
-							),
+							segmentTask.catch((error) => {
+								if (!this.isIntentionalFailure(error, signal, generation)) {
+									console.error(
+										"[NicoJK] NicoNico comment segment failed",
+										error,
+									);
+									this.updateStatus("error");
+								}
+								throw error;
+							}),
 						);
 					}
 					if (entry.next) nextAt = entry.next.at;
@@ -299,9 +319,9 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			if (hasPendingNdgrFrame(frames)) {
 				throw new Error("NicoNico view stream ended with a truncated frame");
 			}
-			await Promise.all(segmentTasks);
 		} finally {
 			reader.releaseLock();
+			await Promise.allSettled(segmentTasks);
 		}
 		if (nextAt !== undefined && this.isCurrent(generation) && !signal.aborted) {
 			await this.consumeView(viewUri, nextAt, vposBaseTime, signal, generation);
@@ -340,21 +360,29 @@ export class NiconicoCommentClient implements LiveCommentClient {
 
 	private toComment(chat: DecodedChat, vposBaseTime: number): NiconicoComment {
 		const absoluteSeconds = vposBaseTime + chat.vpos / 100;
-		const absoluteVpos = Math.round(absoluteSeconds * 100);
 		const date = Math.floor(absoluteSeconds);
+		const dateUsec = Math.round((absoluteSeconds - date) * 1_000_000);
 		return {
 			id: chat.no,
 			no: chat.no,
-			vpos: absoluteVpos,
+			vpos: getNiconicoLiveVpos(Date.now(), dateUsec),
 			content: chat.content,
 			date,
-			date_usec: Math.round((absoluteSeconds - date) * 1_000_000),
+			date_usec: dateUsec,
 			mail: modifierToMail(chat.modifier),
 			user_id: chat.rawUserId ?? chat.hashedUserId ?? ANONYMOUS_USER_ID,
 			premium: 0,
 			anonymity: 1,
 			origin: "ws",
 		};
+	}
+
+	private isIntentionalFailure(
+		error: unknown,
+		signal: AbortSignal,
+		generation: number,
+	) {
+		return signal.aborted || !this.isCurrent(generation) || isAbortError(error);
 	}
 
 	private setupBroadcastChannel(sourceKey: string) {

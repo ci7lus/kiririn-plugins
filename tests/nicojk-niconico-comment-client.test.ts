@@ -4,6 +4,7 @@ import test from "node:test";
 import protobuf from "@n-air-app/nicolive-comment-protobuf";
 import { LengthDelimitedReader } from "../src/plugins/nicojk/ndgr-protobuf";
 import {
+	getNiconicoLiveVpos,
 	hasPendingNdgrFrame,
 	modifierToMail,
 	NiconicoCommentClient,
@@ -43,6 +44,15 @@ function streamOf(...chunks: Uint8Array[]) {
 		start(controller) {
 			for (const chunk of chunks) controller.enqueue(chunk);
 			controller.close();
+		},
+	});
+}
+
+function streamThatErrorsAfter(chunk: Uint8Array, error: Error, delay = 0) {
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(chunk);
+			setTimeout(() => controller.error(error), delay);
 		},
 	});
 }
@@ -114,10 +124,22 @@ test("reports an incomplete length-delimited frame at end of stream", () => {
 	assert.equal(hasPendingNdgrFrame(reader), true);
 });
 
+test("anchors live comments to receive time while preserving their timestamp", () => {
+	const receivedAt = 1_700_000_123_450;
+	const dateUsec = 456_000;
+	assert.equal(
+		getNiconicoLiveVpos(receivedAt, dateUsec),
+		Math.floor(receivedAt / 10) +
+			200 +
+			Math.floor((dateUsec % 100_000) / 2_000),
+	);
+});
+
 test("receives anonymous NDGR comments through the shared client boundary", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;
 	const originalFetch = globalThis.fetch;
+	const originalDateNow = Date.now;
 	const segment = frame(
 		Uint8Array.from(
 			ChunkedMessage.encode({
@@ -167,6 +189,7 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		}
 		return new Response(streamOf(segment), { status: 200 });
 	};
+	Date.now = () => 1_700_000_002_000;
 
 	try {
 		const client = new NiconicoCommentClient();
@@ -193,7 +216,7 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		assert.deepEqual(comments[0], {
 			id: 7,
 			no: 7,
-			vpos: 170000000125,
+			vpos: 170000000425,
 			content: "hello",
 			date: 1700000001,
 			date_usec: 250000,
@@ -206,6 +229,88 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		client.disconnect();
 		assert.equal(client.getStatus(), "disconnected");
 	} finally {
+		globalThis.fetch = originalFetch;
+		Date.now = originalDateNow;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
+test("handles a segment rejection after the view stream fails without an unhandled rejection", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	const originalConsoleError = console.error;
+	const unhandled: unknown[] = [];
+	const viewError = new Error("view stream failed");
+	const segmentError = new Error("segment stream failed");
+	const view = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({ uri: "https://example.test/segment" }),
+			}).finish(),
+		),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	const errors: unknown[][] = [];
+	const onUnhandledRejection = (error: unknown) => unhandled.push(error);
+	process.on("unhandledRejection", onUnhandledRejection);
+	console.error = (...args: unknown[]) => errors.push(args);
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async (input) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view?at=now")) {
+			return new Response(streamThatErrorsAfter(view, viewError), {
+				status: 200,
+			});
+		}
+		return new Response(
+			streamThatErrorsAfter(new Uint8Array(), segmentError, 10),
+			{ status: 200 },
+		);
+	};
+
+	try {
+		const client = new NiconicoCommentClient();
+		const statuses: string[] = [];
+		client.onStatusUpdate((status) => statuses.push(status));
+		client.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const socket = FakeWebSocket.instances[0];
+		assert.ok(socket);
+		socket.open();
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual(unhandled, []);
+		assert.equal(statuses.at(-1), "error");
+		assert.ok(
+			errors.some((args) =>
+				args.some(
+					(arg) =>
+						typeof arg === "string" &&
+						arg.includes("NicoNico comment connection failed"),
+				),
+			),
+		);
+		client.disconnect();
+	} finally {
+		process.removeListener("unhandledRejection", onUnhandledRejection);
+		console.error = originalConsoleError;
 		globalThis.fetch = originalFetch;
 		(
 			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
