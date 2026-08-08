@@ -1,5 +1,5 @@
-import type { ResolvedCommentSource } from "./source-resolver";
 import type { NiconicoComment } from "./comment-client";
+import type { ResolvedCommentSource } from "./source-resolver";
 
 export type ConnectionStatus =
 	| "disconnected"

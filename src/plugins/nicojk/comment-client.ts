@@ -1,5 +1,8 @@
 import ReconnectingWebSocket from "reconnecting-websocket";
-import type { LiveCommentClient, ConnectionStatus } from "./live-comment-client";
+import type {
+	ConnectionStatus,
+	LiveCommentClient,
+} from "./live-comment-client";
 import type { ResolvedCommentSource } from "./source-resolver";
 
 export type { ConnectionStatus } from "./live-comment-client";
@@ -63,13 +66,17 @@ export class CommentClient implements LiveCommentClient {
 		};
 	}
 
-	public connect(source: ResolvedCommentSource, options?: { passive?: boolean }): void;
+	public connect(
+		source: ResolvedCommentSource,
+		options?: { passive?: boolean },
+	): void;
 	public connect(jkId: string, options?: { passive?: boolean }): void;
 	public connect(
 		sourceOrJkId: ResolvedCommentSource | string,
 		options?: { passive?: boolean },
 	): void {
-		const jkId = typeof sourceOrJkId === "string" ? sourceOrJkId : sourceOrJkId.jkId;
+		const jkId =
+			typeof sourceOrJkId === "string" ? sourceOrJkId : sourceOrJkId.jkId;
 		if (this.jkId === jkId) return;
 		this.disconnect();
 		this.jkId = jkId;

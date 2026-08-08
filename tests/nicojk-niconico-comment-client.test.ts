@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import protobuf from "@n-air-app/nicolive-comment-protobuf";
-import { NiconicoCommentClient } from "../src/plugins/nicojk/niconico-comment-client";
+import { LengthDelimitedReader } from "../src/plugins/nicojk/ndgr-protobuf";
+import {
+	hasPendingNdgrFrame,
+	modifierToMail,
+	NiconicoCommentClient,
+} from "../src/plugins/nicojk/niconico-comment-client";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
 const { dwango } = protobuf;
@@ -19,6 +24,18 @@ function frame(body: Uint8Array) {
 	}
 	prefix.push(length);
 	return Uint8Array.from([...prefix, ...body]);
+}
+
+function concat(...parts: Uint8Array[]) {
+	const result = new Uint8Array(
+		parts.reduce((length, part) => length + part.length, 0),
+	);
+	let offset = 0;
+	for (const part of parts) {
+		result.set(part, offset);
+		offset += part.length;
+	}
+	return result;
 }
 
 function streamOf(...chunks: Uint8Array[]) {
@@ -76,6 +93,27 @@ class FakeWebSocket {
 	}
 }
 
+test("converts NDGR modifiers to renderer mail commands", () => {
+	assert.deepEqual(
+		modifierToMail({
+			position: "ue",
+			size: "big",
+			namedColor: "red",
+			fullColor: "#010203",
+			font: "gothic",
+			opacity: "Translucent",
+		}),
+		["ue", "big", "red", "#010203", "gothic", "nico:opacity:0.5"],
+	);
+	assert.deepEqual(modifierToMail({ opacity: "Normal" }), ["nico:opacity:1"]);
+});
+
+test("reports an incomplete length-delimited frame at end of stream", () => {
+	const reader = new LengthDelimitedReader();
+	assert.deepEqual(reader.push(Uint8Array.of(3, 1)), []);
+	assert.equal(hasPendingNdgrFrame(reader), true);
+});
+
 test("receives anonymous NDGR comments through the shared client boundary", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;
@@ -84,7 +122,11 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		Uint8Array.from(
 			ChunkedMessage.encode({
 				message: {
-					chat: Chat.fromObject({ content: "hello", no: 7, vpos: 125 }),
+					overflowedChat: Chat.fromObject({
+						content: "hello",
+						no: 7,
+						vpos: 125,
+					}),
 				},
 			}).finish(),
 		),
@@ -96,20 +138,32 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 			}).finish(),
 		),
 	);
+	const next = frame(
+		Uint8Array.from(ChunkedEntry.encode({ next: { at: 123 } }).finish()),
+	);
 	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
 	const requests: string[] = [];
-	(globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }).WebSocket =
-		FakeWebSocket as never;
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
 	globalThis.fetch = async (input) => {
 		const url = String(input);
 		requests.push(url);
 		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
-			const response = new Response(page, { status: 200, headers: { "content-type": "text/html" } });
-			Object.defineProperty(response, "url", { value: "https://live.nicovideo.jp/watch/lv1" });
+			const response = new Response(page, {
+				status: 200,
+				headers: { "content-type": "text/html" },
+			});
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
 			return response;
 		}
 		if (url.includes("/view?at=now")) {
-			return new Response(streamOf(view), { status: 200 });
+			return new Response(streamOf(concat(view, next)), { status: 200 });
+		}
+		if (url.includes("/view?at=123")) {
+			return new Response(streamOf(), { status: 200 });
 		}
 		return new Response(streamOf(segment), { status: 200 });
 	};
@@ -127,9 +181,15 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 			type: "startWatching",
 			data: { reconnect: false },
 		});
-		socket.message({ type: "messageServer", data: { viewUri: "https://example.test/view" } });
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		assert.ok(requests.includes("https://example.test/view?at=now"));
+		assert.ok(requests.includes("https://example.test/view?at=123"));
 		assert.deepEqual(comments[0], {
 			id: 7,
 			no: 7,
@@ -147,6 +207,8 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 		assert.equal(client.getStatus(), "disconnected");
 	} finally {
 		globalThis.fetch = originalFetch;
-		(globalThis as typeof globalThis & { WebSocket: typeof WebSocket }).WebSocket = originalWebSocket;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
 	}
 });

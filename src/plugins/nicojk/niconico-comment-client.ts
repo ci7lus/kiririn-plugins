@@ -1,13 +1,16 @@
-import type { LiveCommentClient, ConnectionStatus } from "./live-comment-client";
 import type { NiconicoComment } from "./comment-client";
-import type { ResolvedCommentSource } from "./source-resolver";
-import { resolveNiconicoWatchPage } from "./niconico-watch-page";
+import type {
+	ConnectionStatus,
+	LiveCommentClient,
+} from "./live-comment-client";
 import {
+	type DecodedChat,
 	decodeChunkedEntry,
 	decodeChunkedMessage,
 	LengthDelimitedReader,
-	type DecodedChat,
 } from "./ndgr-protobuf";
+import { resolveNiconicoWatchPage } from "./niconico-watch-page";
+import type { ResolvedCommentSource } from "./source-resolver";
 
 type CommentCallback = (comment: NiconicoComment) => void;
 type StatusCallback = (status: ConnectionStatus) => void;
@@ -16,9 +19,34 @@ type SocketLike = WebSocket;
 const WATCH_TIMEOUT_MS = 15_000;
 const ANONYMOUS_USER_ID = "guest";
 
+const OPACITY_MAIL_VALUES: Record<string, string> = {
+	Normal: "nico:opacity:1",
+	Translucent: "nico:opacity:0.5",
+};
+
 function waitForAbort(signal: AbortSignal): Promise<void> {
 	if (signal.aborted) return Promise.resolve();
-	return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+	return new Promise((resolve) =>
+		signal.addEventListener("abort", () => resolve(), { once: true }),
+	);
+}
+
+export function hasPendingNdgrFrame(reader: LengthDelimitedReader): boolean {
+	const state = reader as unknown as { pending?: Uint8Array };
+	return (state.pending?.length ?? 0) > 0;
+}
+
+export function modifierToMail(modifier: DecodedChat["modifier"]): string[] {
+	if (!modifier) return [];
+	const commands = [
+		modifier.position,
+		modifier.size,
+		modifier.namedColor,
+		modifier.fullColor,
+		modifier.font,
+		modifier.opacity ? OPACITY_MAIL_VALUES[modifier.opacity] : undefined,
+	];
+	return commands.filter((command): command is string => command != null);
 }
 
 export class NiconicoCommentClient implements LiveCommentClient {
@@ -31,7 +59,10 @@ export class NiconicoCommentClient implements LiveCommentClient {
 	private sourceKey: string | null = null;
 	private generation = 0;
 
-	public connect(source: ResolvedCommentSource, options?: { passive?: boolean }): void {
+	public connect(
+		source: ResolvedCommentSource,
+		options?: { passive?: boolean },
+	): void {
 		if (this.sourceKey === source.key) return;
 		this.disconnect();
 		this.sourceKey = source.key;
@@ -49,7 +80,11 @@ export class NiconicoCommentClient implements LiveCommentClient {
 
 		this.abortController = new AbortController();
 		const generation = ++this.generation;
-		void this.startWithLock(source, generation, this.abortController.signal).catch((error) => {
+		void this.startWithLock(
+			source,
+			generation,
+			this.abortController.signal,
+		).catch((error) => {
 			if (this.isCurrent(generation) && !this.abortController?.signal.aborted) {
 				console.error("[NicoJK] NicoNico comment connection failed", error);
 				this.updateStatus("error");
@@ -77,11 +112,15 @@ export class NiconicoCommentClient implements LiveCommentClient {
 					return;
 				}
 				this.updateStatus("connected");
-				await locks.request(`nicojk_niconico_lock_${source.key}`, async (promoted) => {
-					if (!promoted || signal.aborted || !this.isCurrent(generation)) return;
-					await this.start(source, generation, signal);
-					await waitForAbort(signal);
-				});
+				await locks.request(
+					`nicojk_niconico_lock_${source.key}`,
+					async (promoted) => {
+						if (!promoted || signal.aborted || !this.isCurrent(generation))
+							return;
+						await this.start(source, generation, signal);
+						await waitForAbort(signal);
+					},
+				);
 			},
 		);
 	}
@@ -106,7 +145,9 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		this.statusListeners.push(callback);
 		callback(this.status);
 		return () => {
-			this.statusListeners = this.statusListeners.filter((item) => item !== callback);
+			this.statusListeners = this.statusListeners.filter(
+				(item) => item !== callback,
+			);
 		};
 	}
 
@@ -128,10 +169,20 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		const page = await resolveNiconicoWatchPage(source.nicoliveCommunityId);
 		if (!this.isCurrent(generation)) return;
 
-		const messageServer = await this.openWatchSocket(page.webSocketUrl, signal, generation);
+		const messageServer = await this.openWatchSocket(
+			page.webSocketUrl,
+			signal,
+			generation,
+		);
 		if (!this.isCurrent(generation)) return;
 		this.updateStatus("connected");
-		await this.consumeView(messageServer, "now", page.vposBaseTime, signal, generation);
+		await this.consumeView(
+			messageServer,
+			"now",
+			page.vposBaseTime,
+			signal,
+			generation,
+		);
 	}
 
 	private openWatchSocket(
@@ -161,12 +212,17 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			signal.addEventListener("abort", abort, { once: true });
 			socket.onopen = () => {
 				if (!this.isCurrent(generation) || signal.aborted) return;
-				socket.send(JSON.stringify({ type: "startWatching", data: { reconnect: false } }));
+				socket.send(
+					JSON.stringify({ type: "startWatching", data: { reconnect: false } }),
+				);
 			};
 			socket.onmessage = (event) => {
 				try {
 					const message = JSON.parse(String(event.data));
-					const viewUri = message.type === "messageServer" ? message.data?.viewUri : undefined;
+					const viewUri =
+						message.type === "messageServer"
+							? message.data?.viewUri
+							: undefined;
 					if (typeof viewUri !== "string" || settled) return;
 					settled = true;
 					clearTimeout(timeout);
@@ -215,7 +271,8 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		const url = new URL(viewUri);
 		url.searchParams.set("at", String(at));
 		const response = await fetch(url, { credentials: "omit", signal });
-		if (!response.ok || !response.body) throw new Error(`NicoNico view request failed: ${response.status}`);
+		if (!response.ok || !response.body)
+			throw new Error(`NicoNico view request failed: ${response.status}`);
 		const reader = response.body.getReader();
 		const frames = new LengthDelimitedReader();
 		const segmentTasks: Promise<void>[] = [];
@@ -227,10 +284,20 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				for (const frame of frames.push(result.value)) {
 					const entry = decodeChunkedEntry(frame);
 					if (entry.segment?.uri) {
-						segmentTasks.push(this.consumeSegment(entry.segment.uri, vposBaseTime, signal, generation));
+						segmentTasks.push(
+							this.consumeSegment(
+								entry.segment.uri,
+								vposBaseTime,
+								signal,
+								generation,
+							),
+						);
 					}
 					if (entry.next) nextAt = entry.next.at;
 				}
+			}
+			if (hasPendingNdgrFrame(frames)) {
+				throw new Error("NicoNico view stream ended with a truncated frame");
 			}
 			await Promise.all(segmentTasks);
 		} finally {
@@ -248,7 +315,8 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		generation: number,
 	): Promise<void> {
 		const response = await fetch(segmentUri, { credentials: "omit", signal });
-		if (!response.ok || !response.body) throw new Error(`NicoNico segment request failed: ${response.status}`);
+		if (!response.ok || !response.body)
+			throw new Error(`NicoNico segment request failed: ${response.status}`);
 		const reader = response.body.getReader();
 		const frames = new LengthDelimitedReader();
 		try {
@@ -258,8 +326,12 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				for (const frame of frames.push(result.value)) {
 					const message = decodeChunkedMessage(frame).message;
 					const chat = message?.chat ?? message?.overflowedChat;
-					if (chat && this.isCurrent(generation)) this.notifyListeners(this.toComment(chat, vposBaseTime));
+					if (chat && this.isCurrent(generation))
+						this.notifyListeners(this.toComment(chat, vposBaseTime));
 				}
+			}
+			if (hasPendingNdgrFrame(frames)) {
+				throw new Error("NicoNico segment stream ended with a truncated frame");
 			}
 		} finally {
 			reader.releaseLock();
@@ -277,7 +349,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			content: chat.content,
 			date,
 			date_usec: Math.round((absoluteSeconds - date) * 1_000_000),
-			mail: chat.modifier ? Object.values(chat.modifier).filter((value): value is string => !!value) : [],
+			mail: modifierToMail(chat.modifier),
 			user_id: chat.rawUserId ?? chat.hashedUserId ?? ANONYMOUS_USER_ID,
 			premium: 0,
 			anonymity: 1,
@@ -288,13 +360,23 @@ export class NiconicoCommentClient implements LiveCommentClient {
 	private setupBroadcastChannel(sourceKey: string) {
 		this.bc = new BroadcastChannel(`nicojk_niconico_comments_${sourceKey}`);
 		this.bc.onmessage = (event) => {
-			if (event.data?.type === "comment") this.notifyListeners({ ...event.data.payload, origin: "broadcast" }, false);
+			if (event.data?.type === "comment")
+				this.notifyListeners(
+					{ ...event.data.payload, origin: "broadcast" },
+					false,
+				);
 		};
 	}
 
 	private notifyListeners(comment: NiconicoComment, broadcast = true) {
-		this.listeners.forEach((callback) => callback(comment));
-		if (broadcast) this.bc?.postMessage({ type: "comment", payload: { ...comment, origin: "ws" } });
+		this.listeners.forEach((callback) => {
+			callback(comment);
+		});
+		if (broadcast)
+			this.bc?.postMessage({
+				type: "comment",
+				payload: { ...comment, origin: "ws" },
+			});
 	}
 
 	private isCurrent(generation: number) {
@@ -303,6 +385,8 @@ export class NiconicoCommentClient implements LiveCommentClient {
 
 	private updateStatus(status: ConnectionStatus) {
 		this.status = status;
-		this.statusListeners.forEach((callback) => callback(status));
+		this.statusListeners.forEach((callback) => {
+			callback(status);
+		});
 	}
 }
