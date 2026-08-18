@@ -3,6 +3,17 @@
 		"io.github.ci7lus.kiririn-plugins.example": {
 			"updates": [
 				{
+					"version": "0.3.0",
+					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/20260818143354/example.kppx",
+					"update_hash": "sha256:f34ea5677d6255a9579d9b971b962ba7020f6ecdf345f178d5829231937f454b",
+					"update_info_url": "https://github.com/ci7lus/kiririn-plugins/releases/tag/20260818143354",
+					"applications": {
+						"kiririn": {
+							"strict_min_version": "0.3.0"
+						}
+					}
+				},
+				{
 					"version": "0.2.0",
 					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/20260728161520/example.kppx",
 					"update_hash": "sha256:ca7242d7778fd00d3bc516a312a81299144af6a0f4ba67102791b6a7e8841480",
@@ -28,6 +39,17 @@
 		},
 		"io.github.ci7lus.kiririn-plugins.nicojk": {
 			"updates": [
+				{
+					"version": "0.3.0",
+					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/20260818143354/nicojk.kppx",
+					"update_hash": "sha256:4031136cced95c0b14b2dff91eeaae45b7d0baed40812902fd412380243cb2e8",
+					"update_info_url": "https://github.com/ci7lus/kiririn-plugins/releases/tag/20260818143354",
+					"applications": {
+						"kiririn": {
+							"strict_min_version": "0.1.0"
+						}
+					}
+				},
 				{
 					"version": "0.2.0",
 					"update_link": "https://github.com/ci7lus/kiririn-plugins/releases/download/20260801070356/nicojk.kppx",
