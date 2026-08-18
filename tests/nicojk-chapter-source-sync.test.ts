@@ -229,6 +229,46 @@ test("キャッシュをクリアするとソースの補正無効化もリセ�
 	}
 });
 
+test("取得後に追加されたソースも次の取得で読み込む", async () => {
+	const originalFetch = globalThis.fetch;
+	const requestedJkIds: string[] = [];
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		const jkId = url.pathname.split("/").pop() || "";
+		requestedJkIds.push(jkId);
+		const sourceStartAt = jkId === "jk1" ? START_AT : START_AT + 86400;
+		return Response.json({
+			packet: [
+				{
+					chat: apiComment(sourceStartAt, 30, jkId, 1),
+				},
+			],
+		});
+	};
+
+	try {
+		const manager = new KakologManager();
+		manager.setSources([SOURCES[0]]);
+
+		const primaryComments = await manager.fetchWithLimit(1800);
+		assert.equal(primaryComments.length, 1);
+
+		manager.setSources(SOURCES);
+		assert.equal(manager.hasPendingInitialSourceFetch(), true);
+
+		const allComments = await manager.fetchWithLimit(1800);
+		assert.equal(allComments.length, 2);
+		assert.equal(
+			allComments.find((item) => item.sourceOrdinal === 1)?.content,
+			"jk2",
+		);
+		assert.equal(manager.hasPendingInitialSourceFetch(), false);
+		assert.deepEqual(requestedJkIds, ["jk1", "jk2"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 function chapterApiComments(
 	sourceStartAt: number,
 	relativeSec: number,
