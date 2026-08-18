@@ -1598,12 +1598,12 @@ export default function App() {
 							applyResolvedSources(
 								latest,
 								resolved,
-								p.isSeekable,
+								isSeekable,
 								startAt,
 								duration,
 							);
 							latest.recordedSourcesPendingFetch =
-								isSeekable && resolved.replaySources.length > 1;
+								isSeekable && resolved.replaySources.length > 0;
 							syncTargetState(p.playerID);
 						})
 						.catch((error) => {
@@ -1698,6 +1698,9 @@ export default function App() {
 					const mgr = kakologManagersRef.current.get(p.playerID);
 					if (mgr && data.replaySources.length > 0) {
 						mgr.setSources(data.replaySources);
+						if (mgr.hasPendingInitialSourceFetch()) {
+							data.recordedSourcesPendingFetch = true;
+						}
 
 						if (data.jkContext && data.replaySources[0]) {
 							data.jkContext = withKakologSourceStates(
@@ -1800,7 +1803,8 @@ export default function App() {
 						if (
 							data.replaySources.length > 0 &&
 							(!data.recordedCommentsReady ||
-								data.recordedSourcesPendingFetch) &&
+								data.recordedSourcesPendingFetch ||
+								mgr?.hasPendingInitialSourceFetch()) &&
 							!data.isLoadingRecordedComments
 						) {
 							data.isLoadingRecordedComments = true;

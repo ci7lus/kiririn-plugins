@@ -86,6 +86,7 @@ interface SourceFetchState {
 	source: ResolvedCommentSource;
 	applicableOffsets: number[];
 	fetchedOffsets: Set<number>;
+	needsInitialFetch: boolean;
 	completed: boolean;
 	interrupted: boolean;
 	ignoreLimit: boolean;
@@ -187,6 +188,7 @@ export class KakologManager {
 			source,
 			applicableOffsets: [],
 			fetchedOffsets: new Set<number>(),
+			needsInitialFetch: false,
 			completed: false,
 			interrupted: false,
 			ignoreLimit: false,
@@ -239,6 +241,7 @@ export class KakologManager {
 				source,
 				applicableOffsets,
 				fetchedOffsets: new Set<number>(),
+				needsInitialFetch: true,
 				completed: false,
 				interrupted: false,
 				ignoreLimit: false,
@@ -261,6 +264,7 @@ export class KakologManager {
 		this.allComments = [];
 		for (const state of this.sourceStates) {
 			state.fetchedOffsets.clear();
+			state.needsInitialFetch = false;
 			state.completed = false;
 			state.interrupted = false;
 			state.ignoreLimit = false;
@@ -454,6 +458,11 @@ export class KakologManager {
 		);
 	}
 
+	/** 解決後に追加されたソースで、まだ一度も取得できていないものがあるか */
+	public hasPendingInitialSourceFetch(): boolean {
+		return this.sourceStates.some((state) => state.needsInitialFetch);
+	}
+
 	public async fetchWithLimit(
 		duration: number,
 		options?: {
@@ -620,6 +629,7 @@ export class KakologManager {
 
 					if (revision !== this.fetchRevision) break;
 
+					state.needsInitialFetch = false;
 					state.fetchedOffsets.add(offset);
 					state.commentCount += fetched.length;
 					this.allComments.push(...fetched);
