@@ -10,6 +10,7 @@ import {
 	type NicoJKSettings,
 	SETTINGS_UPDATED_EVENT,
 } from "../ng-settings";
+import { formatRendererCommentContent } from "../renderer-comment-text";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -97,6 +98,15 @@ function getCommentTimingSignature(jkContext: NicoJKContext | null) {
 	);
 }
 
+function getCommentDataSignature(comments: NiconicoComment[]) {
+	return comments
+		.map(
+			(comment) =>
+				`${comment.id}:${comment.vpos}:${comment.sourceOrdinal || 0}`,
+		)
+		.join(",");
+}
+
 function isCommentNGBySettings(
 	comment: string | undefined,
 	userId: string | undefined,
@@ -157,6 +167,11 @@ function toFormattedComment(
 		return null;
 	}
 
+	const content = formatRendererCommentContent(comment.content);
+	if (content == null) {
+		return null;
+	}
+
 	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
 	const mail = filterMailBySettings(comment.mail, settings);
 	if (sourceOrdinal > 0) {
@@ -168,7 +183,7 @@ function toFormattedComment(
 	return {
 		id: comment.id,
 		vpos: comment.vpos,
-		content: comment.content,
+		content,
 		date: comment.date,
 		date_usec: comment.date_usec,
 		owner: false,
@@ -213,6 +228,7 @@ export default function OverlayPage({
 		playableId: string | null;
 		filterVersion: number;
 		commentTimingSignature: string;
+		commentDataSignature: string;
 		recordedPhase: RecordedRendererPhase;
 		segment: number;
 		liveRevision: number;
@@ -339,6 +355,7 @@ export default function OverlayPage({
 
 		const nextMode: RendererMode = isLive ? "live" : "recorded";
 		const commentTimingSignature = getCommentTimingSignature(jkContext);
+		const commentDataSignature = getCommentDataSignature(comments);
 		const shouldRecreate =
 			!rendererRef.current ||
 			rendererMetaRef.current?.mode !== nextMode ||
@@ -346,6 +363,9 @@ export default function OverlayPage({
 			rendererMetaRef.current?.filterVersion !== filterVersion ||
 			rendererMetaRef.current?.commentTimingSignature !==
 				commentTimingSignature ||
+			(!isLive &&
+				rendererMetaRef.current?.commentDataSignature !==
+					commentDataSignature) ||
 			(!isLive &&
 				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase) ||
 			(!isLive && rendererMetaRef.current?.segment !== currentSegment) ||
@@ -357,7 +377,8 @@ export default function OverlayPage({
 
 		rendererRef.current?.clear();
 		const currentSettings = getSettings();
-		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
+		const usesFormattedRenderer =
+			!isLive && (recordedRendererPhase !== "none" || comments.length > 0);
 		const segmentComments =
 			!isLive && usesFormattedRenderer
 				? getSegmentComments(comments, currentSegment, jkContext?.startAt || 0)
@@ -391,6 +412,7 @@ export default function OverlayPage({
 			playableId,
 			filterVersion,
 			commentTimingSignature,
+			commentDataSignature,
 			recordedPhase: isLive ? "none" : recordedRendererPhase,
 			segment: currentSegment,
 			liveRevision: liveRendererRevision,

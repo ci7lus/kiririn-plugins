@@ -27,6 +27,10 @@ import {
 } from "./kakolog-manager";
 import type { LiveCommentClient } from "./live-comment-client";
 import {
+	clearMiyouAuth,
+	getMiyouSettingsSignature,
+} from "./miyou-comment-client";
+import {
 	getSettings,
 	initializeSettings,
 	type LiveCommentSource,
@@ -128,6 +132,7 @@ export function buildPrimarySource(
 		jkId: channel.jkId,
 		channelName: channel.name,
 		nicoliveCommunityId: channel.nicoliveCommunityIds?.[0],
+		miyouChannel: channel.miyoutvId,
 		syobocalId: channel.syobocalId,
 		startAt,
 		endAt: startAt + duration,
@@ -710,6 +715,9 @@ export default function App() {
 	const liveCommentSourceRef = useRef<LiveCommentSource>(
 		getSettings().liveCommentSource,
 	);
+	const miyouSettingsSignatureRef = useRef(
+		getMiyouSettingsSignature(getSettings()),
+	);
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
 	const pendingResumeRef = useRef<Map<string, string>>(new Map());
 	const lastPlayerTimeRef = useRef<Map<string, number>>(new Map());
@@ -1077,22 +1085,57 @@ export default function App() {
 		};
 
 		const handleLiveCommentSourceChange = () => {
-			const nextSource = getSettings().liveCommentSource;
-			if (nextSource === liveCommentSourceRef.current) return;
+			const settings = getSettings();
+			const nextSource = settings.liveCommentSource;
+			if (nextSource !== liveCommentSourceRef.current) {
+				liveCommentSourceRef.current = nextSource;
+				for (const client of clientsRef.current.values()) client.disconnect();
+				clientsRef.current.clear();
 
-			liveCommentSourceRef.current = nextSource;
-			for (const client of clientsRef.current.values()) client.disconnect();
-			clientsRef.current.clear();
+				for (const [playerID, data] of playersDataRef.current.entries()) {
+					const playable = bridge.getPlayable(playerID);
+					if (!playable || !getEffectiveIsLive(playable, data)) continue;
+					data.comments = [];
+					if (targetPlayableRef.current?.playerID === playerID) {
+						syncTargetState(playerID);
+					}
+				}
+				if (targetPlayableRef.current) setWsStatus("disconnected");
+			}
 
+			const nextMiyouSignature = getMiyouSettingsSignature(settings);
+			if (nextMiyouSignature === miyouSettingsSignatureRef.current) return;
+			miyouSettingsSignatureRef.current = nextMiyouSignature;
+			clearMiyouAuth();
 			for (const [playerID, data] of playersDataRef.current.entries()) {
 				const playable = bridge.getPlayable(playerID);
-				if (!playable || !getEffectiveIsLive(playable, data)) continue;
-				data.comments = [];
+				if (!playable || getEffectiveIsLive(playable, data)) continue;
+				const manager = kakologManagersRef.current.get(playerID);
+				if (!settings.miyouEnabled) {
+					data.comments = manager
+						? manager.getAllComments()
+						: data.comments.filter((comment) => comment.origin !== "miyou");
+					if (targetPlayableRef.current?.playerID === playerID) {
+						syncTargetState(playerID);
+					}
+					continue;
+				}
+				if (data.replaySources.length === 0 || !manager) continue;
+				const currentPlayableId = playable.id;
+				const { duration } = getBaseTiming(playable);
+				void manager.refreshMiyou(duration).then((comments) => {
+					if (comments == null) return;
+					const latest = playersDataRef.current.get(playerID);
+					if (!latest || latest.playableId !== currentPlayableId) return;
+					latest.comments = comments;
+					if (targetPlayableRef.current?.playerID === playerID) {
+						syncTargetState(playerID);
+					}
+				});
 				if (targetPlayableRef.current?.playerID === playerID) {
 					syncTargetState(playerID);
 				}
 			}
-			if (targetPlayableRef.current) setWsStatus("disconnected");
 		};
 
 		void initializeSettings();
@@ -1164,7 +1207,26 @@ export default function App() {
 			});
 
 			mgr
-				.fetchMore(duration, { priorityTime })
+				.fetchMore(duration, {
+					priorityTime,
+					onPartialComments: (partialComments) => {
+						const latest = playersDataRef.current.get(playerID);
+						if (
+							!latest ||
+							latest.playableId !== currentPlayableId ||
+							latest.recordedCommentsLoadToken !== loadToken
+						) {
+							return;
+						}
+						latest.comments = partialComments;
+						if (latest.jkContext) {
+							latest.jkContext = withKakologSourceStates(latest.jkContext, mgr);
+						}
+						if (targetPlayableRef.current?.playerID === playerID) {
+							syncTargetState(playerID);
+						}
+					},
+				})
 				.then((comments) => {
 					const latest = playersDataRef.current.get(playerID);
 					if (

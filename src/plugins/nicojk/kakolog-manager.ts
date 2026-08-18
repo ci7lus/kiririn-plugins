@@ -5,6 +5,10 @@ import {
 import type { NiconicoComment } from "./comment-client";
 import { buildStableCommentId } from "./comment-id";
 import { fetchJson } from "./host-fetch";
+import {
+	convertMiyouComment,
+	fetchMiyouComments,
+} from "./miyou-comment-client";
 import { getSettings } from "./ng-settings";
 import type {
 	ResolvedCommentSource,
@@ -86,11 +90,19 @@ interface SourceFetchState {
 	source: ResolvedCommentSource;
 	applicableOffsets: number[];
 	fetchedOffsets: Set<number>;
+	niconicoFetchedOffsets: Set<number>;
+	miyouFetchedOffsets: Set<number>;
 	needsInitialFetch: boolean;
 	completed: boolean;
 	interrupted: boolean;
 	ignoreLimit: boolean;
 	commentCount: number;
+}
+
+interface SourceChunkFetchResult {
+	comments: NiconicoComment[];
+	niconicoFetched: boolean;
+	miyouFetched: boolean;
 }
 
 function sortAndDedupeComments(comments: NiconicoComment[]) {
@@ -143,6 +155,7 @@ export class KakologManager {
 	private batchStartCount = 0;
 	private batchLimit = MAX_FETCH_COMMENTS;
 	private isFetching = false;
+	private pendingMiyouRefresh = false;
 	private lastFetchDuration: number | null = null;
 	private interruptOffset: number | null = null;
 	private progressListener:
@@ -168,6 +181,7 @@ export class KakologManager {
 				source.startAt,
 				source.endAt,
 				source.programStartAt,
+				source.miyouChannel,
 			]),
 		);
 		if (this.sourceSignature === signature) {
@@ -188,6 +202,8 @@ export class KakologManager {
 			source,
 			applicableOffsets: [],
 			fetchedOffsets: new Set<number>(),
+			niconicoFetchedOffsets: new Set<number>(),
+			miyouFetchedOffsets: new Set<number>(),
 			needsInitialFetch: false,
 			completed: false,
 			interrupted: false,
@@ -198,6 +214,7 @@ export class KakologManager {
 		this.batchStartCount = 0;
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
+		this.pendingMiyouRefresh = false;
 		this.lastFetchDuration = null;
 		this.interruptOffset = null;
 		this.resetChapterCorrectionState();
@@ -241,6 +258,8 @@ export class KakologManager {
 				source,
 				applicableOffsets,
 				fetchedOffsets: new Set<number>(),
+				niconicoFetchedOffsets: new Set<number>(),
+				miyouFetchedOffsets: new Set<number>(),
 				needsInitialFetch: true,
 				completed: false,
 				interrupted: false,
@@ -264,6 +283,8 @@ export class KakologManager {
 		this.allComments = [];
 		for (const state of this.sourceStates) {
 			state.fetchedOffsets.clear();
+			state.niconicoFetchedOffsets.clear();
+			state.miyouFetchedOffsets.clear();
 			state.needsInitialFetch = false;
 			state.completed = false;
 			state.interrupted = false;
@@ -275,6 +296,7 @@ export class KakologManager {
 		this.batchStartCount = 0;
 		this.batchLimit = MAX_FETCH_COMMENTS;
 		this.isFetching = false;
+		this.pendingMiyouRefresh = false;
 		this.interruptOffset = null;
 		this.resetChapterCorrectionState();
 		this.resetProgress();
@@ -297,7 +319,123 @@ export class KakologManager {
 		return this.getSynchronizedComments();
 	}
 
+	/** 既取得のニコニココメントを残したまま、Miyou分だけ再取得する。 */
+	public async refreshMiyou(
+		duration: number,
+	): Promise<NiconicoComment[] | null> {
+		if (
+			this.sources.length === 0 ||
+			duration <= 0 ||
+			!getSettings().miyouEnabled
+		) {
+			return this.getSynchronizedComments();
+		}
+		if (this.isFetching) {
+			this.pendingMiyouRefresh = true;
+			return this.getSynchronizedComments();
+		}
+
+		const revision = this.fetchRevision;
+		const offsets = getChunkOffsets(duration);
+		const seenIds = new Set(this.allComments.map((comment) => comment.id));
+		this.lastFetchDuration = duration;
+		this.pendingMiyouRefresh = false;
+		this.isFetching = true;
+		try {
+			for (const state of this.sourceStates) {
+				const applicableOffsets = offsets.filter(
+					(offset) => offset < state.source.endAt - state.source.startAt,
+				);
+				state.applicableOffsets = applicableOffsets;
+				let hasMiyouFailure = false;
+				for (const offset of applicableOffsets) {
+					if (revision !== this.fetchRevision) return null;
+					const windowDuration = Math.min(
+						KAKOLOG_CHUNK_SIZE,
+						Math.max(duration - offset, 0),
+					);
+					if (windowDuration <= 0) continue;
+
+					const fetched = await this.fetchMiyouSourceChunk({
+						source: state.source,
+						sourceStart: Math.floor(state.source.startAt + offset),
+						sourceEnd: Math.floor(
+							Math.min(
+								state.source.startAt + offset + windowDuration,
+								state.source.endAt,
+								Math.floor(Date.now() / 60_000) * 60,
+							),
+						),
+						sourceOrdinal: state.sourceOrdinal,
+					});
+					if (revision !== this.fetchRevision) return null;
+					let addedCount = 0;
+					for (const comment of fetched.comments) {
+						if (seenIds.has(comment.id)) continue;
+						seenIds.add(comment.id);
+						this.allComments.push(comment);
+						addedCount += 1;
+					}
+					state.commentCount += addedCount;
+					this.totalFetched += addedCount;
+
+					if (fetched.success) {
+						state.miyouFetchedOffsets.add(offset);
+					} else {
+						// Miyou の失敗区間だけを次回の通常取得で再試行できるようにする。
+						state.miyouFetchedOffsets.delete(offset);
+						state.fetchedOffsets.delete(offset);
+						hasMiyouFailure = true;
+					}
+					if (
+						state.niconicoFetchedOffsets.has(offset) &&
+						state.miyouFetchedOffsets.has(offset)
+					) {
+						state.fetchedOffsets.add(offset);
+					} else {
+						state.fetchedOffsets.delete(offset);
+					}
+				}
+
+				state.completed =
+					state.fetchedOffsets.size >= state.applicableOffsets.length;
+				if (state.completed) {
+					state.interrupted = false;
+				} else if (hasMiyouFailure) {
+					state.interrupted = true;
+				}
+			}
+			if (revision === this.fetchRevision) {
+				this.interruptOffset = this.computeInterruptOffset();
+			}
+		} finally {
+			if (revision === this.fetchRevision) {
+				this.isFetching = false;
+			}
+		}
+
+		if (revision !== this.fetchRevision) return null;
+		if (this.pendingMiyouRefresh) {
+			this.pendingMiyouRefresh = false;
+			if (getSettings().miyouEnabled) {
+				return this.refreshMiyou(duration);
+			}
+		}
+
+		return this.getSynchronizedComments();
+	}
+
+	private async flushPendingMiyouRefresh(duration: number) {
+		if (!this.pendingMiyouRefresh) return;
+		this.pendingMiyouRefresh = false;
+		if (!getSettings().miyouEnabled) return;
+		await this.refreshMiyou(duration);
+	}
+
 	private getSynchronizedComments(): NiconicoComment[] {
+		const comments = getSettings().miyouEnabled
+			? this.allComments
+			: this.allComments.filter((comment) => comment.origin !== "miyou");
 		const settings = getSettings();
 		const disabledSourceOrdinals = new Set<number>();
 		for (const [sourceOrdinal, source] of this.sources.entries()) {
@@ -306,7 +444,7 @@ export class KakologManager {
 			}
 		}
 		const synchronized = synchronizeCommentSourcesByChapters(
-			this.allComments,
+			comments,
 			this.sources,
 			{
 				windowSeconds: settings.chapterWindowSeconds,
@@ -492,6 +630,9 @@ export class KakologManager {
 			priorityTime: options?.priorityTime,
 			onPartialComments: options?.onPartialComments,
 		});
+		if (revision === this.fetchRevision) {
+			await this.flushPendingMiyouRefresh(duration);
+		}
 
 		if (revision !== this.fetchRevision) return [];
 		return this.getSynchronizedComments();
@@ -499,7 +640,10 @@ export class KakologManager {
 
 	public async fetchMore(
 		duration: number,
-		options?: { priorityTime?: number },
+		options?: {
+			priorityTime?: number;
+			onPartialComments?: (comments: NiconicoComment[]) => void;
+		},
 	): Promise<NiconicoComment[]> {
 		if (this.sources.length === 0 || duration <= 0) return [];
 		if (this.isFetching) return this.getSynchronizedComments();
@@ -512,7 +656,11 @@ export class KakologManager {
 		await this.runFetchLoop(duration, {
 			priorityTime: options?.priorityTime,
 			forwardOnly: options?.priorityTime != null,
+			onPartialComments: options?.onPartialComments,
 		});
+		if (revision === this.fetchRevision) {
+			await this.flushPendingMiyouRefresh(duration);
+		}
 
 		if (revision !== this.fetchRevision) return [];
 		return this.getSynchronizedComments();
@@ -535,6 +683,9 @@ export class KakologManager {
 		await this.runFetchLoop(duration, {
 			singleSourceKey: sourceKey,
 		});
+		if (revision === this.fetchRevision) {
+			await this.flushPendingMiyouRefresh(duration);
+		}
 
 		if (revision !== this.fetchRevision) return [];
 		return this.getSynchronizedComments();
@@ -579,8 +730,6 @@ export class KakologManager {
 		};
 		this.emitProgress();
 
-		let partialEmitted = false;
-
 		for (const state of statesToProcess) {
 			if (revision !== this.fetchRevision) break;
 			if (state.completed) continue;
@@ -594,12 +743,16 @@ export class KakologManager {
 			for (const offset of orderedOffsets) {
 				if (revision !== this.fetchRevision) break;
 				if (state.fetchedOffsets.has(offset)) continue;
+				const fetchNiconico = !state.niconicoFetchedOffsets.has(offset);
+				const fetchMiyou =
+					this.shouldFetchMiyou(state.source) &&
+					!state.miyouFetchedOffsets.has(offset);
 
 				if (
 					!state.ignoreLimit &&
 					this.totalFetched - this.batchStartCount >= this.batchLimit
 				) {
-					this.finalizeFetchState();
+					this.finalizeFetchState(revision);
 					return;
 				}
 
@@ -608,6 +761,8 @@ export class KakologManager {
 					Math.max(duration - offset, 0),
 				);
 				if (windowDuration <= 0) {
+					state.niconicoFetchedOffsets.add(offset);
+					state.miyouFetchedOffsets.add(offset);
 					state.fetchedOffsets.add(offset);
 					continue;
 				}
@@ -625,34 +780,66 @@ export class KakologManager {
 						offset,
 						windowDuration,
 						sourceOrdinal: state.sourceOrdinal,
+						fetchNiconico,
+						fetchMiyou,
 					});
 
 					if (revision !== this.fetchRevision) break;
 
-					state.needsInitialFetch = false;
-					state.fetchedOffsets.add(offset);
-					state.commentCount += fetched.length;
-					this.allComments.push(...fetched);
-					this.totalFetched += fetched.length;
+					if (fetched.niconicoFetched) {
+						state.niconicoFetchedOffsets.add(offset);
+					}
+					if (fetched.miyouFetched) {
+						state.miyouFetchedOffsets.add(offset);
+					}
+					if (
+						state.niconicoFetchedOffsets.has(offset) &&
+						(!fetchMiyou || state.miyouFetchedOffsets.has(offset))
+					) {
+						state.fetchedOffsets.add(offset);
+					} else {
+						state.fetchedOffsets.delete(offset);
+					}
+
+					const existingIds = new Set(
+						this.allComments.map((comment) => comment.id),
+					);
+					const newComments = fetched.comments.filter((comment) => {
+						if (existingIds.has(comment.id)) return false;
+						existingIds.add(comment.id);
+						return true;
+					});
+					if (
+						(fetchNiconico && fetched.niconicoFetched) ||
+						(fetchMiyou && fetched.miyouFetched)
+					) {
+						state.needsInitialFetch = false;
+					}
+					state.commentCount += newComments.length;
+					this.allComments.push(...newComments);
+					this.totalFetched += newComments.length;
 
 					if (this.progressState) {
-						this.progressState.completedRequests += 1;
+						if (state.fetchedOffsets.has(offset)) {
+							this.progressState.completedRequests += 1;
+						}
 						this.progressState.fetchedComments = this.totalFetched;
 						this.emitProgress();
 					}
 
 					if (
-						!partialEmitted &&
 						!options.singleSourceKey &&
-						options.onPartialComments
+						options.onPartialComments &&
+						(newComments.length > 0 ||
+							fetched.niconicoFetched ||
+							fetched.miyouFetched)
 					) {
-						partialEmitted = true;
 						options.onPartialComments(this.getSynchronizedComments());
 					}
-				} catch (e) {
+				} catch (error) {
 					console.error(
 						`[Kakolog] Fetch failed for ${state.source.jkId} at offset ${offset}`,
-						e,
+						error,
 					);
 					// エラー時は fetchedOffsets に追加せず、次回再試行可能にする
 				}
@@ -669,15 +856,16 @@ export class KakologManager {
 				!state.ignoreLimit &&
 				this.totalFetched - this.batchStartCount >= this.batchLimit
 			) {
-				this.finalizeFetchState();
+				this.finalizeFetchState(revision);
 				return;
 			}
 		}
 
-		this.finalizeFetchState();
+		this.finalizeFetchState(revision);
 	}
 
-	private finalizeFetchState(): void {
+	private finalizeFetchState(revision: number): void {
+		if (revision !== this.fetchRevision) return;
 		this.interruptOffset = this.computeInterruptOffset();
 		const hasUnfetched = this.interruptOffset != null;
 		for (const state of this.sourceStates) {
@@ -768,13 +956,26 @@ export class KakologManager {
 		this.emitProgress();
 	}
 
+	private shouldFetchMiyou(source: ResolvedCommentSource): boolean {
+		return Boolean(source.miyouChannel && getSettings().miyouEnabled);
+	}
+
 	private async fetchSourceChunk(params: {
 		source: ResolvedCommentSource;
 		offset: number;
 		windowDuration: number;
 		sourceOrdinal: number;
-	}): Promise<NiconicoComment[]> {
-		const { source, offset, windowDuration, sourceOrdinal } = params;
+		fetchNiconico: boolean;
+		fetchMiyou: boolean;
+	}): Promise<SourceChunkFetchResult> {
+		const {
+			source,
+			offset,
+			windowDuration,
+			sourceOrdinal,
+			fetchNiconico,
+			fetchMiyou,
+		} = params;
 		const sourceStart = Math.floor(source.startAt + offset);
 		// 過去ログ API の終端は現在時刻の分開始（秒=0）を超えないようにする。
 		const currentMinuteStart = Math.floor(Date.now() / 60_000) * 60;
@@ -782,69 +983,149 @@ export class KakologManager {
 			Math.min(sourceStart + windowDuration, source.endAt, currentMinuteStart),
 		);
 		if (sourceStart >= sourceEnd) {
-			return [];
+			return {
+				comments: [],
+				niconicoFetched: true,
+				miyouFetched: true,
+			};
 		}
 
-		console.log(
-			`[Kakolog] Fetching ${source.jkId}: offset=${offset} (${new Date(sourceStart * 1000).toLocaleString()})`,
-		);
-		const url = new URL(
-			`https://jikkyo.tsukumijima.net/api/kakolog/${source.jkId}`,
-		);
-		url.searchParams.set("format", "json");
-		url.searchParams.set("starttime", String(sourceStart));
-		url.searchParams.set("endtime", String(sourceEnd));
-
-		const data = await fetchJson<KakologResponse | { error: string }>(url);
-		if ("error" in data) {
-			console.error("[Kakolog] API Error", data.error);
-			return [];
+		if (fetchNiconico || fetchMiyou) {
+			console.log(
+				`[Kakolog] Fetching ${source.jkId}: offset=${offset} (${new Date(sourceStart * 1000).toLocaleString()})`,
+			);
 		}
 
-		const newComments: NiconicoComment[] = data.packet.flatMap((p) => {
-			const c = p.chat;
-			if (!c) return [];
+		let niconicoComments: NiconicoComment[] = [];
+		let niconicoFetched = !fetchNiconico;
+		if (fetchNiconico) {
+			const url = new URL(
+				`https://jikkyo.tsukumijima.net/api/kakolog/${source.jkId}`,
+			);
+			url.searchParams.set("format", "json");
+			url.searchParams.set("starttime", String(sourceStart));
+			url.searchParams.set("endtime", String(sourceEnd));
 
-			const date = parseInt(c.date, 10);
-			const date_usec = parseInt(c.date_usec || "0", 10);
-			const no = parseInt(c.no, 10);
-			const primarySource = this.sources[0];
-			let vpos: number;
-			if (primarySource && sourceOrdinal > 0) {
-				const relativeTime =
-					date +
-					date_usec / 1_000_000 -
-					(source.programStartAt ?? source.startAt);
-				const masterBaseTime =
-					primarySource.programStartAt ?? primarySource.startAt;
-				vpos = Math.floor((masterBaseTime + relativeTime) * 100);
-			} else {
-				vpos = Math.floor((date + date_usec / 1_000_000) * 100);
+			try {
+				const data = await fetchJson<KakologResponse | { error: string }>(url);
+				if ("error" in data) {
+					console.error("[Kakolog] API Error", data.error);
+				} else {
+					niconicoComments = data.packet.flatMap((p) => {
+						const c = p.chat;
+						if (!c) return [];
+
+						const date = parseInt(c.date, 10);
+						const date_usec = parseInt(c.date_usec || "0", 10);
+						const no = parseInt(c.no, 10);
+						const primarySource = this.sources[0];
+						let vpos: number;
+						if (primarySource && sourceOrdinal > 0) {
+							const relativeTime =
+								date +
+								date_usec / 1_000_000 -
+								(source.programStartAt ?? source.startAt);
+							const masterBaseTime =
+								primarySource.programStartAt ?? primarySource.startAt;
+							vpos = Math.floor((masterBaseTime + relativeTime) * 100);
+						} else {
+							vpos = Math.floor((date + date_usec / 1_000_000) * 100);
+						}
+
+						return [
+							{
+								id: buildStableCommentId({
+									seconds: date,
+									microseconds: date_usec,
+									no,
+									sourceOrdinal,
+								}),
+								no,
+								vpos,
+								content: c.content,
+								date,
+								date_usec,
+								mail: c.mail?.split(" ") || [],
+								user_id: c.user_id,
+								premium: parseInt(c.premium || "0", 10),
+								anonymity: parseInt(c.anonymity || "0", 10),
+								origin: "ws" as const,
+								sourceOrdinal,
+							},
+						];
+					});
+				}
+				niconicoFetched = true;
+			} catch (error) {
+				console.error(
+					`[Kakolog] NicoNico fetch failed for ${source.jkId}`,
+					error,
+				);
 			}
+		}
 
-			return [
-				{
-					id: buildStableCommentId({
-						seconds: date,
-						microseconds: date_usec,
-						no,
-						sourceOrdinal,
-					}),
-					no,
-					vpos,
-					content: c.content,
-					date,
-					date_usec,
-					mail: c.mail?.split(" ") || [],
-					user_id: c.user_id,
-					premium: parseInt(c.premium || "0", 10),
-					anonymity: parseInt(c.anonymity || "0", 10),
-					origin: "ws",
-					sourceOrdinal,
-				},
-			];
-		});
+		let miyouComments: NiconicoComment[] = [];
+		let miyouFetched = !fetchMiyou;
+		if (fetchMiyou) {
+			const fetched = await this.fetchMiyouSourceChunk({
+				source,
+				sourceStart,
+				sourceEnd,
+				sourceOrdinal,
+			});
+			miyouComments = fetched.comments;
+			miyouFetched = fetched.success;
+		}
 
-		return newComments;
+		return {
+			comments: [...niconicoComments, ...miyouComments],
+			niconicoFetched,
+			miyouFetched,
+		};
+	}
+
+	private async fetchMiyouSourceChunk(params: {
+		source: ResolvedCommentSource;
+		sourceStart: number;
+		sourceEnd: number;
+		sourceOrdinal: number;
+	}): Promise<{ comments: NiconicoComment[]; success: boolean }> {
+		const { source, sourceStart, sourceEnd, sourceOrdinal } = params;
+		if (!source.miyouChannel || !getSettings().miyouEnabled) {
+			return { comments: [], success: true };
+		}
+
+		const comments: NiconicoComment[] = [];
+		let success = true;
+		// Miyou の既存クライアントと同じく、5ch API は 10 分単位で取得する。
+		for (let start = sourceStart; start < sourceEnd; start += 600) {
+			const end = Math.min(start + 600, sourceEnd);
+			try {
+				const fetched = await fetchMiyouComments({
+					channel: source.miyouChannel,
+					start,
+					end,
+				});
+				comments.push(
+					...fetched.map((comment) =>
+						convertMiyouComment(
+							comment,
+							source,
+							sourceOrdinal,
+							this.sources[0] || source,
+						),
+					),
+				);
+			} catch (error) {
+				success = false;
+				// 5ch は追加ソースなので、認証切れや API 障害でニコニコ取得を失敗させない。
+				console.error(
+					`[Kakolog] Miyou fetch failed for ${source.miyouChannel} (${start}-${end})`,
+					error,
+				);
+			}
+		}
+
+		return { comments, success };
 	}
 }

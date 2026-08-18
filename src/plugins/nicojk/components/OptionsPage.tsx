@@ -93,6 +93,10 @@ export default function OptionsPage() {
 	const [newWord, setNewWord] = useState("");
 	const [newId, setNewId] = useState("");
 	const [newCommand, setNewCommand] = useState("");
+	const [miyouEmail, setMiyouEmail] = useState(initialSettings.miyouEmail);
+	const [miyouPassword, setMiyouPassword] = useState(
+		initialSettings.miyouPassword,
+	);
 	const [numericDrafts, setNumericDrafts] = useState<NumericSettingDrafts>(() =>
 		buildNumericDrafts(initialSettings),
 	);
@@ -429,6 +433,69 @@ export default function OptionsPage() {
 							</span>
 						</label>
 					</div>
+					<form
+						className="mb-4 rounded-md border border-gray-700 bg-[#1f1f1f] p-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							syncSettings(
+								saveSettings({
+									...settings,
+									miyouEmail: miyouEmail.trim(),
+									miyouPassword,
+								}),
+							);
+						}}
+					>
+						<label className="flex items-center gap-2 text-sm text-gray-100">
+							<input
+								type="checkbox"
+								checked={settings.miyouEnabled}
+								onChange={() =>
+									syncSettings(
+										saveSettings({
+											...settings,
+											miyouEnabled: !settings.miyouEnabled,
+										}),
+									)
+								}
+								className="form-checkbox h-5 w-5 shrink-0"
+							/>
+							5chログを取得する
+						</label>
+						<p className="mt-2 text-xs leading-relaxed text-gray-400">
+							過去ログ再生時にMiyouから5ch実況ログを取得します。利用にはモリタポアカウントが必要です。
+						</p>
+						<div className="mt-3 grid gap-3 sm:grid-cols-2">
+							<label className="flex flex-col gap-2">
+								<span className="text-sm text-gray-200">
+									モリタポのメールアドレス
+								</span>
+								<input
+									type="email"
+									value={miyouEmail}
+									onChange={(event) => setMiyouEmail(event.target.value)}
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
+								/>
+							</label>
+							<label className="flex flex-col gap-2">
+								<span className="text-sm text-gray-200">
+									モリタポのパスワード
+								</span>
+								<input
+									type="password"
+									value={miyouPassword}
+									onChange={(event) => setMiyouPassword(event.target.value)}
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
+								/>
+							</label>
+						</div>
+						<button
+							type="submit"
+							className="mt-3 rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500"
+						>
+							5ch設定を保存
+						</button>
+					</form>
 					<div className="grid gap-3 sm:grid-cols-2">
 						{NUMERIC_SETTING_FIELDS.map((field) => (
 							<label

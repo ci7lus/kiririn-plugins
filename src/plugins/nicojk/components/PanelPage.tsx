@@ -217,15 +217,38 @@ export default function PanelPage({
 	const activeSearchResultNumber =
 		activeSearchCommentIndex >= 0 ? activeSearchMatchIndex + 1 : 0;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
-	const fetchedCommentCount = Math.max(
-		comments.length,
-		channelDisplayState.fetchedCommentCount,
-	);
+	const commentOriginCounts = useMemo(() => {
+		let niconico = 0;
+		let miyou = 0;
+		for (const comment of comments) {
+			if (comment.origin === "miyou") {
+				miyou += 1;
+			} else {
+				niconico += 1;
+			}
+		}
+		return { niconico, miyou, total: niconico + miyou };
+	}, [comments]);
+	const fetchedCommentCount = commentOriginCounts.total;
 	const sourceCommentCounts = useMemo(() => {
-		const counts = new Map<number, number>();
+		const counts = new Map<
+			number,
+			{ niconico: number; miyou: number; total: number }
+		>();
 		for (const comment of comments) {
 			const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-			counts.set(sourceOrdinal, (counts.get(sourceOrdinal) || 0) + 1);
+			const sourceCounts = counts.get(sourceOrdinal) || {
+				niconico: 0,
+				miyou: 0,
+				total: 0,
+			};
+			if (comment.origin === "miyou") {
+				sourceCounts.miyou += 1;
+			} else {
+				sourceCounts.niconico += 1;
+			}
+			sourceCounts.total += 1;
+			counts.set(sourceOrdinal, sourceCounts);
 		}
 		return counts;
 	}, [comments]);
@@ -691,6 +714,13 @@ export default function PanelPage({
 											{statusText}
 										</div>
 									)}
+									{!isLive && (
+										<div className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-gray-400">
+											{fetchedCommentCount}件 (ニコニコ{" "}
+											{commentOriginCounts.niconico}件, miyou{" "}
+											{commentOriginCounts.miyou}件)
+										</div>
+									)}
 									{channelDisplayState.isLoading && (
 										<div
 											className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-gray-500 border-t-transparent"
@@ -840,7 +870,12 @@ export default function PanelPage({
 										}`}
 									>
 										<div className="flex w-8 shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
-											<span>{c.no}</span>
+											<span
+												className="block w-full truncate"
+												title={String(c.no)}
+											>
+												{c.no}
+											</span>
 											{!isLive && (
 												<span className="mt-0.5 text-[8px] text-gray-600">
 													{formatPlaybackTime(c.vpos)}
@@ -1293,8 +1328,9 @@ export default function PanelPage({
 					{!isLive && (
 						<div className="mb-2 flex justify-between text-sm">
 							<span className="text-gray-400">取得コメント数</span>
-							<span className="tabular-nums text-blue-300">
-								{fetchedCommentCount}件
+							<span className="text-right tabular-nums text-blue-300">
+								{fetchedCommentCount}件 (ニコニコ {commentOriginCounts.niconico}
+								件, miyou {commentOriginCounts.miyou}件)
 							</span>
 						</div>
 					)}
@@ -1321,7 +1357,11 @@ export default function PanelPage({
 									</div>
 									<div className="space-y-2 text-xs">
 										{jkContext.sources.map((source, index) => {
-											const sourceCount = sourceCommentCounts.get(index) || 0;
+											const sourceCounts = sourceCommentCounts.get(index) || {
+												niconico: 0,
+												miyou: 0,
+												total: 0,
+											};
 											const isSourceVisible = isSourceKeyVisible(
 												visibleSourceKeys,
 												source.key,
@@ -1363,8 +1403,14 @@ export default function PanelPage({
 																{source.channelName} ({source.jkId})
 															</span>
 															{!isLive && (
-																<span className="shrink-0 text-gray-500">
-																	{sourceCount}件
+																<span className="shrink-0 text-right text-[10px] leading-tight text-gray-500">
+																	<span className="block tabular-nums">
+																		{sourceCounts.total}件
+																	</span>
+																	<span className="block whitespace-nowrap text-[9px] tabular-nums">
+																		(ニコニコ {sourceCounts.niconico}件, miyou{" "}
+																		{sourceCounts.miyou}件)
+																	</span>
 																</span>
 															)}
 															{isInterrupted && (

@@ -24,6 +24,9 @@ export interface NicoJKSettings {
 	chapterMinimumCount: number;
 	chapterSeekLeadSeconds: number;
 	hideSecondarySourceComments: boolean;
+	miyouEnabled: boolean;
+	miyouEmail: string;
+	miyouPassword: string;
 }
 
 export const STORAGE_KEY = "nicojk_settings";
@@ -42,6 +45,9 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	chapterMinimumCount: 3,
 	chapterSeekLeadSeconds: 5,
 	hideSecondarySourceComments: false,
+	miyouEnabled: false,
+	miyouEmail: "",
+	miyouPassword: "",
 };
 
 let settingsCache = DEFAULT_SETTINGS;
@@ -141,6 +147,18 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 			typeof stored.hideSecondarySourceComments === "boolean"
 				? stored.hideSecondarySourceComments
 				: DEFAULT_SETTINGS.hideSecondarySourceComments,
+		miyouEnabled:
+			typeof stored.miyouEnabled === "boolean"
+				? stored.miyouEnabled
+				: DEFAULT_SETTINGS.miyouEnabled,
+		miyouEmail:
+			typeof stored.miyouEmail === "string"
+				? stored.miyouEmail
+				: DEFAULT_SETTINGS.miyouEmail,
+		miyouPassword:
+			typeof stored.miyouPassword === "string"
+				? stored.miyouPassword
+				: DEFAULT_SETTINGS.miyouPassword,
 	};
 }
 
