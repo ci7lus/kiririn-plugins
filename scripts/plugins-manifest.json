@@ -11,7 +11,7 @@
 			"manifest": {
 				"name": "Kiririn Plugin Example",
 				"identifier": "io.github.ci7lus.kiririn-plugins.example",
-				"version": "0.2.0",
+				"version": "0.3.0",
 				"author": "ci7lus",
 				"homepageURL": "https://github.com/ci7lus/kiririn-plugins",
 				"permissions": ["storage"],
@@ -33,7 +33,7 @@
 			"manifest": {
 				"name": "NicoJK",
 				"identifier": "io.github.ci7lus.kiririn-plugins.nicojk",
-				"version": "0.2.0",
+				"version": "0.3.0",
 				"author": "ci7lus",
 				"homepageURL": "https://github.com/ci7lus/kiririn-plugins",
 				"permissions": ["storage"],
