@@ -1358,7 +1358,7 @@ export default function PanelPage({
 								<button
 									type="button"
 									onClick={onReloadRecordedComments}
-									disabled={!hasActivePlayer}
+									disabled={!hasActivePlayer || channelDisplayState.isLoading}
 									className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
 									title="コメントを最初から再取得"
 									aria-label="コメントを最初から再取得"
