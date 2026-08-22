@@ -581,6 +581,7 @@ interface OverlaySnapshot {
 
 type OverlayRelayMessage =
 	| { type: "requestSnapshot" }
+	| { type: "reloadRecordedComments" }
 	| { type: "setVisibleSourceKeys"; payload: { sourceKeys: string[] | null } }
 	| {
 			type: "setChapterCorrectionEnabled";
@@ -871,6 +872,12 @@ export default function App() {
 		[],
 	);
 
+	const handleReloadRecordedComments = useCallback(() => {
+		panelRelayChannelRef.current?.postMessage({
+			type: "reloadRecordedComments",
+		} satisfies OverlayRelayMessage);
+	}, []);
+
 	useEffect(() => {
 		if (area?.type !== "overlay" || !overlayPlayerId) return;
 		const playerID = overlayPlayerId;
@@ -894,6 +901,45 @@ export default function App() {
 		};
 		channel.onmessage = (event: MessageEvent<OverlayRelayMessage>) => {
 			if (event.data.type === "requestSnapshot") {
+				postSnapshot();
+				return;
+			}
+
+			if (event.data.type === "reloadRecordedComments") {
+				const data = playersDataRef.current.get(playerID);
+				if (!data) {
+					return;
+				}
+
+				pendingResumeRef.current.delete(playerID);
+				const manager = kakologManagersRef.current.get(playerID);
+				manager?.setProgressListener(null);
+				manager?.clearCache();
+				resetRecordedCommentsState(data);
+				if (manager && data.jkContext) {
+					data.jkContext = withKakologSourceStates(data.jkContext, manager);
+				}
+
+				if (targetPlayableRef.current?.playerID === playerID) {
+					const currentPlayable = targetPlayableRef.current;
+					const isLive = getEffectiveIsLive(currentPlayable, data);
+					const nextDisplayState = getChannelDisplayState(
+						currentPlayable,
+						data,
+					);
+					commentsRef.current = data.comments;
+					jkContextRef.current = data.jkContext;
+					channelDisplayStateRef.current = nextDisplayState;
+					interruptedSourcesRef.current = data.interruptedSources;
+					overlayIsLiveRef.current = isLive;
+					setComments(data.comments);
+					setJkContext(data.jkContext);
+					setChannelDisplayState(nextDisplayState);
+					setHasDisplayCandidates(getHasDisplayCandidates(data, isLive));
+					setRecordedCommentsReady(false);
+					setIsLoadingRecordedComments(false);
+					setInterruptedSources(data.interruptedSources);
+				}
 				postSnapshot();
 				return;
 			}
@@ -2080,6 +2126,7 @@ export default function App() {
 					comments={comments}
 					visibleSourceKeys={visibleSourceKeys}
 					onVisibleSourceKeysChange={handleVisibleSourceKeysChange}
+					onReloadRecordedComments={handleReloadRecordedComments}
 					onResumeSource={handleResumeSource}
 					onChapterCorrectionEnabledChange={
 						handleChapterCorrectionEnabledChange

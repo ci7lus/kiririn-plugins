@@ -47,6 +47,7 @@ interface Props {
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
+	onReloadRecordedComments: () => void;
 	onResumeSource: (sourceKey: string) => void;
 	onChapterCorrectionEnabledChange: (
 		sourceKey: string,
@@ -96,6 +97,7 @@ export default function PanelPage({
 	comments,
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
+	onReloadRecordedComments,
 	onResumeSource,
 	onChapterCorrectionEnabledChange,
 	isLive,
@@ -1349,9 +1351,21 @@ export default function PanelPage({
 					{!isLive && (
 						<div className="mb-3 flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-baseline sm:justify-between">
 							<span className="shrink-0 text-gray-400">取得コメント数</span>
-							<span className="min-w-0 wrap-break-word tabular-nums text-blue-300 sm:text-right">
-								{fetchedCommentCount}件
-							</span>
+							<div className="flex min-w-0 items-center gap-1 sm:justify-end">
+								<span className="min-w-0 wrap-break-word tabular-nums text-blue-300 sm:text-right">
+									{fetchedCommentCount}件
+								</span>
+								<button
+									type="button"
+									onClick={onReloadRecordedComments}
+									disabled={!hasActivePlayer}
+									className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+									title="コメントを最初から再取得"
+									aria-label="コメントを最初から再取得"
+								>
+									<RotateCw size={14} />
+								</button>
+							</div>
 						</div>
 					)}
 					<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
