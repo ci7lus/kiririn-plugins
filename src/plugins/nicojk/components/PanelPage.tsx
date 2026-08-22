@@ -1397,7 +1397,7 @@ export default function PanelPage({
 												total: 0,
 											};
 											const sourceOrigins: CommentSourceOrigin[] =
-												source.miyouChannel
+												!isLive && source.miyouChannel
 													? COMMENT_SOURCE_ORIGINS
 													: ["niconico"];
 											const sourceFeedKeys = sourceOrigins.map((origin) =>
