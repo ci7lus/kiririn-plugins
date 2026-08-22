@@ -105,8 +105,32 @@ interface SourceChunkFetchResult {
 	miyouFetched: boolean;
 }
 
+function getMiyouDuplicateKey(comment: NiconicoComment): string | null {
+	if (comment.origin !== "miyou") {
+		return null;
+	}
+
+	return `${Math.max(comment.sourceOrdinal || 0, 0)}\u0000${comment.no}\u0000${comment.content}`;
+}
+
+export function dedupeMiyouComments(comments: NiconicoComment[]) {
+	const miyouKeys = new Set<string>();
+	return comments.filter((comment) => {
+		const key = getMiyouDuplicateKey(comment);
+		if (!key) {
+			return true;
+		}
+		if (miyouKeys.has(key)) {
+			return false;
+		}
+		miyouKeys.add(key);
+		return true;
+	});
+}
+
 function sortAndDedupeComments(comments: NiconicoComment[]) {
-	const sorted = [...comments].sort(
+	const miyouDeduped = dedupeMiyouComments(comments);
+	const sorted = [...miyouDeduped].sort(
 		(a, b) =>
 			a.vpos - b.vpos ||
 			a.date - b.date ||
@@ -338,6 +362,11 @@ export class KakologManager {
 		const revision = this.fetchRevision;
 		const offsets = getChunkOffsets(duration);
 		const seenIds = new Set(this.allComments.map((comment) => comment.id));
+		const seenMiyouKeys = new Set(
+			this.allComments
+				.map(getMiyouDuplicateKey)
+				.filter((key): key is string => key !== null),
+		);
 		this.lastFetchDuration = duration;
 		this.pendingMiyouRefresh = false;
 		this.isFetching = true;
@@ -372,7 +401,10 @@ export class KakologManager {
 					let addedCount = 0;
 					for (const comment of fetched.comments) {
 						if (seenIds.has(comment.id)) continue;
+						const miyouKey = getMiyouDuplicateKey(comment);
+						if (miyouKey && seenMiyouKeys.has(miyouKey)) continue;
 						seenIds.add(comment.id);
+						if (miyouKey) seenMiyouKeys.add(miyouKey);
 						this.allComments.push(comment);
 						addedCount += 1;
 					}
@@ -804,9 +836,19 @@ export class KakologManager {
 					const existingIds = new Set(
 						this.allComments.map((comment) => comment.id),
 					);
+					const existingMiyouKeys = new Set(
+						this.allComments
+							.map(getMiyouDuplicateKey)
+							.filter((key): key is string => key !== null),
+					);
 					const newComments = fetched.comments.filter((comment) => {
 						if (existingIds.has(comment.id)) return false;
+						const miyouKey = getMiyouDuplicateKey(comment);
+						if (miyouKey && existingMiyouKeys.has(miyouKey)) {
+							return false;
+						}
 						existingIds.add(comment.id);
+						if (miyouKey) existingMiyouKeys.add(miyouKey);
 						return true;
 					});
 					if (

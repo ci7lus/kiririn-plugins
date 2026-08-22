@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { synchronizeCommentSourcesByChapters } from "../src/plugins/nicojk/chapter-source-sync";
 import type { NiconicoComment } from "../src/plugins/nicojk/comment-client";
-import { KakologManager } from "../src/plugins/nicojk/kakolog-manager";
+import {
+	dedupeMiyouComments,
+	KakologManager,
+} from "../src/plugins/nicojk/kakolog-manager";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
 const START_AT = 1_700_000_000;
@@ -182,6 +185,42 @@ test("無効化したソースは補正状態を残したまま vpos へ適用�
 			.filter((item) => item.sourceOrdinal === 0)
 			.map((item) => item.vpos),
 		primaryChapter.map((item) => item.vpos),
+	);
+});
+
+test("Miyou は同一ソースの No と内容が同じコメントだけ先頭を残す", () => {
+	const first = {
+		id: 1,
+		no: 10,
+		vpos: 100,
+		content: "同じ内容",
+		date: START_AT,
+		date_usec: 0,
+		mail: [],
+		user_id: "livebs2/1786714281/0911",
+		premium: 0,
+		anonymity: 1,
+		origin: "miyou" as const,
+		sourceOrdinal: 0,
+	};
+	const duplicate = {
+		...first,
+		id: 2,
+		user_id: "livebs2/1786714281/0912",
+	};
+	const differentNo = { ...first, id: 3, no: 11 };
+	const differentSource = { ...first, id: 4, sourceOrdinal: 1 };
+	const niconico = { ...first, id: 5, origin: "ws" as const };
+
+	assert.deepEqual(
+		dedupeMiyouComments([
+			first,
+			duplicate,
+			differentNo,
+			differentSource,
+			niconico,
+		]),
+		[first, differentNo, differentSource, niconico],
 	);
 });
 
