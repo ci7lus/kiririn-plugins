@@ -12,6 +12,7 @@ import {
 	type NiconicoComment,
 } from "./comment-client";
 import { buildStableCommentId } from "./comment-id";
+import { getCommentSourceKeys } from "./comment-source";
 import OptionsPage from "./components/OptionsPage";
 import OverlayPage from "./components/OverlayPage";
 import PanelPage from "./components/PanelPage";
@@ -149,6 +150,7 @@ function toContextSource(
 		jkId: source.jkId,
 		channelName: source.channelName,
 		kind: source.kind,
+		miyouChannel: source.miyouChannel,
 		startAt: source.startAt,
 		endAt: source.endAt,
 		interrupted,
@@ -210,10 +212,17 @@ function normalizeVisibleSourceKeys(
 		return visibleSourceKeys;
 	}
 
-	const availableSourceKeys = jkContext.sources.map((source) => source.key);
-	const normalizedSourceKeys = availableSourceKeys.filter((sourceKey) =>
-		visibleSourceKeys.includes(sourceKey),
-	);
+	const availableSourceKeys = getCommentSourceKeys(jkContext);
+	const normalizedSourceKeys = availableSourceKeys.filter((sourceKey) => {
+		if (visibleSourceKeys.includes(sourceKey)) {
+			return true;
+		}
+
+		// Older in-memory states stored the channel-level key. Treat it as
+		// selecting every feed belonging to that channel during migration.
+		const channelSourceKey = sourceKey.split("::")[0];
+		return visibleSourceKeys.includes(channelSourceKey);
+	});
 
 	return normalizedSourceKeys.length === availableSourceKeys.length
 		? null

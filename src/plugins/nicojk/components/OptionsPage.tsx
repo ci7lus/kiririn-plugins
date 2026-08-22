@@ -253,6 +253,38 @@ export default function OptionsPage() {
 					</div>
 				</div>
 
+				{/* Comment Processing Settings */}
+				<div className="rounded-lg bg-[#252525] p-4 shadow-lg">
+					<div className="mb-4 flex items-center gap-2 text-indigo-400">
+						<Sliders size={20} />
+						<h3 className="font-bold">コメント処理設定</h3>
+					</div>
+					<label className="flex items-start gap-2 rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<input
+							type="checkbox"
+							checked={settings.showResponseAnchorComments}
+							onChange={() =>
+								syncSettings(
+									saveSettings({
+										...settings,
+										showResponseAnchorComments:
+											!settings.showResponseAnchorComments,
+									}),
+								)
+							}
+							className="form-checkbox mt-0.5 h-5 w-5 shrink-0"
+						/>
+						<span>
+							<span className="block text-sm font-medium text-gray-100">
+								処理後アンカーコメントを表示する
+							</span>
+							<span className="mt-1 block text-xs leading-relaxed text-gray-400">
+								レスアンカー（&gt;&gt;123など）を含むコメントをレンダラーに表示します。初期状態では非表示です。
+							</span>
+						</span>
+					</label>
+				</div>
+
 				{/* NG Settings */}
 				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
 					<div className="flex items-center gap-2 mb-6 text-red-400">
@@ -399,7 +431,7 @@ export default function OptionsPage() {
 					</div>
 				</div>
 
-				{/* Tuning Settings */}
+				{/* Comment Acquisition Settings */}
 				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
 					<div className="flex items-center gap-2 mb-4 text-indigo-400">
 						<Sliders size={20} />
@@ -496,6 +528,14 @@ export default function OptionsPage() {
 							5ch設定を保存
 						</button>
 					</form>
+				</div>
+
+				{/* Chapter Settings */}
+				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
+					<div className="flex items-center gap-2 mb-4 text-indigo-400">
+						<Sliders size={20} />
+						<h3 className="font-bold">チャプター設定</h3>
+					</div>
 					<div className="grid gap-3 sm:grid-cols-2">
 						{NUMERIC_SETTING_FIELDS.map((field) => (
 							<label

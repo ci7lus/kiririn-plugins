@@ -10,8 +10,11 @@ const URL_PATTERN =
  * レスアンカーを含むコメントは会話の一部だけになりやすいため、
  * Panel の元データは残したまま、レンダラーでは既定で除外する。
  */
-export function formatRendererCommentContent(content: string): string | null {
-	if (RESPONSE_ANCHOR_PATTERN.test(content)) {
+export function formatRendererCommentContent(
+	content: string,
+	options: { showResponseAnchors?: boolean } = {},
+): string | null {
+	if (!options.showResponseAnchors && RESPONSE_ANCHOR_PATTERN.test(content)) {
 		return null;
 	}
 

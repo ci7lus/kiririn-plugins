@@ -5,6 +5,7 @@ export interface NicoJKSourceContext {
 	jkId: string;
 	channelName: string;
 	kind: NicoJKSourceKind;
+	miyouChannel?: string;
 	startAt: number;
 	endAt: number;
 	interrupted?: boolean;

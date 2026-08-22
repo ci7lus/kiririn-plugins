@@ -4,6 +4,7 @@ import NiconiComments, {
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import type { NiconicoComment } from "../comment-client";
+import { getCommentSourceKeyForComment } from "../comment-source";
 import type { NicoJKContext } from "../context";
 import {
 	getSettings,
@@ -54,14 +55,6 @@ function getSegmentComments(
 	);
 }
 
-function getCommentSourceKey(
-	comment: NiconicoComment,
-	jkContext: NicoJKContext | null,
-) {
-	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-	return jkContext?.sources[sourceOrdinal]?.key || null;
-}
-
 function isCommentVisibleForSource(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
@@ -71,7 +64,7 @@ function isCommentVisibleForSource(
 		return true;
 	}
 
-	const sourceKey = getCommentSourceKey(comment, jkContext);
+	const sourceKey = getCommentSourceKeyForComment(comment, jkContext);
 	return sourceKey != null && visibleSourceKeys.includes(sourceKey);
 }
 
@@ -84,6 +77,7 @@ function getFilterSignature(
 		ngIds: settings.ngIds,
 		ngCommands: settings.ngCommands,
 		secondarySourceOpacity: settings.secondarySourceOpacity,
+		showResponseAnchorComments: settings.showResponseAnchorComments,
 		visibleSourceKeys,
 	});
 }
@@ -167,7 +161,9 @@ function toFormattedComment(
 		return null;
 	}
 
-	const content = formatRendererCommentContent(comment.content);
+	const content = formatRendererCommentContent(comment.content, {
+		showResponseAnchors: settings.showResponseAnchorComments,
+	});
 	if (content == null) {
 		return null;
 	}
