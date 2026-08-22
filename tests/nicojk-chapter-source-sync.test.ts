@@ -269,6 +269,49 @@ test("取得後に追加されたソースも次の取得で読み込む", async
 	}
 });
 
+test("過去ログAPIのエラー応答を取得済み扱いにせず再試行する", async () => {
+	const originalFetch = globalThis.fetch;
+	let replayAttempts = 0;
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		const jkId = url.pathname.split("/").pop() || "";
+		if (jkId === "jk2" && replayAttempts++ === 0) {
+			return Response.json({ error: "temporary API error" });
+		}
+		const sourceStartAt = jkId === "jk1" ? START_AT : START_AT + 86400;
+		return Response.json({
+			packet: [
+				{
+					chat: apiComment(sourceStartAt, 30, jkId, 1),
+				},
+			],
+		});
+	};
+
+	try {
+		const manager = new KakologManager();
+		manager.setSources(SOURCES);
+
+		const firstComments = await manager.fetchWithLimit(1800);
+		assert.equal(
+			firstComments.some((item) => item.sourceOrdinal === 1),
+			false,
+		);
+		assert.equal(manager.hasPendingInitialSourceFetch(), true);
+		assert.equal(manager.isFullyCompleted(), false);
+
+		const retriedComments = await manager.fetchWithLimit(1800);
+		assert.equal(
+			retriedComments.find((item) => item.sourceOrdinal === 1)?.content,
+			"jk2",
+		);
+		assert.equal(replayAttempts, 2);
+		assert.equal(manager.hasPendingInitialSourceFetch(), false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 function chapterApiComments(
 	sourceStartAt: number,
 	relativeSec: number,

@@ -810,10 +810,13 @@ export class KakologManager {
 						return true;
 					});
 					if (
-						(fetchNiconico && fetched.niconicoFetched) ||
-						(fetchMiyou && fetched.miyouFetched)
+						(!fetchNiconico || fetched.niconicoFetched) &&
+						(!fetchMiyou || fetched.miyouFetched)
 					) {
 						state.needsInitialFetch = false;
+					} else if (state.fetchedOffsets.size === 0) {
+						// 初回チャンクで失敗したソースは、次の取得ループで再試行する。
+						state.needsInitialFetch = true;
 					}
 					state.commentCount += newComments.length;
 					this.allComments.push(...newComments);
@@ -837,6 +840,9 @@ export class KakologManager {
 						options.onPartialComments(this.getSynchronizedComments());
 					}
 				} catch (error) {
+					if (state.fetchedOffsets.size === 0) {
+						state.needsInitialFetch = true;
+					}
 					console.error(
 						`[Kakolog] Fetch failed for ${state.source.jkId} at offset ${offset}`,
 						error,
@@ -1054,8 +1060,8 @@ export class KakologManager {
 							},
 						];
 					});
+					niconicoFetched = true;
 				}
-				niconicoFetched = true;
 			} catch (error) {
 				console.error(
 					`[Kakolog] NicoNico fetch failed for ${source.jkId}`,
