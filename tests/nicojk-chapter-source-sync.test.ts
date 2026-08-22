@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { synchronizeCommentSourcesByChapters } from "../src/plugins/nicojk/chapter-source-sync";
 import type { NiconicoComment } from "../src/plugins/nicojk/comment-client";
-import { KakologManager } from "../src/plugins/nicojk/kakolog-manager";
+import {
+	dedupeMiyouComments,
+	KakologManager,
+} from "../src/plugins/nicojk/kakolog-manager";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
 const START_AT = 1_700_000_000;
@@ -185,6 +188,42 @@ test("無効化したソースは補正状態を残したまま vpos へ適用�
 	);
 });
 
+test("Miyou は同一ソースの No と内容が同じコメントだけ先頭を残す", () => {
+	const first = {
+		id: 1,
+		no: 10,
+		vpos: 100,
+		content: "同じ内容",
+		date: START_AT,
+		date_usec: 0,
+		mail: [],
+		user_id: "livebs2/1786714281/0911",
+		premium: 0,
+		anonymity: 1,
+		origin: "miyou" as const,
+		sourceOrdinal: 0,
+	};
+	const duplicate = {
+		...first,
+		id: 2,
+		user_id: "livebs2/1786714281/0912",
+	};
+	const differentNo = { ...first, id: 3, no: 11 };
+	const differentSource = { ...first, id: 4, sourceOrdinal: 1 };
+	const niconico = { ...first, id: 5, origin: "ws" as const };
+
+	assert.deepEqual(
+		dedupeMiyouComments([
+			first,
+			duplicate,
+			differentNo,
+			differentSource,
+			niconico,
+		]),
+		[first, differentNo, differentSource, niconico],
+	);
+});
+
 test("キャッシュをクリアするとソースの補正無効化もリセットする", async () => {
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = async (input) => {
@@ -264,6 +303,49 @@ test("取得後に追加されたソースも次の取得で読み込む", async
 		);
 		assert.equal(manager.hasPendingInitialSourceFetch(), false);
 		assert.deepEqual(requestedJkIds, ["jk1", "jk2"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test("過去ログAPIのエラー応答を取得済み扱いにせず再試行する", async () => {
+	const originalFetch = globalThis.fetch;
+	let replayAttempts = 0;
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		const jkId = url.pathname.split("/").pop() || "";
+		if (jkId === "jk2" && replayAttempts++ === 0) {
+			return Response.json({ error: "temporary API error" });
+		}
+		const sourceStartAt = jkId === "jk1" ? START_AT : START_AT + 86400;
+		return Response.json({
+			packet: [
+				{
+					chat: apiComment(sourceStartAt, 30, jkId, 1),
+				},
+			],
+		});
+	};
+
+	try {
+		const manager = new KakologManager();
+		manager.setSources(SOURCES);
+
+		const firstComments = await manager.fetchWithLimit(1800);
+		assert.equal(
+			firstComments.some((item) => item.sourceOrdinal === 1),
+			false,
+		);
+		assert.equal(manager.hasPendingInitialSourceFetch(), true);
+		assert.equal(manager.isFullyCompleted(), false);
+
+		const retriedComments = await manager.fetchWithLimit(1800);
+		assert.equal(
+			retriedComments.find((item) => item.sourceOrdinal === 1)?.content,
+			"jk2",
+		);
+		assert.equal(replayAttempts, 2);
+		assert.equal(manager.hasPendingInitialSourceFetch(), false);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}

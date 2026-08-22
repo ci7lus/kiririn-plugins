@@ -18,7 +18,7 @@ export interface NiconicoComment {
 	user_id: string;
 	premium: number;
 	anonymity: number;
-	origin?: "ws" | "broadcast";
+	origin?: "ws" | "broadcast" | "miyou";
 	sourceOrdinal?: number;
 }
 

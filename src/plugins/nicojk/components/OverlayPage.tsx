@@ -4,12 +4,14 @@ import NiconiComments, {
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import type { NiconicoComment } from "../comment-client";
+import { getCommentSourceKeyForComment } from "../comment-source";
 import type { NicoJKContext } from "../context";
 import {
 	getSettings,
 	type NicoJKSettings,
 	SETTINGS_UPDATED_EVENT,
 } from "../ng-settings";
+import { formatRendererCommentContent } from "../renderer-comment-text";
 
 interface Props {
 	comments: NiconicoComment[];
@@ -53,14 +55,6 @@ function getSegmentComments(
 	);
 }
 
-function getCommentSourceKey(
-	comment: NiconicoComment,
-	jkContext: NicoJKContext | null,
-) {
-	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-	return jkContext?.sources[sourceOrdinal]?.key || null;
-}
-
 function isCommentVisibleForSource(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
@@ -70,7 +64,7 @@ function isCommentVisibleForSource(
 		return true;
 	}
 
-	const sourceKey = getCommentSourceKey(comment, jkContext);
+	const sourceKey = getCommentSourceKeyForComment(comment, jkContext);
 	return sourceKey != null && visibleSourceKeys.includes(sourceKey);
 }
 
@@ -83,6 +77,7 @@ function getFilterSignature(
 		ngIds: settings.ngIds,
 		ngCommands: settings.ngCommands,
 		secondarySourceOpacity: settings.secondarySourceOpacity,
+		showResponseAnchorComments: settings.showResponseAnchorComments,
 		visibleSourceKeys,
 	});
 }
@@ -95,6 +90,15 @@ function getCommentTimingSignature(jkContext: NicoJKContext | null) {
 			source.chapterCorrection?.enabled ?? null,
 		]) || [],
 	);
+}
+
+function getCommentDataSignature(comments: NiconicoComment[]) {
+	return comments
+		.map(
+			(comment) =>
+				`${comment.id}:${comment.vpos}:${comment.sourceOrdinal || 0}`,
+		)
+		.join(",");
 }
 
 function isCommentNGBySettings(
@@ -157,6 +161,13 @@ function toFormattedComment(
 		return null;
 	}
 
+	const content = formatRendererCommentContent(comment.content, {
+		showResponseAnchors: settings.showResponseAnchorComments,
+	});
+	if (content == null) {
+		return null;
+	}
+
 	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
 	const mail = filterMailBySettings(comment.mail, settings);
 	if (sourceOrdinal > 0) {
@@ -168,7 +179,7 @@ function toFormattedComment(
 	return {
 		id: comment.id,
 		vpos: comment.vpos,
-		content: comment.content,
+		content,
 		date: comment.date,
 		date_usec: comment.date_usec,
 		owner: false,
@@ -213,6 +224,7 @@ export default function OverlayPage({
 		playableId: string | null;
 		filterVersion: number;
 		commentTimingSignature: string;
+		commentDataSignature: string;
 		recordedPhase: RecordedRendererPhase;
 		segment: number;
 		liveRevision: number;
@@ -339,6 +351,7 @@ export default function OverlayPage({
 
 		const nextMode: RendererMode = isLive ? "live" : "recorded";
 		const commentTimingSignature = getCommentTimingSignature(jkContext);
+		const commentDataSignature = getCommentDataSignature(comments);
 		const shouldRecreate =
 			!rendererRef.current ||
 			rendererMetaRef.current?.mode !== nextMode ||
@@ -346,6 +359,9 @@ export default function OverlayPage({
 			rendererMetaRef.current?.filterVersion !== filterVersion ||
 			rendererMetaRef.current?.commentTimingSignature !==
 				commentTimingSignature ||
+			(!isLive &&
+				rendererMetaRef.current?.commentDataSignature !==
+					commentDataSignature) ||
 			(!isLive &&
 				rendererMetaRef.current?.recordedPhase !== recordedRendererPhase) ||
 			(!isLive && rendererMetaRef.current?.segment !== currentSegment) ||
@@ -357,7 +373,8 @@ export default function OverlayPage({
 
 		rendererRef.current?.clear();
 		const currentSettings = getSettings();
-		const usesFormattedRenderer = !isLive && recordedRendererPhase !== "none";
+		const usesFormattedRenderer =
+			!isLive && (recordedRendererPhase !== "none" || comments.length > 0);
 		const segmentComments =
 			!isLive && usesFormattedRenderer
 				? getSegmentComments(comments, currentSegment, jkContext?.startAt || 0)
@@ -391,6 +408,7 @@ export default function OverlayPage({
 			playableId,
 			filterVersion,
 			commentTimingSignature,
+			commentDataSignature,
 			recordedPhase: isLive ? "none" : recordedRendererPhase,
 			segment: currentSegment,
 			liveRevision: liveRendererRevision,

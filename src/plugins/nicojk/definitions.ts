@@ -7,6 +7,7 @@ export interface ChannelDefinition {
 	networkId: number;
 	nicojkId?: number;
 	nicoliveCommunityIds?: string[];
+	miyoutvId?: string;
 	syobocalId?: number;
 }
 

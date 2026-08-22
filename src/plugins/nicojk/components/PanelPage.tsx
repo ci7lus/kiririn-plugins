@@ -20,6 +20,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import { type ChapterPoint, detectChapterPoints } from "../chapter-comments";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
+import {
+	COMMENT_SOURCE_ORIGIN_LABELS,
+	COMMENT_SOURCE_ORIGINS,
+	type CommentSourceOrigin,
+	getCommentSourceKey,
+	getCommentSourceKeyForComment,
+	getCommentSourceKeys,
+	getCommentSourceOrigin,
+} from "../comment-source";
 import type { NicoJKContext } from "../context";
 import type { InterruptedSourceInfo } from "../kakolog-manager";
 import {
@@ -38,6 +47,7 @@ interface Props {
 	comments: NiconicoComment[];
 	visibleSourceKeys: string[] | null;
 	onVisibleSourceKeysChange: (sourceKeys: string[] | null) => void;
+	onReloadRecordedComments: () => void;
 	onResumeSource: (sourceKey: string) => void;
 	onChapterCorrectionEnabledChange: (
 		sourceKey: string,
@@ -70,7 +80,7 @@ const SOURCE_KIND_LABELS: Record<
 	string
 > = {
 	primary: "主",
-	simulcast: "サイマル",
+	simulcast: "同",
 	replay: "別",
 };
 
@@ -87,6 +97,7 @@ export default function PanelPage({
 	comments,
 	visibleSourceKeys,
 	onVisibleSourceKeysChange,
+	onReloadRecordedComments,
 	onResumeSource,
 	onChapterCorrectionEnabledChange,
 	isLive,
@@ -217,15 +228,38 @@ export default function PanelPage({
 	const activeSearchResultNumber =
 		activeSearchCommentIndex >= 0 ? activeSearchMatchIndex + 1 : 0;
 	const statusText = channelDisplayState.detail || channelDisplayState.message;
-	const fetchedCommentCount = Math.max(
-		comments.length,
-		channelDisplayState.fetchedCommentCount,
-	);
+	const commentOriginCounts = useMemo(() => {
+		let niconico = 0;
+		let miyou = 0;
+		for (const comment of comments) {
+			if (comment.origin === "miyou") {
+				miyou += 1;
+			} else {
+				niconico += 1;
+			}
+		}
+		return { niconico, miyou, total: niconico + miyou };
+	}, [comments]);
+	const fetchedCommentCount = commentOriginCounts.total;
 	const sourceCommentCounts = useMemo(() => {
-		const counts = new Map<number, number>();
+		const counts = new Map<
+			number,
+			{ niconico: number; miyou: number; total: number }
+		>();
 		for (const comment of comments) {
 			const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-			counts.set(sourceOrdinal, (counts.get(sourceOrdinal) || 0) + 1);
+			const sourceCounts = counts.get(sourceOrdinal) || {
+				niconico: 0,
+				miyou: 0,
+				total: 0,
+			};
+			if (comment.origin === "miyou") {
+				sourceCounts.miyou += 1;
+			} else {
+				sourceCounts.niconico += 1;
+			}
+			sourceCounts.total += 1;
+			counts.set(sourceOrdinal, sourceCounts);
 		}
 		return counts;
 	}, [comments]);
@@ -274,7 +308,13 @@ export default function PanelPage({
 		const mailCommands = [...new Set(comment.mail.filter(Boolean))].filter(
 			(mail) => !IGNORE_COMMANDS.includes(mail) && !mail.startsWith("nico:"),
 		);
-		return { comment, sourceOrdinal, commentSource, mailCommands };
+		return {
+			comment,
+			sourceOrdinal,
+			commentSource,
+			commentOrigin: getCommentSourceOrigin(comment),
+			mailCommands,
+		};
 	}, [displayComments, jkContext, pinnedCommentId]);
 	const [renderedTooltip, setRenderedTooltip] = useState<NonNullable<
 		typeof activeTooltip
@@ -403,7 +443,7 @@ export default function PanelPage({
 		setPinnedCommentId((current) => (current === commentId ? null : commentId));
 	}, []);
 
-	const canShowOnlySource = (jkContext?.sources.length || 0) > 1;
+	const canShowOnlySource = getCommentSourceKeys(jkContext).length > 1;
 	const allSourcesVisible = areAllSourcesVisible(visibleSourceKeys, jkContext);
 
 	const handleShowAllSources = useCallback(() => {
@@ -691,6 +731,11 @@ export default function PanelPage({
 											{statusText}
 										</div>
 									)}
+									{!isLive && (
+										<div className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-400">
+											{fetchedCommentCount}件
+										</div>
+									)}
 									{channelDisplayState.isLoading && (
 										<div
 											className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-gray-500 border-t-transparent"
@@ -804,6 +849,7 @@ export default function PanelPage({
 							const sourceOrdinal = Math.max(c.sourceOrdinal || 0, 0);
 							const commentSource = jkContext?.sources[sourceOrdinal] || null;
 							const isSecondarySource = sourceOrdinal > 0;
+							const commentOrigin = getCommentSourceOrigin(c);
 							const isSearchMatched = matchedCommentIndexSet.has(
 								virtualRow.index,
 							);
@@ -840,7 +886,12 @@ export default function PanelPage({
 										}`}
 									>
 										<div className="flex w-8 shrink-0 flex-col items-end text-right text-[10px] leading-none text-gray-500 tabular-nums">
-											<span>{c.no}</span>
+											<span
+												className="block w-full truncate"
+												title={String(c.no)}
+											>
+												{c.no}
+											</span>
 											{!isLive && (
 												<span className="mt-0.5 text-[8px] text-gray-600">
 													{formatPlaybackTime(c.vpos)}
@@ -867,6 +918,11 @@ export default function PanelPage({
 													{commentSource
 														? SOURCE_KIND_LABELS[commentSource.kind]
 														: `src${sourceOrdinal + 1}`}
+												</span>
+											)}
+											{commentOrigin === "miyou" && (
+												<span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[9px] text-violet-200">
+													miyou
 												</span>
 											)}
 										</div>
@@ -987,6 +1043,8 @@ export default function PanelPage({
 							<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-400">
 								<span>
 									ソース:{" "}
+									{COMMENT_SOURCE_ORIGIN_LABELS[renderedTooltip.commentOrigin]}{" "}
+									/{" "}
 									{renderedTooltip.commentSource
 										? formatSourceLabel(renderedTooltip.commentSource)
 										: `src${renderedTooltip.sourceOrdinal + 1}`}
@@ -1272,7 +1330,7 @@ export default function PanelPage({
 
 			{hasActivePlayer && infoPopup.rendered && (
 				<div
-					className={`absolute inset-x-2 top-12 z-50 flex max-h-[70%] flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
+					className={`absolute inset-x-2 top-12 z-50 flex max-h-[70%] min-w-0 flex-col overflow-hidden rounded-lg border border-gray-600 bg-[#333] p-4 shadow-2xl transition-all duration-200 ease-out ${
 						infoPopup.shown
 							? "translate-y-0 opacity-100"
 							: "pointer-events-none -translate-y-2 opacity-0"
@@ -1291,16 +1349,28 @@ export default function PanelPage({
 						</button>
 					</div>
 					{!isLive && (
-						<div className="mb-2 flex justify-between text-sm">
-							<span className="text-gray-400">取得コメント数</span>
-							<span className="tabular-nums text-blue-300">
-								{fetchedCommentCount}件
-							</span>
+						<div className="mb-3 flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-baseline sm:justify-between">
+							<span className="shrink-0 text-gray-400">取得コメント数</span>
+							<div className="flex min-w-0 items-center gap-1 sm:justify-end">
+								<span className="min-w-0 wrap-break-word tabular-nums text-blue-300 sm:text-right">
+									{fetchedCommentCount}件
+								</span>
+								<button
+									type="button"
+									onClick={onReloadRecordedComments}
+									disabled={!hasActivePlayer || channelDisplayState.isLoading}
+									className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+									title="コメントを最初から再取得"
+									aria-label="コメントを最初から再取得"
+								>
+									<RotateCw size={14} />
+								</button>
+							</div>
 						</div>
 					)}
-					<div className="min-h-0 overflow-y-auto pr-1">
+					<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
 						{jkContext ? (
-							<div className="space-y-2 text-sm">
+							<div className="min-w-0 space-y-2 text-sm">
 								<div className="border-b border-gray-700 pb-1">
 									<div className="mb-2 flex items-center justify-between gap-3">
 										<div className="text-gray-400">コメントソース一覧</div>
@@ -1321,14 +1391,20 @@ export default function PanelPage({
 									</div>
 									<div className="space-y-2 text-xs">
 										{jkContext.sources.map((source, index) => {
-											const sourceCount = sourceCommentCounts.get(index) || 0;
-											const isSourceVisible = isSourceKeyVisible(
-												visibleSourceKeys,
-												source.key,
+											const sourceCounts = sourceCommentCounts.get(index) || {
+												niconico: 0,
+												miyou: 0,
+												total: 0,
+											};
+											const sourceOrigins: CommentSourceOrigin[] =
+												!isLive && source.miyouChannel
+													? COMMENT_SOURCE_ORIGINS
+													: ["niconico"];
+											const sourceFeedKeys = sourceOrigins.map((origin) =>
+												getCommentSourceKey(source.key, origin),
 											);
-											const isOnlySourceVisible = isOnlySourceVisibleState(
-												visibleSourceKeys,
-												source.key,
+											const isSourceVisible = sourceFeedKeys.some((key) =>
+												isSourceKeyVisible(visibleSourceKeys, key),
 											);
 											const interruptedInfo = interruptedSources.find(
 												(info) => info.sourceKey === source.key,
@@ -1342,7 +1418,7 @@ export default function PanelPage({
 											return (
 												<div
 													key={source.key}
-													className={`flex items-center justify-between gap-3 rounded-md px-2.5 py-2 ${
+													className={`min-w-0 rounded-md px-2.5 py-2 ${
 														isInterrupted
 															? "border border-amber-500/30 bg-amber-500/10"
 															: isSourceVisible
@@ -1351,22 +1427,24 @@ export default function PanelPage({
 													}`}
 												>
 													<div
-														className={`min-w-0 flex-1 ${isFullyUnfetched ? "opacity-50" : ""}`}
+														className={`min-w-0 ${isFullyUnfetched ? "opacity-50" : ""}`}
 													>
-														<div className="flex min-w-0 items-center gap-2 text-gray-300">
-															<span
-																className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
-															>
-																{SOURCE_KIND_LABELS[source.kind]}
-															</span>
-															<span className="truncate">
-																{source.channelName} ({source.jkId})
-															</span>
-															{!isLive && (
-																<span className="shrink-0 text-gray-500">
-																	{sourceCount}件
+														<div className="flex min-w-0 items-start justify-between gap-3 text-gray-300">
+															<div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+																<span
+																	className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
+																>
+																	{SOURCE_KIND_LABELS[source.kind]}
 																</span>
-															)}
+																<span className="min-w-0 wrap-break-word text-sm font-medium">
+																	{source.channelName} ({source.jkId})
+																</span>
+																{!isLive && (
+																	<span className="shrink-0 text-sm tabular-nums text-gray-400">
+																		{sourceCounts.total}件
+																	</span>
+																)}
+															</div>
 															{isInterrupted && (
 																<span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-200">
 																	部分取得
@@ -1374,7 +1452,7 @@ export default function PanelPage({
 															)}
 														</div>
 														{!isLive && (
-															<div className="text-gray-400">
+															<div className="mt-1 wrap-break-word text-gray-400">
 																{formatTimeRange(source.startAt, source.endAt)}
 															</div>
 														)}
@@ -1422,100 +1500,155 @@ export default function PanelPage({
 															</div>
 														)}
 													</div>
-													<div className="flex shrink-0 items-center gap-2 self-center">
-														{isInterrupted && (
-															<button
-																type="button"
-																onClick={() => onResumeSource(source.key)}
-																className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
-																title={`${source.channelName} の取得を再開`}
-																aria-label={`${source.channelName} の取得を再開`}
-															>
-																<RotateCw size={12} />
-																全件取得
-															</button>
-														)}
-														{source.chapterCorrection && (
-															<button
-																type="button"
-																onClick={() =>
-																	onChapterCorrectionEnabledChange(
-																		source.key,
-																		!source.chapterCorrection?.enabled,
-																	)
-																}
-																className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
-																	source.chapterCorrection.enabled
-																		? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500"
-																		: "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
-																}`}
-																title={
-																	source.chapterCorrection.enabled
-																		? "チャプター補正を適用しない"
-																		: "チャプター補正を再適用する"
-																}
-																aria-label={
-																	source.chapterCorrection.enabled
-																		? `${source.channelName} のチャプター補正を適用しない`
-																		: `${source.channelName} のチャプター補正を再適用する`
-																}
-															>
-																{source.chapterCorrection.enabled ? (
-																	<Ban size={14} />
-																) : (
-																	<Check size={14} />
-																)}
-															</button>
-														)}
-														{canShowOnlySource && (
-															<button
-																type="button"
-																onClick={() => handleShowOnlySource(source.key)}
-																disabled={isOnlySourceVisible}
-																className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
-																	isOnlySourceVisible
-																		? "cursor-default border-blue-500/40 bg-blue-600 text-white"
-																		: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
-																}`}
-																title={
-																	isOnlySourceVisible
-																		? "このソースのみ表示中"
-																		: "このソースのみ表示"
-																}
-																aria-label={
-																	isOnlySourceVisible
-																		? `${source.channelName} はこのソースのみ表示中`
-																		: `${source.channelName} のみ表示`
-																}
-															>
-																<Filter size={14} />
-															</button>
-														)}
-														<button
-															type="button"
-															onClick={() =>
-																handleToggleSourceVisibility(source.key)
-															}
-															className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
-																isSourceVisible
-																	? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500"
-																	: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
-															}`}
-															title={
-																isSourceVisible ? "非表示にする" : "表示する"
-															}
-															aria-label={
-																isSourceVisible
-																	? `${source.channelName} を非表示にする`
-																	: `${source.channelName} を表示する`
-															}
-														>
-															{isSourceVisible ? (
-																<CircleMinus size={14} />
-															) : (
-																<CirclePlus size={14} />
+													{(isInterrupted || source.chapterCorrection) && (
+														<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+															{isInterrupted && (
+																<button
+																	type="button"
+																	onClick={() => onResumeSource(source.key)}
+																	className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
+																	title={`${source.channelName} の取得を再開`}
+																	aria-label={`${source.channelName} の取得を再開`}
+																>
+																	<RotateCw size={12} />
+																	全件取得
+																</button>
 															)}
-														</button>
+															{source.chapterCorrection && (
+																<button
+																	type="button"
+																	onClick={() =>
+																		onChapterCorrectionEnabledChange(
+																			source.key,
+																			!source.chapterCorrection?.enabled,
+																		)
+																	}
+																	className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
+																		source.chapterCorrection.enabled
+																			? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500"
+																			: "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
+																	}`}
+																	title={
+																		source.chapterCorrection.enabled
+																			? "チャプター補正を適用しない"
+																			: "チャプター補正を再適用する"
+																	}
+																	aria-label={
+																		source.chapterCorrection.enabled
+																			? `${source.channelName} のチャプター補正を適用しない`
+																			: `${source.channelName} のチャプター補正を再適用する`
+																	}
+																>
+																	{source.chapterCorrection.enabled ? (
+																		<Ban size={14} />
+																	) : (
+																		<Check size={14} />
+																	)}
+																</button>
+															)}
+														</div>
+													)}
+													<div
+														className={`mt-1 grid gap-2 ${sourceOrigins.length > 1 ? "grid-cols-1 min-[480px]:grid-cols-2" : "grid-cols-1"}`}
+													>
+														{sourceOrigins.map((origin) => {
+															const sourceKey = getCommentSourceKey(
+																source.key,
+																origin,
+															);
+															const isSourceFeedVisible = isSourceKeyVisible(
+																visibleSourceKeys,
+																sourceKey,
+															);
+															const isOnlySourceFeedVisible =
+																isOnlySourceVisibleState(
+																	visibleSourceKeys,
+																	sourceKey,
+																);
+
+															return (
+																<div
+																	key={sourceKey}
+																	className={`flex min-w-0 items-center justify-between gap-2 rounded border px-2 py-1.5 ${
+																		isSourceFeedVisible
+																			? "border-blue-500/30 bg-blue-500/10"
+																			: "border-gray-700 bg-[#1f1f1f] opacity-70"
+																	}`}
+																>
+																	<div className="min-w-0">
+																		<div className="flex min-w-0 items-center gap-2">
+																			<span
+																				className={`shrink-0 text-sm font-medium ${
+																					origin === "miyou"
+																						? "text-violet-200"
+																						: "text-cyan-200"
+																				}`}
+																			>
+																				{COMMENT_SOURCE_ORIGIN_LABELS[origin]}
+																			</span>
+																			<span className="truncate text-sm tabular-nums text-gray-400">
+																				{sourceCounts[origin]}件
+																			</span>
+																		</div>
+																	</div>
+																	<div className="flex shrink-0 items-center gap-1">
+																		{canShowOnlySource && (
+																			<button
+																				type="button"
+																				onClick={() =>
+																					handleShowOnlySource(sourceKey)
+																				}
+																				disabled={isOnlySourceFeedVisible}
+																				className={`flex h-6 w-6 items-center justify-center rounded border transition-colors ${
+																					isOnlySourceFeedVisible
+																						? "cursor-default border-blue-500/40 bg-blue-600 text-white"
+																						: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
+																				}`}
+																				title={
+																					isOnlySourceFeedVisible
+																						? `${COMMENT_SOURCE_ORIGIN_LABELS[origin]} のみ表示中`
+																						: `${COMMENT_SOURCE_ORIGIN_LABELS[origin]} のみ表示`
+																				}
+																				aria-label={
+																					isOnlySourceFeedVisible
+																						? `${source.channelName} の${COMMENT_SOURCE_ORIGIN_LABELS[origin]} のみ表示中`
+																						: `${source.channelName} の${COMMENT_SOURCE_ORIGIN_LABELS[origin]} のみ表示`
+																				}
+																			>
+																				<Filter size={13} />
+																			</button>
+																		)}
+																		<button
+																			type="button"
+																			onClick={() =>
+																				handleToggleSourceVisibility(sourceKey)
+																			}
+																			className={`flex h-6 w-6 items-center justify-center rounded border transition-colors ${
+																				isSourceFeedVisible
+																					? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500"
+																					: "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"
+																			}`}
+																			title={
+																				isSourceFeedVisible
+																					? "ミュートする"
+																					: "表示する"
+																			}
+																			aria-label={
+																				isSourceFeedVisible
+																					? `${source.channelName} の${COMMENT_SOURCE_ORIGIN_LABELS[origin]} をミュートする`
+																					: `${source.channelName} の${COMMENT_SOURCE_ORIGIN_LABELS[origin]} を表示する`
+																			}
+																		>
+																			{isSourceFeedVisible ? (
+																				<CircleMinus size={13} />
+																			) : (
+																				<CirclePlus size={13} />
+																			)}
+																		</button>
+																	</div>
+																</div>
+															);
+														})}
 													</div>
 												</div>
 											);
@@ -1566,14 +1699,6 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function getCommentSourceKey(
-	comment: NiconicoComment,
-	jkContext: NicoJKContext | null,
-) {
-	const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
-	return jkContext?.sources[sourceOrdinal]?.key || null;
-}
-
 function isCommentVisibleForSource(
 	comment: NiconicoComment,
 	jkContext: NicoJKContext | null,
@@ -1583,7 +1708,7 @@ function isCommentVisibleForSource(
 		return true;
 	}
 
-	const sourceKey = getCommentSourceKey(comment, jkContext);
+	const sourceKey = getCommentSourceKeyForComment(comment, jkContext);
 	return sourceKey != null && visibleSourceKeys.includes(sourceKey);
 }
 
@@ -1616,8 +1741,8 @@ function areAllSourcesVisible(
 		return true;
 	}
 
-	return jkContext.sources.every((source) =>
-		visibleSourceKeys.includes(source.key),
+	return getCommentSourceKeys(jkContext).every((sourceKey) =>
+		visibleSourceKeys.includes(sourceKey),
 	);
 }
 
@@ -1626,7 +1751,7 @@ function toggleSourceVisibility(
 	sourceKey: string,
 	jkContext: NicoJKContext,
 ) {
-	const sourceKeysInOrder = jkContext.sources.map((source) => source.key);
+	const sourceKeysInOrder = getCommentSourceKeys(jkContext);
 
 	if (visibleSourceKeys == null) {
 		return sourceKeysInOrder.filter((key) => key !== sourceKey);

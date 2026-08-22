@@ -93,6 +93,10 @@ export default function OptionsPage() {
 	const [newWord, setNewWord] = useState("");
 	const [newId, setNewId] = useState("");
 	const [newCommand, setNewCommand] = useState("");
+	const [miyouEmail, setMiyouEmail] = useState(initialSettings.miyouEmail);
+	const [miyouPassword, setMiyouPassword] = useState(
+		initialSettings.miyouPassword,
+	);
 	const [numericDrafts, setNumericDrafts] = useState<NumericSettingDrafts>(() =>
 		buildNumericDrafts(initialSettings),
 	);
@@ -249,6 +253,38 @@ export default function OptionsPage() {
 					</div>
 				</div>
 
+				{/* Comment Processing Settings */}
+				<div className="rounded-lg bg-[#252525] p-4 shadow-lg">
+					<div className="mb-4 flex items-center gap-2 text-indigo-400">
+						<Sliders size={20} />
+						<h3 className="font-bold">コメント処理設定</h3>
+					</div>
+					<label className="flex items-start gap-2 rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<input
+							type="checkbox"
+							checked={settings.showResponseAnchorComments}
+							onChange={() =>
+								syncSettings(
+									saveSettings({
+										...settings,
+										showResponseAnchorComments:
+											!settings.showResponseAnchorComments,
+									}),
+								)
+							}
+							className="form-checkbox mt-0.5 h-5 w-5 shrink-0"
+						/>
+						<span>
+							<span className="block text-sm font-medium text-gray-100">
+								処理後アンカーコメントを表示する
+							</span>
+							<span className="mt-1 block text-xs leading-relaxed text-gray-400">
+								レスアンカー（&gt;&gt;123など）を含むコメントをレンダラーに表示します。初期状態では非表示です。
+							</span>
+						</span>
+					</label>
+				</div>
+
 				{/* NG Settings */}
 				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
 					<div className="flex items-center gap-2 mb-6 text-red-400">
@@ -395,7 +431,7 @@ export default function OptionsPage() {
 					</div>
 				</div>
 
-				{/* Tuning Settings */}
+				{/* Comment Acquisition Settings */}
 				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
 					<div className="flex items-center gap-2 mb-4 text-indigo-400">
 						<Sliders size={20} />
@@ -428,6 +464,77 @@ export default function OptionsPage() {
 								を使用します。
 							</span>
 						</label>
+					</div>
+					<form
+						className="mb-4 rounded-md border border-gray-700 bg-[#1f1f1f] p-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							syncSettings(
+								saveSettings({
+									...settings,
+									miyouEmail: miyouEmail.trim(),
+									miyouPassword,
+								}),
+							);
+						}}
+					>
+						<label className="flex items-center gap-2 text-sm text-gray-100">
+							<input
+								type="checkbox"
+								checked={settings.miyouEnabled}
+								onChange={() =>
+									syncSettings(
+										saveSettings({
+											...settings,
+											miyouEnabled: !settings.miyouEnabled,
+										}),
+									)
+								}
+								className="form-checkbox h-5 w-5 shrink-0"
+							/>
+							5chログを取得する
+						</label>
+						<p className="mt-2 text-xs leading-relaxed text-gray-400">
+							過去ログ再生時にMiyouから5ch実況ログを取得します。利用にはモリタポアカウントが必要です。
+						</p>
+						<div className="mt-3 grid gap-3 sm:grid-cols-2">
+							<label className="flex flex-col gap-2">
+								<span className="text-sm text-gray-200">
+									モリタポのメールアドレス
+								</span>
+								<input
+									type="email"
+									value={miyouEmail}
+									onChange={(event) => setMiyouEmail(event.target.value)}
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
+								/>
+							</label>
+							<label className="flex flex-col gap-2">
+								<span className="text-sm text-gray-200">
+									モリタポのパスワード
+								</span>
+								<input
+									type="password"
+									value={miyouPassword}
+									onChange={(event) => setMiyouPassword(event.target.value)}
+									className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none"
+								/>
+							</label>
+						</div>
+						<button
+							type="submit"
+							className="mt-3 rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500"
+						>
+							5ch設定を保存
+						</button>
+					</form>
+				</div>
+
+				{/* Chapter Settings */}
+				<div className="bg-[#252525] p-4 rounded-lg shadow-lg">
+					<div className="flex items-center gap-2 mb-4 text-indigo-400">
+						<Sliders size={20} />
+						<h3 className="font-bold">チャプター設定</h3>
 					</div>
 					<div className="grid gap-3 sm:grid-cols-2">
 						{NUMERIC_SETTING_FIELDS.map((field) => (

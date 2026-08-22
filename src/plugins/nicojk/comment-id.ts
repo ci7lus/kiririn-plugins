@@ -15,3 +15,20 @@ export function buildStableCommentId(params: {
 		params.seconds * 1_000_000 + microseconds + sourceOrdinal * 1000 + serial
 	);
 }
+
+export function buildMiyouCommentId(params: {
+	sourceKey: string;
+	commentId: string;
+	time: number;
+}) {
+	let hash = 2_166_136_261;
+	const key = `${params.sourceKey}:${params.commentId}:${params.time}`;
+	for (const char of key) {
+		hash ^= char.charCodeAt(0);
+		hash = Math.imul(hash, 16_777_619);
+	}
+
+	// niconicomments はコメント ID に負数を許可しないため、正の合成 ID を使う。
+	// ハッシュ値は通常のニコニコ過去ログ ID（Unix time ベース）とは範囲が異なる。
+	return Math.abs(hash >>> 0) || 1;
+}
