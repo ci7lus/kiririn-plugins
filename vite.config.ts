@@ -108,6 +108,9 @@ export default defineConfig(({ mode }) => {
 			emptyOutDir: false,
 			outDir: targetPlugin ? `dist/${targetPlugin.id}` : "dist",
 			sourcemap: true,
+			license: {
+				fileName: "LICENSES.md",
+			},
 			...(kiririnPageInputs
 				? {
 						rollupOptions: {

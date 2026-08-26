@@ -1,5 +1,6 @@
 import { Plus, Sliders, Trash2, Type } from "lucide-react";
 import { useState } from "react";
+import LicenseNotice from "../../../components/LicenseNotice";
 import {
 	addNGCommand,
 	addNGId,
@@ -578,6 +579,8 @@ export default function OptionsPage() {
 						))}
 					</div>
 				</div>
+
+				<LicenseNotice />
 			</div>
 		</div>
 	);
