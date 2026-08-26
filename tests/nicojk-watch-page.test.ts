@@ -9,6 +9,7 @@ import {
 
 const FINAL_URL = "https://live.nicovideo.jp/watch/lv123456789";
 const CHANNEL_FINAL_URL = "https://live.nicovideo.jp/watch/ch2646436";
+const MOBILE_FINAL_URL = "https://sp.live.nicovideo.jp/watch/lv123456789";
 const REQUESTED_URL = "https://live.nicovideo.jp/watch/co%2F123";
 const EXPECTED_PAGE: NiconicoWatchPage = {
 	requestedUrl: REQUESTED_URL,
@@ -31,13 +32,35 @@ function watchPageHtml(overrides: Record<string, unknown> = {}) {
 		},
 		...overrides,
 	};
+	return embeddedDataHtml("embedded-data", props);
+}
+
+function mobileWatchPageHtml() {
+	return embeddedDataHtml("initial-state", {
+		pageContents: {
+			watchInformation: {
+				program: {
+					id: "lv123456789",
+					vposBaseTime: 1_700_000_000_000,
+				},
+				playerParams: {
+					wsEndPoint: {
+						url: "wss://example.test/watch/lv123456789?audience_token=fixture",
+					},
+				},
+			},
+		},
+	}).replace("audience_token=", "audience_token&#x3D;");
+}
+
+function embeddedDataHtml(id: string, props: Record<string, unknown>) {
 	const escapedProps = JSON.stringify(props)
 		.replaceAll("&", "&amp;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;")
 		.replaceAll("'", "&#39;");
-	return `<html><body><div id="embedded-data" data-props="${escapedProps}"></div></body></html>`;
+	return `<html><body><script id="${id}" data-props="${escapedProps}"></script></body></html>`;
 }
 
 test("embedded-data の属性を復号して放送ページの4項目を抽出する", () => {
@@ -85,6 +108,27 @@ test("チャンネルの最終URLを受け入れ、embedded-data の program ID 
 
 	assert.equal(page.finalUrl, CHANNEL_FINAL_URL);
 	assert.equal(page.programId, "lv987654321");
+});
+
+test("iOS向け sp.live の最終URLを受け入れる", () => {
+	const page = parseNiconicoWatchPageHtml(watchPageHtml(), MOBILE_FINAL_URL);
+
+	assert.equal(page.finalUrl, MOBILE_FINAL_URL);
+	assert.equal(page.programId, EXPECTED_PAGE.programId);
+});
+
+test("iOSのinitial-stateから番組情報とWebSocket URLを抽出する", () => {
+	assert.deepEqual(
+		parseNiconicoWatchPageHtml(mobileWatchPageHtml(), MOBILE_FINAL_URL),
+		{
+			requestedUrl: MOBILE_FINAL_URL,
+			finalUrl: MOBILE_FINAL_URL,
+			programId: "lv123456789",
+			vposBaseTime: 1_700_000_000,
+			webSocketUrl:
+				"wss://example.test/watch/lv123456789?audience_token=fixture",
+		},
+	);
 });
 
 test("非有限または正でない vposBaseTime を拒否する", () => {
