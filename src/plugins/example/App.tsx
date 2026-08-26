@@ -5,6 +5,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import LicenseNotice from "../../components/LicenseNotice";
 import type {
 	CaptureTakenPayload,
 	CaptureVariant,
@@ -957,6 +958,8 @@ function OptionsView({
 						value={runtimeInfo.bundleIdentifier ?? "-"}
 					/>
 				</div>
+
+				<LicenseNotice />
 			</div>
 		</div>
 	);

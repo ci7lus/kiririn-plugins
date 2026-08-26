@@ -38,17 +38,29 @@ function fail(reason: NiconicoWatchPageErrorReason, message: string): never {
 
 function decodeAttributeEntities(value: string) {
 	return value.replace(
-		/&(?:quot|amp|lt|gt|apos|#39|#x27);/g,
-		(entity) =>
-			({
-				"&quot;": '"',
-				"&amp;": "&",
-				"&lt;": "<",
-				"&gt;": ">",
-				"&apos;": "'",
-				"&#39;": "'",
-				"&#x27;": "'",
-			})[entity] ?? entity,
+		/&(?:quot|amp|lt|gt|apos|#\d+|#x[\da-f]+);/gi,
+		(entity) => {
+			const namedEntity = (
+				{
+					"&quot;": '"',
+					"&amp;": "&",
+					"&lt;": "<",
+					"&gt;": ">",
+					"&apos;": "'",
+				} as Record<string, string>
+			)[entity.toLowerCase()];
+			if (namedEntity) return namedEntity;
+
+			const numericMatch = /^&#(?:x([\da-f]+)|([\d]+));$/i.exec(entity);
+			if (!numericMatch) return entity;
+			const codePoint = Number.parseInt(
+				numericMatch[1] ?? numericMatch[2],
+				numericMatch[1] ? 16 : 10,
+			);
+			return Number.isInteger(codePoint) && codePoint <= 0x10ffff
+				? String.fromCodePoint(codePoint)
+				: entity;
+		},
 	);
 }
 
@@ -93,21 +105,32 @@ function findElementById(html: string, id: string) {
 }
 
 function extractEmbeddedDataProps(html: string) {
-	const element = findElementById(html, "embedded-data");
+	const element =
+		findElementById(html, "embedded-data") ??
+		findElementById(html, "initial-state");
 	if (!element) {
-		fail("missing-embedded-data", "The embedded-data element is missing");
+		fail(
+			"missing-embedded-data",
+			"The embedded-data or initial-state element is missing",
+		);
 	}
 
 	const props = getAttributeValue(element, "data-props");
 	if (props === undefined) {
 		fail(
 			"missing-embedded-data",
-			"The embedded-data data-props attribute is missing",
+			"The embedded-data or initial-state data-props attribute is missing",
 		);
 	}
 
 	return decodeAttributeEntities(props);
 }
+
+const NICONICO_WATCH_HOSTS = new Set([
+	"live.nicovideo.jp",
+	"sp.live.nicovideo.jp",
+]);
+const MILLISECONDS_EPOCH_THRESHOLD = 100_000_000_000;
 
 function parseFinalUrl(finalUrl: string) {
 	let url: URL;
@@ -118,7 +141,7 @@ function parseFinalUrl(finalUrl: string) {
 	}
 
 	if (
-		url.hostname !== "live.nicovideo.jp" ||
+		!NICONICO_WATCH_HOSTS.has(url.hostname) ||
 		!/^\/watch\/[^/]+$/.test(url.pathname)
 	) {
 		fail("invalid-final-url", "The final URL is not a nicolive watch page");
@@ -128,7 +151,7 @@ function parseFinalUrl(finalUrl: string) {
 }
 
 function normalizeVposBaseTime(value: unknown) {
-	const epochSeconds =
+	const rawEpochSeconds =
 		typeof value === "number"
 			? value
 			: typeof value === "string" && value.trim() !== ""
@@ -136,6 +159,12 @@ function normalizeVposBaseTime(value: unknown) {
 					? Date.parse(value) / 1000
 					: Number(value)
 				: Number.NaN;
+	// desktop の embedded-data は秒だが、iOS の initial-state は
+	// JavaScript の Date と同じミリ秒で vposBaseTime を返す。
+	const epochSeconds =
+		rawEpochSeconds > MILLISECONDS_EPOCH_THRESHOLD
+			? rawEpochSeconds / 1000
+			: rawEpochSeconds;
 
 	if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) {
 		fail("invalid-vpos-base-time", "The vpos base time is invalid");
@@ -154,6 +183,27 @@ interface EmbeddedProps {
 			webSocketUrl?: unknown;
 		};
 	};
+	pageContents?: {
+		watchInformation?: {
+			program?: {
+				id?: unknown;
+				vposBaseTime?: unknown;
+			};
+			playerParams?: {
+				wsEndPoint?: {
+					url?: unknown;
+				};
+			};
+		};
+	};
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
+function hasValue(value: unknown) {
+	return value !== undefined && value !== null && value !== "";
 }
 
 export function parseNiconicoWatchPageHtml(
@@ -169,18 +219,27 @@ export function parseNiconicoWatchPageHtml(
 		fail("invalid-embedded-data", "The embedded-data JSON is invalid");
 	}
 
-	const programId = props?.program?.nicoliveProgramId;
-	if (typeof programId !== "string" || programId.length === 0) {
+	const programId = [
+		props?.program?.nicoliveProgramId,
+		props?.pageContents?.watchInformation?.program?.id,
+	].find(isNonEmptyString);
+	if (!programId) {
 		fail("missing-program-id", "The nicolive program ID is missing");
 	}
 
-	const baseTime = props?.program?.vposBaseTime;
-	if (baseTime === undefined || baseTime === null || baseTime === "") {
+	const baseTime = [
+		props?.program?.vposBaseTime,
+		props?.pageContents?.watchInformation?.program?.vposBaseTime,
+	].find(hasValue);
+	if (!hasValue(baseTime)) {
 		fail("missing-vpos-base-time", "The vpos base time is missing");
 	}
 
-	const webSocketUrl = props?.site?.relive?.webSocketUrl;
-	if (typeof webSocketUrl !== "string" || webSocketUrl.length === 0) {
+	const webSocketUrl = [
+		props?.site?.relive?.webSocketUrl,
+		props?.pageContents?.watchInformation?.playerParams?.wsEndPoint?.url,
+	].find(isNonEmptyString);
+	if (!webSocketUrl) {
 		fail("missing-websocket-url", "The WebSocket URL is missing");
 	}
 

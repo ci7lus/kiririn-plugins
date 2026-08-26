@@ -35,7 +35,10 @@
 
 ## Validation
 
-- For code changes in this repo, run `pnpm biome check --fix` and `pnpm build` before finishing when feasible.
+- For code changes in this repo, run `pnpm biome check --fix` and use `direnv exec . pnpm build` for the local build before finishing when feasible.
+  - GitHub Packages authentication using `GITHUB_PACKAGE_TOKEN` from `.envrc` belongs in the user's `~/.npmrc`.
+  - Put `//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGE_TOKEN}` in `~/.npmrc`; do not add tokens or environment-variable references to the repository `.npmrc`. pnpm ignores environment-variable expansion for registry authentication in a committed project `.npmrc`.
+  - In CI, `setup-node` sets `NODE_AUTH_TOKEN`, so run `pnpm install` and `pnpm build` normally.
 
 ## Codex Environment
 
