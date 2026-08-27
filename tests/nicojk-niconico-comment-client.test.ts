@@ -339,6 +339,88 @@ test("receives anonymous NDGR comments through the shared client boundary", asyn
 	}
 });
 
+test("advances the view while an announced segment is still streaming", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	const segment = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({
+					uri: "https://example.test/segment/pending",
+				}),
+			}).finish(),
+		),
+	);
+	const next = frame(
+		Uint8Array.from(ChunkedEntry.encode({ next: { at: 123 } }).finish()),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	let segmentSignal: AbortSignal | undefined;
+	let nextViewSignal: AbortSignal | undefined;
+	let nextViewStarted = false;
+	let segmentRequests = 0;
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async (input, init) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view?at=now")) {
+			return new Response(streamOf(concat(segment, next)), { status: 200 });
+		}
+		if (url.includes("/view?at=123")) {
+			if (!init?.signal) throw new Error("next view signal is missing");
+			nextViewStarted = true;
+			nextViewSignal = init.signal;
+			return new Response(streamUntilAbort([], init.signal), { status: 200 });
+		}
+		if (url.includes("/segment/pending")) {
+			if (!init?.signal) throw new Error("segment signal is missing");
+			segmentRequests += 1;
+			segmentSignal = init.signal;
+			return new Response(streamUntilAbort([], init.signal), { status: 200 });
+		}
+		throw new Error(`Unexpected request: ${url}`);
+	};
+
+	try {
+		const client = new NiconicoCommentClient();
+		client.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const socket = FakeWebSocket.instances[0];
+		assert.ok(socket);
+		socket.open();
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(nextViewStarted, true);
+		assert.equal(segmentRequests, 1);
+		assert.ok(segmentSignal);
+		assert.ok(nextViewSignal);
+
+		client.disconnect();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.equal(segmentSignal.aborted, true);
+		assert.equal(nextViewSignal.aborted, true);
+	} finally {
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
 test("propagates comments across clients via BroadcastChannel", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;

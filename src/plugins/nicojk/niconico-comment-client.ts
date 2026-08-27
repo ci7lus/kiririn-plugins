@@ -80,6 +80,10 @@ export class NiconicoCommentClient implements LiveCommentClient {
 	private status: ConnectionStatus = "disconnected";
 	private sourceKey: string | null = null;
 	private generation = 0;
+	private activeSegmentTasks = new Map<
+		string,
+		{ generation: number; task: Promise<void> }
+	>();
 
 	public connect(
 		source: ResolvedCommentSource,
@@ -151,6 +155,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		this.generation += 1;
 		this.abortController?.abort();
 		this.abortController = null;
+		this.activeSegmentTasks.clear();
 		this.socket?.close();
 		this.socket = null;
 		this.bc?.close();
@@ -356,12 +361,15 @@ export class NiconicoCommentClient implements LiveCommentClient {
 	): Promise<number | undefined> {
 		const url = new URL(viewUri);
 		url.searchParams.set("at", String(at));
-		const response = await fetch(url, { credentials: "omit", signal });
+		const response = await fetch(url, {
+			cache: "no-store",
+			credentials: "omit",
+			signal,
+		});
 		if (!response.ok || !response.body)
 			throw new Error(`NicoNico view request failed: ${response.status}`);
 		const reader = response.body.getReader();
 		const frames = new LengthDelimitedReader();
-		const segmentTasks: Promise<void>[] = [];
 		let nextAt: number | undefined;
 		try {
 			while (true) {
@@ -370,23 +378,11 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				for (const frame of frames.push(result.value)) {
 					const entry = decodeChunkedEntry(frame);
 					if (entry.segment?.uri) {
-						const segmentTask = this.consumeSegment(
+						this.startSegment(
 							entry.segment.uri,
 							vposBaseTime,
 							signal,
 							generation,
-						);
-						segmentTasks.push(
-							segmentTask.catch((error) => {
-								if (!this.isIntentionalFailure(error, signal, generation)) {
-									// A segment is independent of the view stream. Its failure
-									// should not make an otherwise active live connection red.
-									console.error(
-										"[NicoJK] NicoNico comment segment failed",
-										error,
-									);
-								}
-							}),
 						);
 					}
 					if (entry.next) nextAt = entry.next.at;
@@ -397,9 +393,35 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			}
 		} finally {
 			reader.releaseLock();
-			await Promise.allSettled(segmentTasks);
 		}
 		return nextAt;
+	}
+
+	private startSegment(
+		segmentUri: string,
+		vposBaseTime: number,
+		signal: AbortSignal,
+		generation: number,
+	): void {
+		const active = this.activeSegmentTasks.get(segmentUri);
+		if (active?.generation === generation) return;
+		if (active) this.activeSegmentTasks.delete(segmentUri);
+
+		let task: Promise<void>;
+		task = this.consumeSegment(segmentUri, vposBaseTime, signal, generation)
+			.catch((error) => {
+				if (!this.isIntentionalFailure(error, signal, generation)) {
+					// A segment is independent of the view stream. Its failure
+					// should not make an otherwise active live connection red.
+					console.error("[NicoJK] NicoNico comment segment failed", error);
+				}
+			})
+			.finally(() => {
+				if (this.activeSegmentTasks.get(segmentUri)?.task === task) {
+					this.activeSegmentTasks.delete(segmentUri);
+				}
+			});
+		this.activeSegmentTasks.set(segmentUri, { generation, task });
 	}
 
 	private async consumeSegment(
@@ -408,7 +430,11 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		signal: AbortSignal,
 		generation: number,
 	): Promise<void> {
-		const response = await fetch(segmentUri, { credentials: "omit", signal });
+		const response = await fetch(segmentUri, {
+			cache: "no-store",
+			credentials: "omit",
+			signal,
+		});
 		if (!response.ok || !response.body)
 			throw new Error(`NicoNico segment request failed: ${response.status}`);
 		const reader = response.body.getReader();
