@@ -540,6 +540,15 @@ function scopeLiveComment(
 	};
 }
 
+function compareComments(left: NiconicoComment, right: NiconicoComment) {
+	return (
+		left.vpos - right.vpos ||
+		left.date - right.date ||
+		left.date_usec - right.date_usec ||
+		left.id - right.id
+	);
+}
+
 function mergeComments(
 	existing: NiconicoComment[],
 	incoming: NiconicoComment[],
@@ -549,13 +558,38 @@ function mergeComments(
 		return existing;
 	}
 
-	const merged = [...existing, ...incoming].sort(
-		(a, b) =>
-			a.vpos - b.vpos ||
-			a.date - b.date ||
-			a.date_usec - b.date_usec ||
-			a.id - b.id,
-	);
+	// Live comments normally arrive one at a time. Keep the existing sorted
+	// array and insert into it instead of sorting all 1000 retained comments
+	// for every incoming message.
+	if (incoming.length === 1) {
+		const comment = incoming[0];
+		if (!comment || existing.some((item) => item.id === comment.id)) {
+			return existing;
+		}
+
+		let insertAt = existing.length;
+		const lastComment = existing.at(-1);
+		if (lastComment && compareComments(lastComment, comment) > 0) {
+			let low = 0;
+			let high = existing.length;
+			while (low < high) {
+				const middle = low + Math.floor((high - low) / 2);
+				const middleComment = existing[middle];
+				if (middleComment && compareComments(middleComment, comment) <= 0) {
+					low = middle + 1;
+				} else {
+					high = middle;
+				}
+			}
+			insertAt = low;
+		}
+
+		const merged = existing.slice();
+		merged.splice(insertAt, 0, comment);
+		return typeof maxCount === "number" ? merged.slice(-maxCount) : merged;
+	}
+
+	const merged = [...existing, ...incoming].sort(compareComments);
 	const deduped: NiconicoComment[] = [];
 	const seen = new Set<number>();
 	for (const comment of merged) {
@@ -1229,6 +1263,19 @@ export default function App() {
 			setRecordedCommentsReady(Boolean(data?.recordedCommentsReady));
 			setIsLoadingRecordedComments(Boolean(data?.isLoadingRecordedComments));
 			setInterruptedSources(data?.interruptedSources || []);
+		};
+
+		const pendingLiveSyncPlayerIds = new Set<string>();
+		let liveSyncTimer: number | null = null;
+		const scheduleLiveTargetSync = (playerID: string) => {
+			pendingLiveSyncPlayerIds.add(playerID);
+			if (liveSyncTimer !== null) return;
+			liveSyncTimer = window.setTimeout(() => {
+				liveSyncTimer = null;
+				const playerIDs = [...pendingLiveSyncPlayerIds];
+				pendingLiveSyncPlayerIds.clear();
+				for (const id of playerIDs) syncTargetState(id);
+			}, 50);
 		};
 
 		const startRecordedCommentsFetch = (
@@ -1925,7 +1972,7 @@ export default function App() {
 									MAX_LIVE_COMMENTS,
 								);
 								if (targetPlayableRef.current?.playerID === pid) {
-									syncTargetState(pid);
+									scheduleLiveTargetSync(pid);
 								}
 							}
 						});
@@ -2129,6 +2176,11 @@ export default function App() {
 				handleLiveCommentSourceChange,
 			);
 			clearInterval(interval);
+			if (liveSyncTimer !== null) {
+				window.clearTimeout(liveSyncTimer);
+				liveSyncTimer = null;
+			}
+			pendingLiveSyncPlayerIds.clear();
 			startRecordedCommentsFetchRef.current = null;
 			pendingRecordedReloadRef.current.clear();
 			for (const client of clientsRef.current.values()) client.disconnect();
