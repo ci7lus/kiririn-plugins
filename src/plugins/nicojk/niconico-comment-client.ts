@@ -50,7 +50,7 @@ const DEFAULT_NDGR_RETRY_POLICY: NdgrRetryPolicy = {
 const DEFAULT_NDGR_TIMEOUT_POLICY: NdgrTimeoutPolicy = {
 	viewFetchHeaderMs: 60_000,
 	viewStreamReadMs: 60_000,
-	segmentFetchHeaderMs: 10_000,
+	segmentFetchHeaderMs: 1_000,
 	segmentStreamReadMs: 30_000,
 };
 
