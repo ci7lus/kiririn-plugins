@@ -8,7 +8,7 @@ export const LIVE_COMMENT_SOURCE_VALUES = ["niconico", "nx-jikkyo"] as const;
 export type LiveCommentSource = (typeof LIVE_COMMENT_SOURCE_VALUES)[number];
 
 export function normalizeLiveCommentSource(value: unknown): LiveCommentSource {
-	return value === "nx-jikkyo" ? "nx-jikkyo" : "niconico";
+	return value === "niconico" ? "niconico" : "nx-jikkyo";
 }
 
 export interface NicoJKSettings {
@@ -37,7 +37,7 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	ngWords: [],
 	ngIds: [],
 	ngCommands: [],
-	liveCommentSource: "niconico",
+	liveCommentSource: "nx-jikkyo",
 	showComments: true,
 	opacity: 0.8,
 	secondarySourceOpacity: 1,
