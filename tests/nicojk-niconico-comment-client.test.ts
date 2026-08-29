@@ -628,6 +628,92 @@ test("keeps the session connected when an individual segment fails", async () =>
 	}
 });
 
+test("fetches a segment again when the view announces it after retries are exhausted", async () => {
+	FakeWebSocket.instances = [];
+	const originalWebSocket = globalThis.WebSocket;
+	const originalFetch = globalThis.fetch;
+	const originalConsoleError = console.error;
+	const segmentUri = "https://example.test/segment/reannounced";
+	const segmentEntry = frame(
+		Uint8Array.from(
+			ChunkedEntry.encode({
+				segment: MessageSegment.create({ uri: segmentUri }),
+			}).finish(),
+		),
+	);
+	const nextEntry = frame(
+		Uint8Array.from(ChunkedEntry.encode({ next: { at: 123 } }).finish()),
+	);
+	const page = `<script id="embedded-data" data-props='{"program":{"nicoliveProgramId":"lv1","vposBaseTime":1700000000},"site":{"relive":{"webSocketUrl":"wss://example.test/watch"}}}'></script>`;
+	let segmentRequests = 0;
+	console.error = () => {};
+	(
+		globalThis as typeof globalThis & { WebSocket: typeof FakeWebSocket }
+	).WebSocket = FakeWebSocket as never;
+	globalThis.fetch = async (input, init) => {
+		const url = String(input);
+		if (url.startsWith("https://live.nicovideo.jp/watch/")) {
+			const response = new Response(page, { status: 200 });
+			Object.defineProperty(response, "url", {
+				value: "https://live.nicovideo.jp/watch/lv1",
+			});
+			return response;
+		}
+		if (url.includes("/view?at=now")) {
+			return new Response(streamOf(concat(segmentEntry, nextEntry)), {
+				status: 200,
+			});
+		}
+		if (url.includes("/view?at=123")) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			if (!init?.signal) throw new Error("view signal is missing");
+			return new Response(streamUntilAbort([segmentEntry], init.signal), {
+				status: 200,
+			});
+		}
+		if (!init?.signal) throw new Error("segment signal is missing");
+		segmentRequests += 1;
+		if (segmentRequests === 1) {
+			return new Response(
+				streamThatErrorsAfter(
+					new Uint8Array(),
+					new Error("first segment attempt failed"),
+				),
+				{ status: 200 },
+			);
+		}
+		return new Response(streamOf(), { status: 200 });
+	};
+
+	const client = new NiconicoCommentClient({
+		retry: { maxNumberOfRetry: 0 },
+	});
+	try {
+		client.connect(source());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const socket = FakeWebSocket.instances[0];
+		assert.ok(socket);
+		socket.open();
+		socket.message(
+			JSON.stringify({
+				type: "messageServer",
+				data: { viewUri: "https://example.test/view" },
+			}),
+		);
+
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.equal(segmentRequests, 2);
+		assert.equal(client.getStatus(), "connected");
+	} finally {
+		client.disconnect();
+		console.error = originalConsoleError;
+		globalThis.fetch = originalFetch;
+		(
+			globalThis as typeof globalThis & { WebSocket: typeof WebSocket }
+		).WebSocket = originalWebSocket;
+	}
+});
+
 test("retries a timed-out segment without closing the view", async () => {
 	FakeWebSocket.instances = [];
 	const originalWebSocket = globalThis.WebSocket;

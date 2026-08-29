@@ -614,6 +614,9 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		let task: Promise<void>;
 		task = this.consumeSegment(segmentUri, vposBaseTime, signal, generation)
 			.catch((error) => {
+				if (this.activeSegmentTasks.get(segmentUri)?.task === task) {
+					this.seenSegmentUris.delete(segmentUri);
+				}
 				if (!this.isIntentionalFailure(error, signal, generation)) {
 					console.error("[NicoJK] NicoNico comment segment failed", error);
 				}
