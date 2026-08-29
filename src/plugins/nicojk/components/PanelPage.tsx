@@ -1458,19 +1458,51 @@ export default function PanelPage({
 														)}
 														{source.chapterCorrection && (
 															<div
-																className={
+																className={`mt-0.5 flex min-w-0 items-center justify-between gap-3 ${
 																	source.chapterCorrection.enabled
 																		? "text-emerald-300"
 																		: "text-gray-500"
-																}
+																}`}
 															>
-																チャプター補正{" "}
-																{formatCorrectionSeconds(
-																	source.chapterCorrection.offsetSeconds,
-																)}
-																{source.chapterCorrection.enabled
-																	? " 適用中"
-																	: " 無効"}
+																<span className="min-w-0 wrap-break-word">
+																	チャプター補正{" "}
+																	{formatCorrectionSeconds(
+																		source.chapterCorrection.offsetSeconds,
+																	)}
+																	{source.chapterCorrection.enabled
+																		? " 適用中"
+																		: " 無効"}
+																</span>
+																<button
+																	type="button"
+																	onClick={() =>
+																		onChapterCorrectionEnabledChange(
+																			source.key,
+																			!source.chapterCorrection?.enabled,
+																		)
+																	}
+																	className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border transition-colors ${
+																		source.chapterCorrection.enabled
+																			? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500"
+																			: "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
+																	}`}
+																	title={
+																		source.chapterCorrection.enabled
+																			? "チャプター補正を適用しない"
+																			: "チャプター補正を再適用する"
+																	}
+																	aria-label={
+																		source.chapterCorrection.enabled
+																			? `${source.channelName} のチャプター補正を適用しない`
+																			: `${source.channelName} のチャプター補正を再適用する`
+																	}
+																>
+																	{source.chapterCorrection.enabled ? (
+																		<Ban size={14} />
+																	) : (
+																		<Check size={14} />
+																	)}
+																</button>
 															</div>
 														)}
 														{isInterrupted && interruptedChunks.length > 0 && (
@@ -1500,52 +1532,18 @@ export default function PanelPage({
 															</div>
 														)}
 													</div>
-													{(isInterrupted || source.chapterCorrection) && (
+													{isInterrupted && (
 														<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-															{isInterrupted && (
-																<button
-																	type="button"
-																	onClick={() => onResumeSource(source.key)}
-																	className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
-																	title={`${source.channelName} の取得を再開`}
-																	aria-label={`${source.channelName} の取得を再開`}
-																>
-																	<RotateCw size={12} />
-																	全件取得
-																</button>
-															)}
-															{source.chapterCorrection && (
-																<button
-																	type="button"
-																	onClick={() =>
-																		onChapterCorrectionEnabledChange(
-																			source.key,
-																			!source.chapterCorrection?.enabled,
-																		)
-																	}
-																	className={`flex h-7 w-7 items-center justify-center rounded border transition-colors ${
-																		source.chapterCorrection.enabled
-																			? "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-500"
-																			: "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
-																	}`}
-																	title={
-																		source.chapterCorrection.enabled
-																			? "チャプター補正を適用しない"
-																			: "チャプター補正を再適用する"
-																	}
-																	aria-label={
-																		source.chapterCorrection.enabled
-																			? `${source.channelName} のチャプター補正を適用しない`
-																			: `${source.channelName} のチャプター補正を再適用する`
-																	}
-																>
-																	{source.chapterCorrection.enabled ? (
-																		<Ban size={14} />
-																	) : (
-																		<Check size={14} />
-																	)}
-																</button>
-															)}
+															<button
+																type="button"
+																onClick={() => onResumeSource(source.key)}
+																className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
+																title={`${source.channelName} の取得を再開`}
+																aria-label={`${source.channelName} の取得を再開`}
+															>
+																<RotateCw size={12} />
+																全件取得
+															</button>
 														</div>
 													)}
 													<div

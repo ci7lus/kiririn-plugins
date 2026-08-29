@@ -36,6 +36,10 @@ const RENDER_SEGMENT_SIZE = 3600;
 const RENDER_SEGMENT_OVERLAP = 60;
 // App側のライブコメント上限に余裕を加えた件数でrendererを再構築し、内部保持量を固定する
 const MAX_LIVE_RENDERER_COMMENTS = 1200;
+const DEFAULT_LIVE_COMMENT_DURATION_VPOS = 300;
+const MAX_LIVE_COMMENT_DURATION_VPOS = 12_000;
+// 横書きコメントは vpos の前後にも描画・衝突判定のために保持される。
+const LIVE_COMMENT_DRAW_LEAD_VPOS = 125;
 
 function getSegmentComments(
 	comments: NiconicoComment[],
@@ -52,6 +56,33 @@ function getSegmentComments(
 	const segmentEndVpos = (startAt + (segment + 1) * RENDER_SEGMENT_SIZE) * 100;
 	return comments.filter(
 		(c) => c.vpos >= overlapStartVpos && c.vpos < segmentEndVpos,
+	);
+}
+
+function getLiveCommentDurationVpos(comment: NiconicoComment) {
+	let durationVpos = DEFAULT_LIVE_COMMENT_DURATION_VPOS;
+	for (const mail of comment.mail || []) {
+		const match = /^[@＠]([0-9.]+)$/.exec(mail);
+		if (!match) continue;
+		const duration = Math.floor(Number(match[1]) * 100);
+		durationVpos =
+			Number.isFinite(duration) && duration > 0
+				? Math.min(duration, MAX_LIVE_COMMENT_DURATION_VPOS)
+				: DEFAULT_LIVE_COMMENT_DURATION_VPOS;
+	}
+	return durationVpos;
+}
+
+export function getLiveRendererSeedComments(
+	comments: NiconicoComment[],
+	nowVpos: number,
+) {
+	return comments.filter(
+		(comment) =>
+			comment.vpos +
+				getLiveCommentDurationVpos(comment) +
+				LIVE_COMMENT_DRAW_LEAD_VPOS >=
+			nowVpos,
 	);
 }
 
@@ -389,7 +420,10 @@ export default function OverlayPage({
 			: [];
 		const liveComments = isLive
 			? toFormattedComments(
-					segmentComments,
+					getLiveRendererSeedComments(
+						segmentComments,
+						Math.floor(Date.now() / 10),
+					),
 					visibleSourceKeys,
 					jkContext,
 					currentSettings,

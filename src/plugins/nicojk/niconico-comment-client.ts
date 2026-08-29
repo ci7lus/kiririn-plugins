@@ -20,6 +20,50 @@ const WATCH_TIMEOUT_MS = 15_000;
 const RECONNECT_DELAY_MS = 5_000;
 const ANONYMOUS_USER_ID = "guest";
 
+export interface NdgrRetryPolicy {
+	maxNumberOfRetry: number;
+	startingIntervalMs: number;
+	timeMultiple: number;
+	randomizationFactor: number;
+}
+
+export interface NdgrTimeoutPolicy {
+	viewFetchHeaderMs: number;
+	viewStreamReadMs: number;
+	segmentFetchHeaderMs: number;
+	segmentStreamReadMs: number;
+}
+
+export interface NiconicoCommentClientOptions {
+	retry?: Partial<NdgrRetryPolicy>;
+	timeouts?: Partial<NdgrTimeoutPolicy>;
+	random?: () => number;
+}
+
+const DEFAULT_NDGR_RETRY_POLICY: NdgrRetryPolicy = {
+	maxNumberOfRetry: 5,
+	startingIntervalMs: 500,
+	timeMultiple: 1.5,
+	randomizationFactor: 0.5,
+};
+
+const DEFAULT_NDGR_TIMEOUT_POLICY: NdgrTimeoutPolicy = {
+	viewFetchHeaderMs: 60_000,
+	viewStreamReadMs: 60_000,
+	segmentFetchHeaderMs: 1_000,
+	segmentStreamReadMs: 30_000,
+};
+
+type NdgrTimeoutPhase = "fetch-header" | "stream-read";
+
+class NdgrFetchTimeoutError extends Error {
+	override readonly name = "NdgrFetchTimeoutError";
+
+	constructor(requestKind: "view" | "segment", phase: NdgrTimeoutPhase) {
+		super(`NicoNico ${requestKind} ${phase} timed out`);
+	}
+}
+
 const OPACITY_MAIL_VALUES: Record<string, string> = {
 	Normal: "nico:opacity:1",
 	Translucent: "nico:opacity:0.5",
@@ -31,8 +75,69 @@ export function getNiconicoLiveVpos(receivedAtMs: number, dateUsec: number) {
 	return baseVpos + 200 + jitter;
 }
 
+export function getNdgrRetryDelayMs(
+	retryNumber: number,
+	policy: NdgrRetryPolicy = DEFAULT_NDGR_RETRY_POLICY,
+	randomValue = Math.random(),
+) {
+	const baseDelay =
+		policy.startingIntervalMs *
+		policy.timeMultiple ** Math.max(0, retryNumber - 1);
+	const jitterMultiplier =
+		1 -
+		policy.randomizationFactor +
+		randomValue * policy.randomizationFactor * 2;
+	return Math.max(0, Math.round(baseDelay * jitterMultiplier));
+}
+
 function isAbortError(error: unknown) {
 	return error instanceof Error && error.name === "AbortError";
+}
+
+function getAbortError(signal: AbortSignal) {
+	return signal.reason instanceof Error
+		? signal.reason
+		: new DOMException("The connection was aborted", "AbortError");
+}
+
+function createNdgrAttempt(parentSignal: AbortSignal) {
+	const controller = new AbortController();
+	const abortFromParent = () => controller.abort(getAbortError(parentSignal));
+	if (parentSignal.aborted) abortFromParent();
+	else parentSignal.addEventListener("abort", abortFromParent, { once: true });
+
+	return {
+		signal: controller.signal,
+		async runWithTimeout<T>(
+			operation: () => Promise<T>,
+			timeoutMs: number,
+			requestKind: "view" | "segment",
+			phase: NdgrTimeoutPhase,
+		) {
+			if (parentSignal.aborted) throw getAbortError(parentSignal);
+			const timeoutError = new NdgrFetchTimeoutError(requestKind, phase);
+			const timeout = setTimeout(
+				() => controller.abort(timeoutError),
+				timeoutMs,
+			);
+			let removeAttemptAbortListener = () => {};
+			const attemptAborted = new Promise<never>((_resolve, reject) => {
+				const onAbort = () => reject(controller.signal.reason ?? timeoutError);
+				controller.signal.addEventListener("abort", onAbort, { once: true });
+				removeAttemptAbortListener = () =>
+					controller.signal.removeEventListener("abort", onAbort);
+			});
+			try {
+				return await Promise.race([operation(), attemptAborted]);
+			} finally {
+				clearTimeout(timeout);
+				removeAttemptAbortListener();
+			}
+		},
+		dispose() {
+			parentSignal.removeEventListener("abort", abortFromParent);
+		},
+	};
 }
 
 function waitForAbort(signal: AbortSignal): Promise<void> {
@@ -58,6 +163,22 @@ function waitForReconnect(signal: AbortSignal): Promise<boolean> {
 	});
 }
 
+function waitForRetry(delayMs: number, signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const timeout = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(true);
+		}, delayMs);
+		const onAbort = () => {
+			clearTimeout(timeout);
+			signal.removeEventListener("abort", onAbort);
+			resolve(false);
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+}
+
 export function modifierToMail(modifier: DecodedChat["modifier"]): string[] {
 	if (!modifier) return [];
 	const commands = [
@@ -72,6 +193,9 @@ export function modifierToMail(modifier: DecodedChat["modifier"]): string[] {
 }
 
 export class NiconicoCommentClient implements LiveCommentClient {
+	private readonly retryPolicy: NdgrRetryPolicy;
+	private readonly timeoutPolicy: NdgrTimeoutPolicy;
+	private readonly random: () => number;
 	private socket: SocketLike | null = null;
 	private bc: BroadcastChannel | null = null;
 	private abortController: AbortController | null = null;
@@ -80,6 +204,20 @@ export class NiconicoCommentClient implements LiveCommentClient {
 	private status: ConnectionStatus = "disconnected";
 	private sourceKey: string | null = null;
 	private generation = 0;
+	private activeSegmentTasks = new Map<
+		string,
+		{ generation: number; task: Promise<void> }
+	>();
+	private seenSegmentUris = new Set<string>();
+
+	constructor(options: NiconicoCommentClientOptions = {}) {
+		this.retryPolicy = { ...DEFAULT_NDGR_RETRY_POLICY, ...options.retry };
+		this.timeoutPolicy = {
+			...DEFAULT_NDGR_TIMEOUT_POLICY,
+			...options.timeouts,
+		};
+		this.random = options.random ?? Math.random;
+	}
 
 	public connect(
 		source: ResolvedCommentSource,
@@ -151,6 +289,8 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		this.generation += 1;
 		this.abortController?.abort();
 		this.abortController = null;
+		this.activeSegmentTasks.clear();
+		this.seenSegmentUris.clear();
 		this.socket?.close();
 		this.socket = null;
 		this.bc?.close();
@@ -188,22 +328,22 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		if (!source.nicoliveCommunityId) {
 			throw new Error("NicoNico community ID is unavailable");
 		}
-		const page = await resolveNiconicoWatchPage(source.nicoliveCommunityId);
-		if (!this.isCurrent(generation)) return;
-
 		while (this.isCurrent(generation) && !signal.aborted) {
+			this.seenSegmentUris.clear();
 			const sessionController = new AbortController();
 			const abortSession = () => sessionController.abort();
 			signal.addEventListener("abort", abortSession, { once: true });
-			let sessionSocket: SocketLike | null = null;
 			try {
-				const { viewUri, socket } = await this.openWatchSocket(
+				// WebSocket URL は再接続ごとに取り直す。古い視聴ページに含まれる
+				// URL を再利用すると、失効後に回復できなくなる。
+				const page = await resolveNiconicoWatchPage(source.nicoliveCommunityId);
+				if (!this.isCurrent(generation) || signal.aborted) return;
+				const viewUri = await this.openWatchSocket(
 					page.webSocketUrl,
 					sessionController.signal,
 					generation,
 					abortSession,
 				);
-				sessionSocket = socket;
 				if (!this.isCurrent(generation) || signal.aborted) return;
 				this.updateStatus("connected");
 				await this.consumeView(
@@ -224,10 +364,6 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			} finally {
 				signal.removeEventListener("abort", abortSession);
 				sessionController.abort();
-				if (sessionSocket && this.socket === sessionSocket) {
-					sessionSocket.close();
-					this.socket = null;
-				}
 			}
 
 			if (signal.aborted || !this.isCurrent(generation)) return;
@@ -241,11 +377,12 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		signal: AbortSignal,
 		generation: number,
 		onDisconnected: () => void,
-	): Promise<{ viewUri: string; socket: SocketLike }> {
+	): Promise<string> {
 		return new Promise((resolve, reject) => {
 			const socket = new WebSocket(url);
 			this.socket = socket;
 			let settled = false;
+			let closedAfterMessageServer = false;
 			const timeout = setTimeout(() => {
 				if (!settled) {
 					settled = true;
@@ -270,6 +407,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			};
 			socket.onmessage = (event) => {
 				try {
+					if (closedAfterMessageServer) return;
 					const message = JSON.parse(String(event.data));
 					if (message.type === "ping") {
 						socket.send(JSON.stringify({ type: "pong" }));
@@ -296,7 +434,12 @@ export class NiconicoCommentClient implements LiveCommentClient {
 					settled = true;
 					clearTimeout(timeout);
 					signal.removeEventListener("abort", abort);
-					resolve({ viewUri, socket });
+					// messageServer は View URI を取得するためだけの接続。NDGRClient
+					// と同様にここで閉じ、以降の NDGR HTTP ストリームと結び付けない。
+					closedAfterMessageServer = true;
+					socket.close();
+					if (this.socket === socket) this.socket = null;
+					resolve(viewUri);
 				} catch (error) {
 					if (!settled) {
 						settled = true;
@@ -306,7 +449,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				}
 			};
 			socket.onerror = () => {
-				if (settled) onDisconnected();
+				if (settled && !closedAfterMessageServer) onDisconnected();
 				if (!settled) {
 					settled = true;
 					clearTimeout(timeout);
@@ -314,7 +457,8 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				}
 			};
 			socket.onclose = () => {
-				if (settled && !signal.aborted) onDisconnected();
+				if (settled && !signal.aborted && !closedAfterMessageServer)
+					onDisconnected();
 				if (!settled && !signal.aborted) {
 					settled = true;
 					clearTimeout(timeout);
@@ -322,6 +466,32 @@ export class NiconicoCommentClient implements LiveCommentClient {
 				}
 			};
 		});
+	}
+
+	private async runNdgrWithRetry<T>(
+		signal: AbortSignal,
+		generation: number,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		let retryNumber = 0;
+		while (true) {
+			if (signal.aborted || !this.isCurrent(generation)) {
+				throw getAbortError(signal);
+			}
+			try {
+				return await operation();
+			} catch (error) {
+				if (signal.aborted || !this.isCurrent(generation)) throw error;
+				if (retryNumber >= this.retryPolicy.maxNumberOfRetry) throw error;
+				retryNumber += 1;
+				const delayMs = getNdgrRetryDelayMs(
+					retryNumber,
+					this.retryPolicy,
+					this.random(),
+				);
+				if (!(await waitForRetry(delayMs, signal))) throw getAbortError(signal);
+			}
+		}
 	}
 
 	private async consumeView(
@@ -354,39 +524,62 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		signal: AbortSignal,
 		generation: number,
 	): Promise<number | undefined> {
+		return this.runNdgrWithRetry(signal, generation, () =>
+			this.consumeViewSegmentAttempt(
+				viewUri,
+				at,
+				vposBaseTime,
+				signal,
+				generation,
+			),
+		);
+	}
+
+	private async consumeViewSegmentAttempt(
+		viewUri: string,
+		at: number | "now",
+		vposBaseTime: number,
+		signal: AbortSignal,
+		generation: number,
+	): Promise<number | undefined> {
 		const url = new URL(viewUri);
 		url.searchParams.set("at", String(at));
-		const response = await fetch(url, { credentials: "omit", signal });
-		if (!response.ok || !response.body)
-			throw new Error(`NicoNico view request failed: ${response.status}`);
-		const reader = response.body.getReader();
-		const frames = new LengthDelimitedReader();
-		const segmentTasks: Promise<void>[] = [];
-		let nextAt: number | undefined;
+		const attemptContext = createNdgrAttempt(signal);
+		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 		try {
+			const response = await attemptContext.runWithTimeout(
+				() =>
+					fetch(url, {
+						cache: "no-store",
+						credentials: "omit",
+						signal: attemptContext.signal,
+					}),
+				this.timeoutPolicy.viewFetchHeaderMs,
+				"view",
+				"fetch-header",
+			);
+			if (!response.ok || !response.body)
+				throw new Error(`NicoNico view request failed: ${response.status}`);
+			reader = response.body.getReader();
+			const frames = new LengthDelimitedReader();
+			let nextAt: number | undefined;
 			while (true) {
-				const result = await reader.read();
+				const result = await attemptContext.runWithTimeout(
+					() =>
+						reader?.read() ?? Promise.reject(new Error("View reader missing")),
+					this.timeoutPolicy.viewStreamReadMs,
+					"view",
+					"stream-read",
+				);
 				if (result.done) break;
 				for (const frame of frames.push(result.value)) {
 					const entry = decodeChunkedEntry(frame);
 					if (entry.segment?.uri) {
-						const segmentTask = this.consumeSegment(
+						this.startSegment(
 							entry.segment.uri,
 							vposBaseTime,
 							signal,
 							generation,
-						);
-						segmentTasks.push(
-							segmentTask.catch((error) => {
-								if (!this.isIntentionalFailure(error, signal, generation)) {
-									// A segment is independent of the view stream. Its failure
-									// should not make an otherwise active live connection red.
-									console.error(
-										"[NicoJK] NicoNico comment segment failed",
-										error,
-									);
-								}
-							}),
 						);
 					}
 					if (entry.next) nextAt = entry.next.at;
@@ -395,11 +588,45 @@ export class NiconicoCommentClient implements LiveCommentClient {
 			if (frames.hasPendingFrame()) {
 				throw new Error("NicoNico view stream ended with a truncated frame");
 			}
+			return nextAt;
 		} finally {
-			reader.releaseLock();
-			await Promise.allSettled(segmentTasks);
+			try {
+				reader?.releaseLock();
+			} catch {
+				// Aborting a timed-out read may keep the lock until rejection settles.
+			}
+			attemptContext.dispose();
 		}
-		return nextAt;
+	}
+
+	private startSegment(
+		segmentUri: string,
+		vposBaseTime: number,
+		signal: AbortSignal,
+		generation: number,
+	): void {
+		const active = this.activeSegmentTasks.get(segmentUri);
+		if (active?.generation === generation) return;
+		if (active) this.activeSegmentTasks.delete(segmentUri);
+		if (this.seenSegmentUris.has(segmentUri)) return;
+		this.seenSegmentUris.add(segmentUri);
+
+		let task: Promise<void>;
+		task = this.consumeSegment(segmentUri, vposBaseTime, signal, generation)
+			.catch((error) => {
+				if (this.activeSegmentTasks.get(segmentUri)?.task === task) {
+					this.seenSegmentUris.delete(segmentUri);
+				}
+				if (!this.isIntentionalFailure(error, signal, generation)) {
+					console.error("[NicoJK] NicoNico comment segment failed", error);
+				}
+			})
+			.finally(() => {
+				if (this.activeSegmentTasks.get(segmentUri)?.task === task) {
+					this.activeSegmentTasks.delete(segmentUri);
+				}
+			});
+		this.activeSegmentTasks.set(segmentUri, { generation, task });
 	}
 
 	private async consumeSegment(
@@ -408,27 +635,63 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		signal: AbortSignal,
 		generation: number,
 	): Promise<void> {
-		const response = await fetch(segmentUri, { credentials: "omit", signal });
-		if (!response.ok || !response.body)
-			throw new Error(`NicoNico segment request failed: ${response.status}`);
-		const reader = response.body.getReader();
-		const frames = new LengthDelimitedReader();
+		return this.runNdgrWithRetry(signal, generation, () =>
+			this.consumeSegmentAttempt(segmentUri, vposBaseTime, signal, generation),
+		);
+	}
+
+	private async consumeSegmentAttempt(
+		segmentUri: string,
+		vposBaseTime: number,
+		signal: AbortSignal,
+		generation: number,
+	): Promise<void> {
+		const attemptContext = createNdgrAttempt(signal);
+		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 		try {
+			const response = await attemptContext.runWithTimeout(
+				() =>
+					fetch(segmentUri, {
+						cache: "no-store",
+						credentials: "omit",
+						signal: attemptContext.signal,
+					}),
+				this.timeoutPolicy.segmentFetchHeaderMs,
+				"segment",
+				"fetch-header",
+			);
+			if (!response.ok || !response.body)
+				throw new Error(`NicoNico segment request failed: ${response.status}`);
+			reader = response.body.getReader();
+			const frames = new LengthDelimitedReader();
 			while (true) {
-				const result = await reader.read();
+				const result = await attemptContext.runWithTimeout(
+					() =>
+						reader?.read() ??
+						Promise.reject(new Error("Segment reader missing")),
+					this.timeoutPolicy.segmentStreamReadMs,
+					"segment",
+					"stream-read",
+				);
 				if (result.done) break;
 				for (const frame of frames.push(result.value)) {
 					const message = decodeChunkedMessage(frame).message;
 					const chat = message?.chat ?? message?.overflowedChat;
-					if (chat && this.isCurrent(generation))
+					if (chat && this.isCurrent(generation)) {
 						this.notifyListeners(this.toComment(chat, vposBaseTime));
+					}
 				}
 			}
 			if (frames.hasPendingFrame()) {
 				throw new Error("NicoNico segment stream ended with a truncated frame");
 			}
 		} finally {
-			reader.releaseLock();
+			try {
+				reader?.releaseLock();
+			} catch {
+				// Aborting a timed-out read may keep the lock until rejection settles.
+			}
+			attemptContext.dispose();
 		}
 	}
 
