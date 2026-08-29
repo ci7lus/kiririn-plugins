@@ -14,8 +14,8 @@
 
 ### nicojk
 
-動画表示の上に実況コメントを表示するプラグインです。<br>
-コメントソースとして[ニコニコ実況](https://jk.nicovideo.jp)、[NX-Jikkyo](https://nx-jikkyo.tsukumijima.net/) および[ニコニコ実況 過去ログ API](https://jikkyo.tsukumijima.net/) を、レンダラーとして [niconicomments](https://xpadev-net.github.io/niconicomments/) を利用しています。
+実況コメントを表示するプラグインです。<br>
+コメントソースとして[ニコニコ実況](https://jk.nicovideo.jp)、[NX-Jikkyo](https://nx-jikkyo.tsukumijima.net/)、[ニコニコ実況 過去ログ API](https://jikkyo.tsukumijima.net/) および [miyou.tv](http://miyou.tv/) を、レンダラーとして [niconicomments](https://xpadev-net.github.io/niconicomments/) を利用しています。
 
 [インストール (v0.2.0-)](https://ci7lus.github.io/kiririn-plugins/install.html?manifestID=io.github.ci7lus.kiririn-plugins.nicojk)
 
