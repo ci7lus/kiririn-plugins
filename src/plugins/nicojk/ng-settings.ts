@@ -20,6 +20,7 @@ export interface NicoJKSettings {
 	opacity: number;
 	secondarySourceOpacity: number;
 	showResponseAnchorComments: boolean;
+	deduplicateComments: boolean;
 	chapterWindowSeconds: number;
 	chapterCooldownSeconds: number;
 	chapterMinimumCount: number;
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	opacity: 0.8,
 	secondarySourceOpacity: 1,
 	showResponseAnchorComments: false,
+	deduplicateComments: true,
 	chapterWindowSeconds: 10,
 	chapterCooldownSeconds: 60,
 	chapterMinimumCount: 3,
@@ -125,6 +127,10 @@ function normalizeSettings(value: unknown): NicoJKSettings {
 			typeof stored.showResponseAnchorComments === "boolean"
 				? stored.showResponseAnchorComments
 				: DEFAULT_SETTINGS.showResponseAnchorComments,
+		deduplicateComments:
+			typeof stored.deduplicateComments === "boolean"
+				? stored.deduplicateComments
+				: DEFAULT_SETTINGS.deduplicateComments,
 		chapterWindowSeconds: normalizeInteger(
 			stored.chapterWindowSeconds,
 			DEFAULT_SETTINGS.chapterWindowSeconds,

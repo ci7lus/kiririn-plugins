@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import { type ChapterPoint, detectChapterPoints } from "../chapter-comments";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
+import { isCommentNGBySettings } from "../comment-dedupe";
 import {
 	COMMENT_SOURCE_ORIGIN_LABELS,
 	COMMENT_SOURCE_ORIGINS,
@@ -174,30 +175,12 @@ export default function PanelPage({
 
 	const filteredComments = useMemo(() => {
 		const ngFiltered = filterNG
-			? comments.filter((comment) => {
-					if (comment.user_id && settings.ngIds.includes(comment.user_id)) {
-						return false;
-					}
-					if (
-						comment.content &&
-						settings.ngWords.some((word) => comment.content.includes(word))
-					) {
-						return false;
-					}
-					return true;
-				})
+			? comments.filter((comment) => !isCommentNGBySettings(comment, settings))
 			: comments;
 		return ngFiltered.filter((comment) =>
 			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
 		);
-	}, [
-		comments,
-		filterNG,
-		jkContext,
-		settings.ngIds,
-		settings.ngWords,
-		visibleSourceKeys,
-	]);
+	}, [comments, filterNG, jkContext, settings, visibleSourceKeys]);
 
 	const displayComments = filteredComments;
 	const normalizedSearchQuery = useMemo(
@@ -231,38 +214,63 @@ export default function PanelPage({
 	const commentOriginCounts = useMemo(() => {
 		let niconico = 0;
 		let miyou = 0;
+		let ng = 0;
 		for (const comment of comments) {
 			if (comment.origin === "miyou") {
 				miyou += 1;
 			} else {
 				niconico += 1;
 			}
+			if (isCommentNGBySettings(comment, settings)) {
+				ng += 1;
+			}
 		}
-		return { niconico, miyou, total: niconico + miyou };
-	}, [comments]);
+		return { niconico, miyou, total: niconico + miyou, ng };
+	}, [comments, settings]);
 	const fetchedCommentCount = commentOriginCounts.total;
+	const ngCommentCount = commentOriginCounts.ng;
 	const sourceCommentCounts = useMemo(() => {
 		const counts = new Map<
 			number,
-			{ niconico: number; miyou: number; total: number }
+			{
+				niconico: number;
+				miyou: number;
+				total: number;
+				ngNiconico: number;
+				ngMiyou: number;
+				ngTotal: number;
+			}
 		>();
 		for (const comment of comments) {
+			const isNG = isCommentNGBySettings(comment, settings);
 			const sourceOrdinal = Math.max(comment.sourceOrdinal || 0, 0);
 			const sourceCounts = counts.get(sourceOrdinal) || {
 				niconico: 0,
 				miyou: 0,
 				total: 0,
+				ngNiconico: 0,
+				ngMiyou: 0,
+				ngTotal: 0,
 			};
 			if (comment.origin === "miyou") {
 				sourceCounts.miyou += 1;
+				if (isNG) {
+					sourceCounts.ngMiyou += 1;
+				}
 			} else {
 				sourceCounts.niconico += 1;
+				if (isNG) {
+					sourceCounts.ngNiconico += 1;
+				}
 			}
 			sourceCounts.total += 1;
+			if (isNG) {
+				sourceCounts.ngTotal += 1;
+			}
 			counts.set(sourceOrdinal, sourceCounts);
 		}
 		return counts;
-	}, [comments]);
+	}, [comments, settings]);
 	const chapterComments = useMemo(() => {
 		return comments.filter((comment) =>
 			isCommentVisibleForSource(comment, jkContext, visibleSourceKeys),
@@ -715,7 +723,7 @@ export default function PanelPage({
 							{jkContext && (
 								<div className="flex min-w-0 flex-1 items-center gap-2">
 									<div
-										className="shrink-0 text-sm text-gray-200"
+										className="min-w-0 max-w-[50%] truncate text-sm text-gray-200"
 										title={`${jkContext.channelName} (${jkContext.jkId})`}
 									>
 										{jkContext.channelName} ({jkContext.jkId})
@@ -732,8 +740,11 @@ export default function PanelPage({
 										</div>
 									)}
 									{!isLive && (
-										<div className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-400">
-											{fetchedCommentCount}件
+										<div
+											className="min-w-0 max-w-[45%] truncate text-sm tabular-nums text-gray-400"
+											title={`${fetchedCommentCount}件 (NG ${ngCommentCount}件)`}
+										>
+											{fetchedCommentCount}件 (NG {ngCommentCount}件)
 										</div>
 									)}
 									{channelDisplayState.isLoading && (
@@ -1352,8 +1363,11 @@ export default function PanelPage({
 						<div className="mb-3 flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-baseline sm:justify-between">
 							<span className="shrink-0 text-gray-400">取得コメント数</span>
 							<div className="flex min-w-0 items-center gap-1 sm:justify-end">
-								<span className="min-w-0 wrap-break-word tabular-nums text-blue-300 sm:text-right">
-									{fetchedCommentCount}件
+								<span
+									className="min-w-0 flex-1 truncate tabular-nums text-blue-300 sm:text-right"
+									title={`${fetchedCommentCount}件 (NG ${ngCommentCount}件)`}
+								>
+									{fetchedCommentCount}件 (NG {ngCommentCount}件)
 								</span>
 								<button
 									type="button"
@@ -1395,6 +1409,9 @@ export default function PanelPage({
 												niconico: 0,
 												miyou: 0,
 												total: 0,
+												ngNiconico: 0,
+												ngMiyou: 0,
+												ngTotal: 0,
 											};
 											const sourceOrigins: CommentSourceOrigin[] =
 												!isLive && source.miyouChannel
@@ -1440,8 +1457,12 @@ export default function PanelPage({
 																	{source.channelName} ({source.jkId})
 																</span>
 																{!isLive && (
-																	<span className="shrink-0 text-sm tabular-nums text-gray-400">
-																		{sourceCounts.total}件
+																	<span
+																		className="min-w-0 max-w-[55%] truncate text-sm tabular-nums text-gray-400"
+																		title={`${sourceCounts.total}件 (NG ${sourceCounts.ngTotal}件)`}
+																	>
+																		{sourceCounts.total}件 (NG{" "}
+																		{sourceCounts.ngTotal}件)
 																	</span>
 																)}
 															</div>
@@ -1573,7 +1594,7 @@ export default function PanelPage({
 																			: "border-gray-700 bg-[#1f1f1f] opacity-70"
 																	}`}
 																>
-																	<div className="min-w-0">
+																	<div className="min-w-0 flex-1">
 																		<div className="flex min-w-0 items-center gap-2">
 																			<span
 																				className={`shrink-0 text-sm font-medium ${
@@ -1584,8 +1605,15 @@ export default function PanelPage({
 																			>
 																				{COMMENT_SOURCE_ORIGIN_LABELS[origin]}
 																			</span>
-																			<span className="truncate text-sm tabular-nums text-gray-400">
-																				{sourceCounts[origin]}件
+																			<span
+																				className="min-w-0 truncate text-sm tabular-nums text-gray-400"
+																				title={`${sourceCounts[origin]}件 (NG ${origin === "miyou" ? sourceCounts.ngMiyou : sourceCounts.ngNiconico}件)`}
+																			>
+																				{sourceCounts[origin]}件 (NG{" "}
+																				{origin === "miyou"
+																					? sourceCounts.ngMiyou
+																					: sourceCounts.ngNiconico}
+																				件)
 																			</span>
 																		</div>
 																	</div>

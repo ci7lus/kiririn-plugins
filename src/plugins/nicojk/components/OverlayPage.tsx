@@ -4,6 +4,7 @@ import NiconiComments, {
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import type { NiconicoComment } from "../comment-client";
+import { isCommentNGBySettings } from "../comment-dedupe";
 import { getCommentSourceKeyForComment } from "../comment-source";
 import type { NicoJKContext } from "../context";
 import {
@@ -109,6 +110,7 @@ function getFilterSignature(
 		ngCommands: settings.ngCommands,
 		secondarySourceOpacity: settings.secondarySourceOpacity,
 		showResponseAnchorComments: settings.showResponseAnchorComments,
+		deduplicateComments: settings.deduplicateComments,
 		visibleSourceKeys,
 	});
 }
@@ -130,20 +132,6 @@ function getCommentDataSignature(comments: NiconicoComment[]) {
 				`${comment.id}:${comment.vpos}:${comment.sourceOrdinal || 0}`,
 		)
 		.join(",");
-}
-
-function isCommentNGBySettings(
-	comment: string | undefined,
-	userId: string | undefined,
-	settings: NicoJKSettings,
-) {
-	if (userId && settings.ngIds.includes(userId)) {
-		return true;
-	}
-	if (comment && settings.ngWords.some((word) => comment.includes(word))) {
-		return true;
-	}
-	return false;
 }
 
 function filterMailBySettings(
@@ -181,10 +169,7 @@ function toFormattedComment(
 	jkContext: NicoJKContext | null,
 	settings: NicoJKSettings,
 ): FormattedComment | null {
-	if (
-		comment.content == null ||
-		isCommentNGBySettings(comment.content, comment.user_id, settings)
-	) {
+	if (comment.content == null || isCommentNGBySettings(comment, settings)) {
 		return null;
 	}
 

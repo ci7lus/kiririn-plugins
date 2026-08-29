@@ -284,6 +284,29 @@ export default function OptionsPage() {
 							</span>
 						</span>
 					</label>
+					<label className="mt-3 flex items-start gap-2 rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<input
+							type="checkbox"
+							checked={settings.deduplicateComments}
+							onChange={() =>
+								syncSettings(
+									saveSettings({
+										...settings,
+										deduplicateComments: !settings.deduplicateComments,
+									}),
+								)
+							}
+							className="form-checkbox mt-0.5 h-5 w-5 shrink-0"
+						/>
+						<span>
+							<span className="block text-sm font-medium text-gray-100">
+								重複コメントを自動で排他する
+							</span>
+							<span className="mt-1 block text-xs leading-relaxed text-gray-400">
+								同じID・本文の重複コメントを自動NGとして扱います。NGフィルターを外すと表示できます。
+							</span>
+						</span>
+					</label>
 				</div>
 
 				{/* NG Settings */}
