@@ -3,6 +3,11 @@ import {
 	synchronizeCommentSourcesByChapters,
 } from "./chapter-source-sync";
 import type { NiconicoComment } from "./comment-client";
+import {
+	createRecordedNGTraceState,
+	markRecordedDuplicateComments,
+	traceRecordedNGCommentsIfCountChanged,
+} from "./comment-dedupe";
 import { buildStableCommentId } from "./comment-id";
 import { fetchJson } from "./host-fetch";
 import {
@@ -19,7 +24,7 @@ interface NicoLogComment {
 	id: string;
 	no: string;
 	vpos: string;
-	content: string;
+	content: unknown;
 	date: string;
 	date_usec?: string;
 	mail: string;
@@ -174,6 +179,7 @@ export class KakologManager {
 	private sources: ResolvedCommentSource[] = [];
 	private fetchRevision = 0;
 	private allComments: NiconicoComment[] = [];
+	private recordedNGTraceState = createRecordedNGTraceState();
 	private sourceStates: SourceFetchState[] = [];
 	private totalFetched = 0;
 	private batchStartCount = 0;
@@ -220,6 +226,7 @@ export class KakologManager {
 		this.sources = sources;
 		this.fetchRevision += 1;
 		this.allComments = [];
+		this.recordedNGTraceState = createRecordedNGTraceState();
 		this.sourceStates = sources.map((source, ordinal) => ({
 			sourceKey: source.key,
 			sourceOrdinal: ordinal,
@@ -305,6 +312,7 @@ export class KakologManager {
 	public clearCache() {
 		this.fetchRevision += 1;
 		this.allComments = [];
+		this.recordedNGTraceState = createRecordedNGTraceState();
 		for (const state of this.sourceStates) {
 			state.fetchedOffsets.clear();
 			state.niconicoFetchedOffsets.clear();
@@ -496,7 +504,16 @@ export class KakologManager {
 				);
 			}
 		}
-		return sortAndDedupeComments(synchronized.comments);
+		const recordedComments = markRecordedDuplicateComments(
+			sortAndDedupeComments(synchronized.comments),
+		);
+		traceRecordedNGCommentsIfCountChanged(
+			recordedComments,
+			settings,
+			this.recordedNGTraceState,
+			this.sourceSignature,
+		);
+		return recordedComments;
 	}
 
 	public getChapterCorrections(): ChapterCorrectionInfo[] {
@@ -1061,7 +1078,7 @@ export class KakologManager {
 				} else {
 					niconicoComments = data.packet.flatMap((p) => {
 						const c = p.chat;
-						if (!c) return [];
+						if (!c || typeof c.content !== "string") return [];
 
 						const date = parseInt(c.date, 10);
 						const date_usec = parseInt(c.date_usec || "0", 10);

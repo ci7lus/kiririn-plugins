@@ -20,6 +20,7 @@ export interface NiconicoComment {
 	anonymity: number;
 	origin?: "ws" | "broadcast" | "miyou";
 	sourceOrdinal?: number;
+	isDuplicate?: boolean;
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;

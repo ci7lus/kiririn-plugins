@@ -11,6 +11,7 @@ import {
 	type ConnectionStatus,
 	type NiconicoComment,
 } from "./comment-client";
+import { markLiveDuplicateComments } from "./comment-dedupe";
 import { buildStableCommentId } from "./comment-id";
 import { getCommentSourceKeys } from "./comment-source";
 import OptionsPage from "./components/OptionsPage";
@@ -586,7 +587,9 @@ function mergeComments(
 
 		const merged = existing.slice();
 		merged.splice(insertAt, 0, comment);
-		return typeof maxCount === "number" ? merged.slice(-maxCount) : merged;
+		return markLiveDuplicateComments(
+			typeof maxCount === "number" ? merged.slice(-maxCount) : merged,
+		);
 	}
 
 	const merged = [...existing, ...incoming].sort(compareComments);
@@ -600,7 +603,9 @@ function mergeComments(
 		deduped.push(comment);
 	}
 
-	return typeof maxCount === "number" ? deduped.slice(-maxCount) : deduped;
+	return markLiveDuplicateComments(
+		typeof maxCount === "number" ? deduped.slice(-maxCount) : deduped,
+	);
 }
 
 interface OverlaySnapshot {
