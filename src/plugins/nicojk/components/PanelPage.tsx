@@ -1467,9 +1467,21 @@ export default function PanelPage({
 																)}
 															</div>
 															{isInterrupted && (
-																<span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-200">
-																	部分取得
-																</span>
+																<div className="flex shrink-0 items-center gap-2">
+																	<span className="rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-200">
+																		部分取得
+																	</span>
+																	<button
+																		type="button"
+																		onClick={() => onResumeSource(source.key)}
+																		className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
+																		title={`${source.channelName} の取得を再開`}
+																		aria-label={`${source.channelName} の取得を再開`}
+																	>
+																		<RotateCw size={12} />
+																		全件取得
+																	</button>
+																</div>
 															)}
 														</div>
 														{!isLive && (
@@ -1553,20 +1565,6 @@ export default function PanelPage({
 															</div>
 														)}
 													</div>
-													{isInterrupted && (
-														<div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-															<button
-																type="button"
-																onClick={() => onResumeSource(source.key)}
-																className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-600/80 px-2 py-1 text-[10px] text-white transition-colors hover:bg-amber-500"
-																title={`${source.channelName} の取得を再開`}
-																aria-label={`${source.channelName} の取得を再開`}
-															>
-																<RotateCw size={12} />
-																全件取得
-															</button>
-														</div>
-													)}
 													<div
 														className={`mt-1 grid gap-2 ${sourceOrigins.length > 1 ? "grid-cols-1 min-[480px]:grid-cols-2" : "grid-cols-1"}`}
 													>
