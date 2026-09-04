@@ -118,6 +118,15 @@ function getProgramResolutionSignature(playable: Playable) {
 	].join(":");
 }
 
+export function getCommentSourceResolutionKey(
+	playable: Playable,
+	isRecorded: boolean,
+	jkId: string,
+) {
+	const { startAt, duration } = getBaseTiming(playable);
+	return `${playable.id}:${isRecorded ? "recorded" : "live"}:${startAt}:${duration}:${getProgramStartAt(playable)}:${jkId}:${getProgramResolutionSignature(playable)}`;
+}
+
 export function buildPrimarySource(
 	channel: NicoJKChannelDefinition,
 	startAt: number,
@@ -1300,6 +1309,18 @@ export default function App() {
 				return false;
 			}
 
+			const { startAt, duration } = getBaseTiming(playable);
+			const primarySource = data.replaySources[0];
+			if (
+				!Number.isFinite(startAt) ||
+				startAt <= 0 ||
+				!Number.isFinite(duration) ||
+				duration <= 0 ||
+				primarySource.endAt <= primarySource.startAt
+			) {
+				return false;
+			}
+
 			let mgr = kakologManagersRef.current.get(playerID);
 			if (!mgr) {
 				mgr = new KakologManager();
@@ -1307,7 +1328,6 @@ export default function App() {
 			}
 			mgr.setSources(data.replaySources);
 			if (data.jkContext && data.replaySources[0]) {
-				const { startAt, duration } = getBaseTiming(playable);
 				data.jkContext = withKakologSourceStates(
 					buildJkContext(
 						data.replaySources[0],
@@ -1319,7 +1339,6 @@ export default function App() {
 				);
 			}
 
-			const { duration } = getBaseTiming(playable);
 			const currentPlayableId = playable.id;
 			data.isLoadingRecordedComments = true;
 			data.recordedSourcesPendingFetch = false;
@@ -1383,7 +1402,8 @@ export default function App() {
 					latest.comments = fetchedComments;
 					latest.recordedFetchProgress = null;
 					latest.isLoadingRecordedComments = false;
-					latest.recordedCommentsReady = true;
+					latest.recordedCommentsReady =
+						fetchedComments.length > 0 || mgr.isFullyCompleted();
 					latest.interruptedSources = mgr.getInterruptedSources();
 					if (latest.jkContext) {
 						latest.jkContext = withKakologSourceStates(latest.jkContext, mgr);
@@ -1850,9 +1870,8 @@ export default function App() {
 					}
 				}
 
-				// initialNetworkTime が後から届いて startAt が変化した場合、
-				// vpos は programStartAt 固定のため再取得不要。
-				// jkContext の startAt/endAt だけ差し替えてレンダラの preroll 計算を更新する。
+				// initialNetworkTime が後から届いたら表示基準を更新する。
+				// 取得区間も変わるため、sourceResolutionKey に startAt を含めて再解決する。
 				if (data.lastStartAt !== startAt && data.jkContext) {
 					data.jkContext = {
 						...data.jkContext,
@@ -1864,7 +1883,11 @@ export default function App() {
 				}
 
 				const sourceResolutionKey = data.primaryChannel?.jkId
-					? `${p.id}:${effectiveIsSeekable ? "recorded" : "live"}:${duration}:${getProgramStartAt(p)}:${data.primaryChannel.jkId}:${getProgramResolutionSignature(p)}`
+					? getCommentSourceResolutionKey(
+							p,
+							effectiveIsSeekable,
+							data.primaryChannel.jkId,
+						)
 					: null;
 				if (
 					data.primaryChannel?.jkId &&

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
 	buildPrimarySource,
 	createLiveCommentClient,
+	getCommentSourceResolutionKey,
 	getLiveClientKey,
 } from "../src/plugins/nicojk/App";
 import { CommentClient } from "../src/plugins/nicojk/comment-client";
@@ -21,6 +22,39 @@ function source(key: string): ResolvedCommentSource {
 		endAt: 2,
 	};
 }
+
+test("recorded sources are resolved again when recording timing arrives", () => {
+	const playable = {
+		playerID: "player-1",
+		id: "playable-1",
+		title: "Test Program",
+		isSeekable: true,
+		length: 300,
+		program: {
+			eventId: 1,
+			name: "Test Program",
+			description: "",
+			startAt: 1_700_000_000,
+			endAt: 1_700_001_800,
+			duration: 1800,
+			extended: [],
+			genres: [],
+		},
+	};
+	const initialKey = getCommentSourceResolutionKey(playable, true, "jk1");
+	assert.notEqual(
+		getCommentSourceResolutionKey(
+			{ ...playable, initialNetworkTime: 1_700_000_900 },
+			true,
+			"jk1",
+		),
+		initialKey,
+	);
+	assert.notEqual(
+		getCommentSourceResolutionKey({ ...playable, length: 1800 }, true, "jk1"),
+		initialKey,
+	);
+});
 
 test("live client keys include mode and source key", () => {
 	const resolved = source("primary:jk1:na:1");
