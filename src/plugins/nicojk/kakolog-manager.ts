@@ -392,17 +392,27 @@ export class KakologManager {
 						Math.max(duration - offset, 0),
 					);
 					if (windowDuration <= 0) continue;
+					const sourceStart = Math.floor(state.source.startAt + offset);
+					const sourceEnd = Math.floor(
+						Math.min(
+							state.source.startAt + offset + windowDuration,
+							state.source.endAt,
+							Math.floor(Date.now() / 60_000) * 60,
+						),
+					);
+					if (sourceStart >= sourceEnd) {
+						// まだ確定していない現在の分は、通常取得と同様に再試行へ残す。
+						state.miyouFetchedOffsets.delete(offset);
+						state.fetchedOffsets.delete(offset);
+						state.needsInitialFetch = state.fetchedOffsets.size === 0;
+						hasMiyouFailure = true;
+						continue;
+					}
 
 					const fetched = await this.fetchMiyouSourceChunk({
 						source: state.source,
-						sourceStart: Math.floor(state.source.startAt + offset),
-						sourceEnd: Math.floor(
-							Math.min(
-								state.source.startAt + offset + windowDuration,
-								state.source.endAt,
-								Math.floor(Date.now() / 60_000) * 60,
-							),
-						),
+						sourceStart,
+						sourceEnd,
 						sourceOrdinal: state.sourceOrdinal,
 					});
 					if (revision !== this.fetchRevision) return null;
@@ -1048,10 +1058,13 @@ export class KakologManager {
 			Math.min(sourceStart + windowDuration, source.endAt, currentMinuteStart),
 		);
 		if (sourceStart >= sourceEnd) {
+			// 録画開始直後は開始時刻が currentMinuteStart より後になりうる。
+			// まだ過去ログ API に問い合わせられない区間を取得済みにすると、
+			// 空の結果のまま再試行されないため、要求された取得元は未取得のままにする。
 			return {
 				comments: [],
-				niconicoFetched: true,
-				miyouFetched: true,
+				niconicoFetched: !fetchNiconico,
+				miyouFetched: !fetchMiyou,
 			};
 		}
 
