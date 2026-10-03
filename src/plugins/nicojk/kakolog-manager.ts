@@ -174,6 +174,17 @@ function getPriorityChunkStart(playerTime: number, duration: number) {
 	return Math.min(preferredOffset, offsets[offsets.length - 1]);
 }
 
+function getSourceFetchSignature(source: ResolvedCommentSource) {
+	return JSON.stringify([
+		source.key,
+		source.jkId,
+		source.startAt,
+		source.endAt,
+		source.programStartAt,
+		source.miyouChannel,
+	]);
+}
+
 export class KakologManager {
 	private sourceSignature = "";
 	private sources: ResolvedCommentSource[] = [];
@@ -204,16 +215,7 @@ export class KakologManager {
 	private disabledChapterCorrectionSourceKeys = new Set<string>();
 
 	public setSources(sources: ResolvedCommentSource[]) {
-		const signature = JSON.stringify(
-			sources.map((source) => [
-				source.key,
-				source.jkId,
-				source.startAt,
-				source.endAt,
-				source.programStartAt,
-				source.miyouChannel,
-			]),
-		);
+		const signature = JSON.stringify(sources.map(getSourceFetchSignature));
 		if (this.sourceSignature === signature) {
 			return;
 		}
@@ -235,7 +237,7 @@ export class KakologManager {
 			fetchedOffsets: new Set<number>(),
 			niconicoFetchedOffsets: new Set<number>(),
 			miyouFetchedOffsets: new Set<number>(),
-			needsInitialFetch: false,
+			needsInitialFetch: true,
 			completed: false,
 			interrupted: false,
 			ignoreLimit: false,
@@ -253,7 +255,7 @@ export class KakologManager {
 	}
 
 	/**
-	 * 既存ソースを新しい配列の先頭に同じ順序で残した追記だけを許可する。
+	 * 取得条件が変わらない既存ソースを先頭に同じ順序で残した追記だけを許可する。
 	 * それ以外の変更は setSources の全リセットへ委ねる。
 	 */
 	private tryAppendSources(
@@ -263,7 +265,11 @@ export class KakologManager {
 		if (
 			this.sources.length === 0 ||
 			sources.length < this.sources.length ||
-			!this.sources.every((source, index) => source.key === sources[index]?.key)
+			!this.sources.every(
+				(source, index) =>
+					getSourceFetchSignature(source) ===
+					getSourceFetchSignature(sources[index]),
+			)
 		) {
 			return false;
 		}
@@ -392,17 +398,27 @@ export class KakologManager {
 						Math.max(duration - offset, 0),
 					);
 					if (windowDuration <= 0) continue;
+					const sourceStart = Math.floor(state.source.startAt + offset);
+					const sourceEnd = Math.floor(
+						Math.min(
+							state.source.startAt + offset + windowDuration,
+							state.source.endAt,
+							Math.floor(Date.now() / 60_000) * 60,
+						),
+					);
+					if (sourceStart >= sourceEnd) {
+						// まだ確定していない現在の分は、通常取得と同様に再試行へ残す。
+						state.miyouFetchedOffsets.delete(offset);
+						state.fetchedOffsets.delete(offset);
+						state.needsInitialFetch = state.fetchedOffsets.size === 0;
+						hasMiyouFailure = true;
+						continue;
+					}
 
 					const fetched = await this.fetchMiyouSourceChunk({
 						source: state.source,
-						sourceStart: Math.floor(state.source.startAt + offset),
-						sourceEnd: Math.floor(
-							Math.min(
-								state.source.startAt + offset + windowDuration,
-								state.source.endAt,
-								Math.floor(Date.now() / 60_000) * 60,
-							),
-						),
+						sourceStart,
+						sourceEnd,
 						sourceOrdinal: state.sourceOrdinal,
 					});
 					if (revision !== this.fetchRevision) return null;
@@ -645,7 +661,7 @@ export class KakologManager {
 		);
 	}
 
-	/** 解決後に追加されたソースで、まだ一度も取得できていないものがあるか */
+	/** 新規・取得条件更新・初回失敗で、初回取得待ちのソースがあるか */
 	public hasPendingInitialSourceFetch(): boolean {
 		return this.sourceStates.some((state) => state.needsInitialFetch);
 	}
@@ -912,7 +928,10 @@ export class KakologManager {
 
 			if (revision !== this.fetchRevision) break;
 
-			if (state.fetchedOffsets.size >= state.applicableOffsets.length) {
+			if (state.applicableOffsets.length === 0) {
+				// 時間情報が未確定の空区間を、取得済みとして確定しない。
+				state.needsInitialFetch = true;
+			} else if (state.fetchedOffsets.size >= state.applicableOffsets.length) {
 				state.completed = true;
 				state.interrupted = false;
 			}
@@ -1048,10 +1067,13 @@ export class KakologManager {
 			Math.min(sourceStart + windowDuration, source.endAt, currentMinuteStart),
 		);
 		if (sourceStart >= sourceEnd) {
+			// 録画開始直後は開始時刻が currentMinuteStart より後になりうる。
+			// まだ過去ログ API に問い合わせられない区間を取得済みにすると、
+			// 空の結果のまま再試行されないため、要求された取得元は未取得のままにする。
 			return {
 				comments: [],
-				niconicoFetched: true,
-				miyouFetched: true,
+				niconicoFetched: !fetchNiconico,
+				miyouFetched: !fetchMiyou,
 			};
 		}
 
