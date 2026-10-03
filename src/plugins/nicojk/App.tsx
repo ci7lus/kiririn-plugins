@@ -1309,18 +1309,6 @@ export default function App() {
 				return false;
 			}
 
-			const { startAt, duration } = getBaseTiming(playable);
-			const primarySource = data.replaySources[0];
-			if (
-				!Number.isFinite(startAt) ||
-				startAt <= 0 ||
-				!Number.isFinite(duration) ||
-				duration <= 0 ||
-				primarySource.endAt <= primarySource.startAt
-			) {
-				return false;
-			}
-
 			let mgr = kakologManagersRef.current.get(playerID);
 			if (!mgr) {
 				mgr = new KakologManager();
@@ -1328,6 +1316,7 @@ export default function App() {
 			}
 			mgr.setSources(data.replaySources);
 			if (data.jkContext && data.replaySources[0]) {
+				const { startAt, duration } = getBaseTiming(playable);
 				data.jkContext = withKakologSourceStates(
 					buildJkContext(
 						data.replaySources[0],
@@ -1339,6 +1328,7 @@ export default function App() {
 				);
 			}
 
+			const { duration } = getBaseTiming(playable);
 			const currentPlayableId = playable.id;
 			data.isLoadingRecordedComments = true;
 			data.recordedSourcesPendingFetch = false;
@@ -1402,8 +1392,7 @@ export default function App() {
 					latest.comments = fetchedComments;
 					latest.recordedFetchProgress = null;
 					latest.isLoadingRecordedComments = false;
-					latest.recordedCommentsReady =
-						fetchedComments.length > 0 || mgr.isFullyCompleted();
+					latest.recordedCommentsReady = true;
 					latest.interruptedSources = mgr.getInterruptedSources();
 					if (latest.jkContext) {
 						latest.jkContext = withKakologSourceStates(latest.jkContext, mgr);
