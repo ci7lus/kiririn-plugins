@@ -1,10 +1,10 @@
-import NiconiComments, {
-	type FormattedComment,
-} from "@xpadev-net/niconicomments";
+import type { FormattedComment } from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
+import { getPendingLiveComments } from "../comment-buffer";
 import type { NiconicoComment } from "../comment-client";
 import { isCommentNGBySettings } from "../comment-dedupe";
+import { CommentRenderer } from "../comment-renderer";
 import { getCommentSourceKeyForComment } from "../comment-source";
 import type { NicoJKContext } from "../context";
 import {
@@ -233,8 +233,8 @@ export default function OverlayPage({
 	playbackState,
 	jkContext,
 }: Props) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const rendererRef = useRef<NiconiComments | null>(null);
+	const canvasContainerRef = useRef<HTMLDivElement>(null);
+	const rendererRef = useRef<CommentRenderer | null>(null);
 	const rendererMetaRef = useRef<{
 		mode: RendererMode;
 		playableId: string | null;
@@ -330,7 +330,7 @@ export default function OverlayPage({
 
 	useEffect(() => {
 		return () => {
-			rendererRef.current?.clear();
+			rendererRef.current?.destroy();
 			rendererRef.current = null;
 			rendererMetaRef.current = null;
 			renderedLiveCommentIdsRef.current.clear();
@@ -345,7 +345,7 @@ export default function OverlayPage({
 	}, [playableId]);
 
 	useEffect(() => {
-		if (!canvasRef.current) return;
+		if (!canvasContainerRef.current) return;
 
 		const recordedRendererPhase: RecordedRendererPhase = !recordedCommentsReady
 			? "none"
@@ -355,7 +355,7 @@ export default function OverlayPage({
 		const shouldCreateRenderer = hasDisplayCandidates && showComments;
 		if (!shouldCreateRenderer) {
 			if (rendererRef.current) {
-				rendererRef.current.clear();
+				rendererRef.current.destroy();
 				rendererRef.current = null;
 				rendererMetaRef.current = null;
 				renderedLiveCommentIdsRef.current.clear();
@@ -367,7 +367,9 @@ export default function OverlayPage({
 
 		const nextMode: RendererMode = isLive ? "live" : "recorded";
 		const commentTimingSignature = getCommentTimingSignature(jkContext);
-		const commentDataSignature = getCommentDataSignature(comments);
+		const commentDataSignature = isLive
+			? ""
+			: getCommentDataSignature(comments);
 		const shouldRecreate =
 			!rendererRef.current ||
 			rendererMetaRef.current?.mode !== nextMode ||
@@ -387,7 +389,8 @@ export default function OverlayPage({
 			return;
 		}
 
-		rendererRef.current?.clear();
+		rendererRef.current?.destroy();
+		rendererRef.current = null;
 		const currentSettings = getSettings();
 		const usesFormattedRenderer =
 			!isLive && (recordedRendererPhase !== "none" || comments.length > 0);
@@ -414,10 +417,11 @@ export default function OverlayPage({
 					currentSettings,
 				)
 			: [];
-		const renderer = new NiconiComments(canvasRef.current, initialComments, {
-			format: usesFormattedRenderer ? "formatted" : "empty",
-			lazy: true,
-		});
+		const renderer = new CommentRenderer(
+			canvasContainerRef.current,
+			initialComments,
+			usesFormattedRenderer ? "formatted" : "empty",
+		);
 		if (isLive && liveComments.length > 0) {
 			renderer.addComments(...liveComments);
 		}
@@ -507,8 +511,9 @@ export default function OverlayPage({
 			return;
 		}
 
-		const pendingComments = comments.filter(
-			(comment) => !renderedLiveCommentIdsRef.current.has(comment.id),
+		const pendingComments = getPendingLiveComments(
+			comments,
+			renderedLiveCommentIdsRef.current,
 		);
 		if (pendingComments.length === 0) {
 			return;
@@ -553,10 +558,8 @@ export default function OverlayPage({
 
 	return (
 		<div className="w-full h-full min-h-full flex flex-col items-center justify-center pointer-events-none bg-transparent overflow-hidden">
-			<canvas
-				ref={canvasRef}
-				width={1920}
-				height={1080}
+			<div
+				ref={canvasContainerRef}
 				style={{
 					width: targetW,
 					height: targetH,

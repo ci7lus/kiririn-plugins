@@ -97,6 +97,8 @@ interface SourceFetchState {
 	fetchedOffsets: Set<number>;
 	niconicoFetchedOffsets: Set<number>;
 	miyouFetchedOffsets: Set<number>;
+	/** 現在分が確定してから再取得するチャンクと、その最短再試行時刻 */
+	deferredOffsets: Map<number, number>;
 	needsInitialFetch: boolean;
 	completed: boolean;
 	interrupted: boolean;
@@ -108,6 +110,7 @@ interface SourceChunkFetchResult {
 	comments: NiconicoComment[];
 	niconicoFetched: boolean;
 	miyouFetched: boolean;
+	deferredUntil: number | null;
 }
 
 function getMiyouDuplicateKey(comment: NiconicoComment): string | null {
@@ -237,7 +240,8 @@ export class KakologManager {
 			fetchedOffsets: new Set<number>(),
 			niconicoFetchedOffsets: new Set<number>(),
 			miyouFetchedOffsets: new Set<number>(),
-			needsInitialFetch: true,
+			deferredOffsets: new Map<number, number>(),
+			needsInitialFetch: false,
 			completed: false,
 			interrupted: false,
 			ignoreLimit: false,
@@ -297,6 +301,7 @@ export class KakologManager {
 				fetchedOffsets: new Set<number>(),
 				niconicoFetchedOffsets: new Set<number>(),
 				miyouFetchedOffsets: new Set<number>(),
+				deferredOffsets: new Map<number, number>(),
 				needsInitialFetch: true,
 				completed: false,
 				interrupted: false,
@@ -323,6 +328,7 @@ export class KakologManager {
 			state.fetchedOffsets.clear();
 			state.niconicoFetchedOffsets.clear();
 			state.miyouFetchedOffsets.clear();
+			state.deferredOffsets.clear();
 			state.needsInitialFetch = false;
 			state.completed = false;
 			state.interrupted = false;
@@ -399,18 +405,24 @@ export class KakologManager {
 					);
 					if (windowDuration <= 0) continue;
 					const sourceStart = Math.floor(state.source.startAt + offset);
-					const sourceEnd = Math.floor(
+					const requestedSourceEnd = Math.floor(
 						Math.min(
 							state.source.startAt + offset + windowDuration,
 							state.source.endAt,
-							Math.floor(Date.now() / 60_000) * 60,
 						),
 					);
+					const currentMinuteStart = Math.floor(Date.now() / 60_000) * 60;
+					const sourceEnd = Math.min(requestedSourceEnd, currentMinuteStart);
+					const deferredUntil =
+						sourceEnd < requestedSourceEnd ? currentMinuteStart + 60 : null;
 					if (sourceStart >= sourceEnd) {
 						// まだ確定していない現在の分は、通常取得と同様に再試行へ残す。
 						state.miyouFetchedOffsets.delete(offset);
 						state.fetchedOffsets.delete(offset);
-						state.needsInitialFetch = state.fetchedOffsets.size === 0;
+						if (deferredUntil != null) {
+							state.deferredOffsets.set(offset, deferredUntil);
+						}
+						state.needsInitialFetch = false;
 						hasMiyouFailure = true;
 						continue;
 					}
@@ -435,7 +447,7 @@ export class KakologManager {
 					state.commentCount += addedCount;
 					this.totalFetched += addedCount;
 
-					if (fetched.success) {
+					if (fetched.success && deferredUntil == null) {
 						state.miyouFetchedOffsets.add(offset);
 					} else {
 						// Miyou の失敗区間だけを次回の通常取得で再試行できるようにする。
@@ -443,11 +455,15 @@ export class KakologManager {
 						state.fetchedOffsets.delete(offset);
 						hasMiyouFailure = true;
 					}
+					if (deferredUntil != null) {
+						state.deferredOffsets.set(offset, deferredUntil);
+					}
 					if (
 						state.niconicoFetchedOffsets.has(offset) &&
 						state.miyouFetchedOffsets.has(offset)
 					) {
 						state.fetchedOffsets.add(offset);
+						state.deferredOffsets.delete(offset);
 					} else {
 						state.fetchedOffsets.delete(offset);
 					}
@@ -624,6 +640,7 @@ export class KakologManager {
 		if (!primary || primary.completed) return false;
 		for (const offset of primary.applicableOffsets) {
 			if (primary.fetchedOffsets.has(offset)) continue;
+			if (this.isDeferredOffsetWaiting(primary, offset)) continue;
 			if (playerTime >= offset && playerTime < offset + KAKOLOG_CHUNK_SIZE) {
 				return true;
 			}
@@ -644,6 +661,7 @@ export class KakologManager {
 			if (state.completed) continue;
 			for (const offset of state.applicableOffsets) {
 				if (state.fetchedOffsets.has(offset)) continue;
+				if (this.isDeferredOffsetWaiting(state, offset)) continue;
 				if (offset < playerTime) continue;
 				if (nextUnfetched == null || offset < nextUnfetched) {
 					nextUnfetched = offset;
@@ -661,9 +679,15 @@ export class KakologManager {
 		);
 	}
 
-	/** 新規・取得条件更新・初回失敗で、初回取得待ちのソースがあるか */
+	/** 初回取得待ち、または現在分の確定後に自動再取得すべきソースがあるか */
 	public hasPendingInitialSourceFetch(): boolean {
-		return this.sourceStates.some((state) => state.needsInitialFetch);
+		return this.sourceStates.some(
+			(state) =>
+				state.needsInitialFetch ||
+				[...state.deferredOffsets.values()].some(
+					(retryAt) => retryAt <= Date.now() / 1000,
+				),
+		);
 	}
 
 	public async fetchWithLimit(
@@ -808,6 +832,13 @@ export class KakologManager {
 			for (const offset of orderedOffsets) {
 				if (revision !== this.fetchRevision) break;
 				if (state.fetchedOffsets.has(offset)) continue;
+				if (this.isDeferredOffsetWaiting(state, offset)) {
+					if (this.progressState) {
+						this.progressState.skippedRequests += 1;
+					}
+					continue;
+				}
+				state.deferredOffsets.delete(offset);
 				const fetchNiconico = !state.niconicoFetchedOffsets.has(offset);
 				const fetchMiyou =
 					this.shouldFetchMiyou(state.source) &&
@@ -857,6 +888,9 @@ export class KakologManager {
 					if (fetched.miyouFetched) {
 						state.miyouFetchedOffsets.add(offset);
 					}
+					if (fetched.deferredUntil != null) {
+						state.deferredOffsets.set(offset, fetched.deferredUntil);
+					}
 					if (
 						state.niconicoFetchedOffsets.has(offset) &&
 						(!fetchMiyou || state.miyouFetchedOffsets.has(offset))
@@ -884,7 +918,10 @@ export class KakologManager {
 						if (miyouKey) existingMiyouKeys.add(miyouKey);
 						return true;
 					});
-					if (
+					if (fetched.deferredUntil != null) {
+						// API が公開していない現在分だけが残っている。時刻到達後に再試行する。
+						state.needsInitialFetch = false;
+					} else if (
 						(!fetchNiconico || fetched.niconicoFetched) &&
 						(!fetchMiyou || fetched.miyouFetched)
 					) {
@@ -994,6 +1031,11 @@ export class KakologManager {
 		return null;
 	}
 
+	private isDeferredOffsetWaiting(state: SourceFetchState, offset: number) {
+		const retryAt = state.deferredOffsets.get(offset);
+		return retryAt != null && retryAt > Date.now() / 1000;
+	}
+
 	private countRemainingRequests(states: SourceFetchState[]): number {
 		let total = 0;
 		for (const state of states) {
@@ -1063,9 +1105,12 @@ export class KakologManager {
 		const sourceStart = Math.floor(source.startAt + offset);
 		// 過去ログ API の終端は現在時刻の分開始（秒=0）を超えないようにする。
 		const currentMinuteStart = Math.floor(Date.now() / 60_000) * 60;
-		const sourceEnd = Math.floor(
-			Math.min(sourceStart + windowDuration, source.endAt, currentMinuteStart),
+		const requestedSourceEnd = Math.floor(
+			Math.min(sourceStart + windowDuration, source.endAt),
 		);
+		const sourceEnd = Math.min(requestedSourceEnd, currentMinuteStart);
+		const deferredUntil =
+			sourceEnd < requestedSourceEnd ? currentMinuteStart + 60 : null;
 		if (sourceStart >= sourceEnd) {
 			// 録画開始直後は開始時刻が currentMinuteStart より後になりうる。
 			// まだ過去ログ API に問い合わせられない区間を取得済みにすると、
@@ -1074,6 +1119,7 @@ export class KakologManager {
 				comments: [],
 				niconicoFetched: !fetchNiconico,
 				miyouFetched: !fetchMiyou,
+				deferredUntil,
 			};
 		}
 
@@ -1141,7 +1187,7 @@ export class KakologManager {
 							},
 						];
 					});
-					niconicoFetched = true;
+					niconicoFetched = deferredUntil == null;
 				}
 			} catch (error) {
 				console.error(
@@ -1161,13 +1207,14 @@ export class KakologManager {
 				sourceOrdinal,
 			});
 			miyouComments = fetched.comments;
-			miyouFetched = fetched.success;
+			miyouFetched = fetched.success && deferredUntil == null;
 		}
 
 		return {
 			comments: [...niconicoComments, ...miyouComments],
 			niconicoFetched,
 			miyouFetched,
+			deferredUntil,
 		};
 	}
 
