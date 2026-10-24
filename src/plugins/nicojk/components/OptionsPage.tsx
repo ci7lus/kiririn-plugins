@@ -15,6 +15,7 @@ import {
 } from "../ng-settings";
 
 type NumericSettingKey =
+	| "replaySessionLimit"
 	| "chapterWindowSeconds"
 	| "chapterCooldownSeconds"
 	| "chapterMinimumCount"
@@ -81,6 +82,7 @@ function maskSettingValue(value: string) {
 
 function buildNumericDrafts(settings: NicoJKSettings): NumericSettingDrafts {
 	return {
+		replaySessionLimit: String(settings.replaySessionLimit),
 		chapterWindowSeconds: String(settings.chapterWindowSeconds),
 		chapterCooldownSeconds: String(settings.chapterCooldownSeconds),
 		chapterMinimumCount: String(settings.chapterMinimumCount),
@@ -486,6 +488,56 @@ export default function OptionsPage() {
 							<span className="text-xs leading-relaxed text-gray-400">
 								ライブ放送にのみ適用されます。録画再生では引き続き nx-jikkyo
 								を使用します。
+							</span>
+						</label>
+					</div>
+
+					<div className="mb-4 rounded-md border border-gray-700 bg-[#1f1f1f] p-3">
+						<label className="flex items-center gap-2 text-sm text-gray-100">
+							<input
+								type="checkbox"
+								checked={settings.syobocalEnabled}
+								onChange={(event) =>
+									syncSettings(
+										saveSettings({
+											...settings,
+											syobocalEnabled: event.target.checked,
+										}),
+									)
+								}
+								className="form-checkbox h-5 w-5 shrink-0"
+							/>
+							しょぼかるから番組情報を取得する
+						</label>
+						<p className="mt-2 text-xs leading-relaxed text-gray-400">
+							同一内容の他局・過去放送を検索して、コメントを取得します。
+						</p>
+						<label className="mt-3 flex flex-col gap-2 text-sm text-gray-100">
+							過去放送の追加セッション数の上限
+							<input
+								type="number"
+								min={0}
+								max={Number.MAX_SAFE_INTEGER}
+								step={1}
+								value={numericDrafts.replaySessionLimit}
+								disabled={!settings.syobocalEnabled}
+								onChange={(event) =>
+									handleNumericDraftChange(
+										"replaySessionLimit",
+										event.target.value,
+									)
+								}
+								onBlur={() => commitNumericSetting("replaySessionLimit")}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") {
+										event.preventDefault();
+										commitNumericSetting("replaySessionLimit");
+									}
+								}}
+								className="w-full rounded border border-gray-600 bg-[#333] px-3 py-2 text-base text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+							/>
+							<span className="text-xs leading-relaxed text-gray-400">
+								新しい放送から順に取得します。再生対象自身は含みません。0にすると追加の過去放送を取得しません。
 							</span>
 						</label>
 					</div>

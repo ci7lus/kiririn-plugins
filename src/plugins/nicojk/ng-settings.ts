@@ -16,6 +16,8 @@ export interface NicoJKSettings {
 	ngIds: string[];
 	ngCommands: string[];
 	liveCommentSource: LiveCommentSource;
+	syobocalEnabled: boolean;
+	replaySessionLimit: number;
 	showComments: boolean;
 	opacity: number;
 	secondarySourceOpacity: number;
@@ -39,6 +41,8 @@ const DEFAULT_SETTINGS: NicoJKSettings = {
 	ngIds: [],
 	ngCommands: [],
 	liveCommentSource: "nx-jikkyo",
+	syobocalEnabled: true,
+	replaySessionLimit: 10,
 	showComments: true,
 	opacity: 0.8,
 	secondarySourceOpacity: 1,
@@ -106,13 +110,23 @@ function normalizeStringArray(value: unknown) {
 	return value.filter((item): item is string => typeof item === "string");
 }
 
-function normalizeSettings(value: unknown): NicoJKSettings {
+export function normalizeSettings(value: unknown): NicoJKSettings {
 	const stored =
 		typeof value === "object" && value != null
 			? (value as Partial<Record<keyof NicoJKSettings, unknown>>)
 			: {};
 
 	return {
+		syobocalEnabled:
+			typeof stored.syobocalEnabled === "boolean"
+				? stored.syobocalEnabled
+				: DEFAULT_SETTINGS.syobocalEnabled,
+		replaySessionLimit: normalizeInteger(
+			stored.replaySessionLimit,
+			DEFAULT_SETTINGS.replaySessionLimit,
+			0,
+			Number.MAX_SAFE_INTEGER,
+		),
 		ngWords: normalizeStringArray(stored.ngWords),
 		ngIds: normalizeStringArray(stored.ngIds),
 		ngCommands: normalizeStringArray(stored.ngCommands),

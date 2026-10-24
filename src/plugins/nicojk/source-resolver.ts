@@ -1,5 +1,6 @@
 import type { NicoJKChannelDefinition } from "./definitions";
 import { getAllChannelDefinitions } from "./definitions";
+import { getSettings } from "./ng-settings";
 import {
 	haveSimilarDuration,
 	lookupChannelProgramAt,
@@ -145,17 +146,31 @@ async function resolveRecordedReplaySources(
 	_primaryChannel: NicoJKChannelDefinition,
 	baseProgram: SyobocalProgram,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
+	replaySessionLimit: number,
 ) {
-	const seenPrograms = new Set<string>([
-		`${baseProgram.chId}:${baseProgram.startAt}:${baseProgram.endAt}`,
-	]);
 	const candidates = await lookupProgramsByTitleBetween(
 		baseProgram.tid,
 		RECORDED_REPLAY_LOOKUP_START_AT,
 		Math.floor(Date.now() / 1000),
 		baseProgram.count,
 	);
+	return selectRecordedReplaySources(
+		candidates,
+		baseProgram,
+		channelIndex,
+		replaySessionLimit,
+	);
+}
 
+export function selectRecordedReplaySources(
+	candidates: SyobocalProgram[],
+	baseProgram: SyobocalProgram,
+	channelIndex: Map<number, NicoJKChannelDefinition>,
+	replaySessionLimit: number,
+) {
+	const seenPrograms = new Set<string>([
+		`${baseProgram.chId}:${baseProgram.startAt}:${baseProgram.endAt}`,
+	]);
 	const isPrimaryIsolated = ISOLATED_REPLAY_CH_IDS.has(baseProgram.chId);
 
 	const matches = candidates
@@ -182,7 +197,7 @@ async function resolveRecordedReplaySources(
 		})
 		.filter((source): source is ResolvedCommentSource => !!source);
 
-	return dedupeSources(matches);
+	return dedupeSources(matches).slice(0, replaySessionLimit);
 }
 
 export async function resolveCommentSources(params: {
@@ -191,6 +206,9 @@ export async function resolveCommentSources(params: {
 	duration: number;
 	isLive: boolean;
 	queryTime: number;
+	syobocalEnabled?: boolean;
+	replaySessionLimit?: number;
+	signal?: AbortSignal;
 }): Promise<ResolvedCommentSources> {
 	const { primaryChannel, baseStartAt, duration, isLive, queryTime } = params;
 	if (!primaryChannel.jkId) {
@@ -207,7 +225,11 @@ export async function resolveCommentSources(params: {
 		throw new Error("Failed to build primary comment source");
 	}
 
-	if (!primaryChannel.syobocalId) {
+	const {
+		syobocalEnabled = getSettings().syobocalEnabled,
+		replaySessionLimit = getSettings().replaySessionLimit,
+	} = params;
+	if (!syobocalEnabled || !primaryChannel.syobocalId) {
 		return {
 			primary,
 			liveSources: [],
@@ -216,10 +238,12 @@ export async function resolveCommentSources(params: {
 	}
 
 	const channelIndex = createChannelIndex(await getAllChannelDefinitions());
+	params.signal?.throwIfAborted();
 	const baseProgram = await lookupChannelProgramAt(
 		primaryChannel.syobocalId,
 		queryTime,
 	);
+	params.signal?.throwIfAborted();
 	if (!baseProgram) {
 		return {
 			primary,
@@ -242,13 +266,16 @@ export async function resolveCommentSources(params: {
 				channelIndex,
 			)
 		: [];
-	const replaySources = isLive
-		? []
-		: await resolveRecordedReplaySources(
-				primaryChannel,
-				baseProgram,
-				channelIndex,
-			);
+	params.signal?.throwIfAborted();
+	const replaySources =
+		isLive || replaySessionLimit === 0
+			? []
+			: await resolveRecordedReplaySources(
+					primaryChannel,
+					baseProgram,
+					channelIndex,
+					replaySessionLimit,
+				);
 
 	return {
 		primary: primaryWithProgramStart,
