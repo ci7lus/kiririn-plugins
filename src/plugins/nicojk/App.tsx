@@ -6,6 +6,7 @@ import type {
 	Playable,
 	PlayerPlaybackState,
 } from "../../vendor/Plugin";
+import { createCallbackRelay } from "./callback-relay";
 import {
 	CommentClient,
 	type ConnectionStatus,
@@ -47,6 +48,21 @@ import {
 
 const MAX_LIVE_COMMENTS = 1000;
 const OVERLAY_RELAY_PREFIX = "nicojk_overlay_player_";
+
+function registerBridgeCallback<TArgs extends unknown[]>(
+	register: (callback: (...args: TArgs) => void) => void,
+	callback: (...args: TArgs) => void,
+) {
+	const relay = createCallbackRelay(callback);
+	register(relay.listener);
+	return relay.dispose;
+}
+
+function disposeKakologManager(manager: KakologManager) {
+	manager.setProgressListener(null);
+	manager.clearCache();
+	manager.setSources([]);
+}
 
 type PlayerData = {
 	playableId: string | null;
@@ -794,6 +810,7 @@ export default function App() {
 		getMiyouSettingsSignature(getSettings()),
 	);
 	const kakologManagersRef = useRef<Map<string, KakologManager>>(new Map());
+	const recordedCommentsLoadTokenRef = useRef(0);
 	const pendingResumeRef = useRef<Map<string, string>>(new Map());
 	const pendingRecordedReloadRef = useRef<Set<string>>(new Set());
 	const startRecordedCommentsFetchRef = useRef<
@@ -1347,7 +1364,7 @@ export default function App() {
 			const currentPlayableId = playable.id;
 			data.isLoadingRecordedComments = true;
 			data.recordedSourcesPendingFetch = false;
-			const loadToken = data.recordedCommentsLoadToken + 1;
+			const loadToken = ++recordedCommentsLoadTokenRef.current;
 			data.recordedCommentsLoadToken = loadToken;
 			const initialPlayerTime =
 				priorityTime ?? bridge.getPlayerStatus(playerID)?.time ?? 0;
@@ -1459,7 +1476,7 @@ export default function App() {
 			const { duration } = getBaseTiming(playable);
 			const currentPlayableId = playable.id;
 			data.isLoadingRecordedComments = true;
-			const loadToken = data.recordedCommentsLoadToken + 1;
+			const loadToken = ++recordedCommentsLoadTokenRef.current;
 			data.recordedCommentsLoadToken = loadToken;
 			if (targetPlayableRef.current?.playerID === playerID) {
 				syncTargetState(playerID);
@@ -1619,80 +1636,107 @@ export default function App() {
 			}
 		};
 
-		bridge.onFocusedPlayerIDChange((id) => {
-			console.log(`[NicoJK][#${instanceId}] Focus event:`, id);
-			syncArea();
-			updateTarget();
-		});
+		const disposeBridgeCallbacks = [
+			registerBridgeCallback(
+				(callback) => bridge.onFocusedPlayerIDChange(callback),
+				(id: string | null) => {
+					console.log(`[NicoJK][#${instanceId}] Focus event:`, id);
+					syncArea();
+					updateTarget();
+				},
+			),
 
-		bridge.onPlayablesChange(() => {
-			console.log(`[NicoJK][#${instanceId}] Playables change event`);
-			syncArea();
-			updateTarget();
-		});
+			registerBridgeCallback(
+				(callback) => bridge.onPlayablesChange(callback),
+				() => {
+					console.log(`[NicoJK][#${instanceId}] Playables change event`);
+					syncArea();
+					updateTarget();
+				},
+			),
 
-		bridge.onPlayerStatusesChange((statuses) => {
-			// シーク検知: 各 player の time ジャンプを見て即時取得をトリガー
-			for (const status of statuses) {
-				const pid = status.playerID;
-				const prev = lastPlayerTimeRef.current.get(pid);
-				lastPlayerTimeRef.current.set(pid, status.time);
-				if (prev == null) continue;
-				const delta = Math.abs(status.time - prev);
-				if (delta < 10) continue;
+			registerBridgeCallback(
+				(callback) => bridge.onPlayerStatusesChange(callback),
+				(statuses: PlayerPlaybackState[]) => {
+					// シーク検知: 各 player の time ジャンプを見て即時取得をトリガー
+					for (const status of statuses) {
+						const pid = status.playerID;
+						const prev = lastPlayerTimeRef.current.get(pid);
+						lastPlayerTimeRef.current.set(pid, status.time);
+						if (prev == null) continue;
+						const delta = Math.abs(status.time - prev);
+						if (delta < 10) continue;
 
-				const playable = bridge.getPlayable(pid);
-				if (!playable?.isSeekable) continue;
-				const data = playersDataRef.current.get(pid);
-				const mgr = kakologManagersRef.current.get(pid);
-				if (!data || !mgr) continue;
-				if (data.replaySources.length === 0 || !data.recordedCommentsReady) {
-					continue;
-				}
-				if (data.isLoadingRecordedComments) continue;
-				if (pendingResumeRef.current.has(pid)) continue;
-				if (!mgr.isUnfetchedAt(status.time)) continue;
+						const playable = bridge.getPlayable(pid);
+						if (!playable?.isSeekable) continue;
+						const data = playersDataRef.current.get(pid);
+						const mgr = kakologManagersRef.current.get(pid);
+						if (!data || !mgr) continue;
+						if (
+							data.replaySources.length === 0 ||
+							!data.recordedCommentsReady
+						) {
+							continue;
+						}
+						if (data.isLoadingRecordedComments) continue;
+						if (pendingResumeRef.current.has(pid)) continue;
+						if (!mgr.isUnfetchedAt(status.time)) continue;
 
-				triggerFetchMore(pid, status.time);
-			}
+						triggerFetchMore(pid, status.time);
+					}
 
-			const currentArea = areaRef.current;
-			if (!currentArea) return;
-			if (currentArea.type === "options") {
-				setPlaybackState(null);
-				return;
-			}
-			let s: PlayerPlaybackState | null = null;
-			if (currentArea.type === "overlay" && currentArea.playerID) {
-				s = statuses.find((it) => it.playerID === currentArea.playerID) || null;
-			} else {
-				const activeId = bridge.getFocusedPlayerID();
-				s = activeId
-					? statuses.find((it) => it.playerID === activeId) || null
-					: null;
-			}
-			setPlaybackState(s);
-		});
+					const currentArea = areaRef.current;
+					if (!currentArea) return;
+					if (currentArea.type === "options") {
+						setPlaybackState(null);
+						return;
+					}
+					let s: PlayerPlaybackState | null = null;
+					if (currentArea.type === "overlay" && currentArea.playerID) {
+						s =
+							statuses.find((it) => it.playerID === currentArea.playerID) ||
+							null;
+					} else {
+						const activeId = bridge.getFocusedPlayerID();
+						s = activeId
+							? statuses.find((it) => it.playerID === activeId) || null
+							: null;
+					}
+					setPlaybackState(s);
+				},
+			),
+		];
 
 		const handleResize = () => {
 			syncArea();
 		};
 		window.addEventListener("resize", handleResize);
 
-		bridge.onPlayerClosed((pid) => {
-			console.log(`[NicoJK][#${instanceId}] Player closed: ${pid}`);
-			playersDataRef.current.delete(pid);
-			pendingRecordedReloadRef.current.delete(pid);
-			panelSnapshotsRef.current.delete(pid);
-			if (panelSnapshotMetaRef.current.playerID === pid) {
-				panelSnapshotMetaRef.current = {
-					playerID: null,
-					playableId: null,
-				};
-			}
-			syncArea();
-			updateTarget();
-		});
+		disposeBridgeCallbacks.push(
+			registerBridgeCallback(
+				(callback) => bridge.onPlayerClosed(callback),
+				(pid: string) => {
+					console.log(`[NicoJK][#${instanceId}] Player closed: ${pid}`);
+					const manager = kakologManagersRef.current.get(pid);
+					if (manager) {
+						disposeKakologManager(manager);
+						kakologManagersRef.current.delete(pid);
+					}
+					playersDataRef.current.delete(pid);
+					pendingRecordedReloadRef.current.delete(pid);
+					pendingResumeRef.current.delete(pid);
+					panelSnapshotsRef.current.delete(pid);
+					if (panelSnapshotMetaRef.current.playerID === pid) {
+						panelSnapshotMetaRef.current = {
+							playerID: null,
+							playableId: null,
+						};
+					}
+					syncArea();
+					updateTarget();
+				},
+			),
+		);
 
 		updateTarget();
 
@@ -1728,6 +1772,8 @@ export default function App() {
 					playersDataRef.current.set(p.playerID, createPlayerData(p.id));
 					data =
 						playersDataRef.current.get(p.playerID) || createPlayerData(p.id);
+					const oldManager = kakologManagersRef.current.get(p.playerID);
+					if (oldManager) disposeKakologManager(oldManager);
 					kakologManagersRef.current.delete(p.playerID);
 					pendingRecordedReloadRef.current.delete(p.playerID);
 					if (targetPlayableRef.current?.playerID === p.playerID) {
@@ -2075,7 +2121,7 @@ export default function App() {
 						) {
 							pendingResumeRef.current.delete(p.playerID);
 							data.isLoadingRecordedComments = true;
-							const loadToken = data.recordedCommentsLoadToken + 1;
+							const loadToken = ++recordedCommentsLoadTokenRef.current;
 							data.recordedCommentsLoadToken = loadToken;
 							if (targetPlayableRef.current?.playerID === p.playerID) {
 								syncTargetState(p.playerID);
@@ -2204,7 +2250,11 @@ export default function App() {
 					.map((p) => p.playerID),
 			);
 			for (const pid of kakologManagersRef.current.keys()) {
-				if (!activePids.has(pid)) kakologManagersRef.current.delete(pid);
+				if (!activePids.has(pid)) {
+					const manager = kakologManagersRef.current.get(pid);
+					if (manager) disposeKakologManager(manager);
+					kakologManagersRef.current.delete(pid);
+				}
 			}
 		}, 2000);
 
@@ -2223,6 +2273,17 @@ export default function App() {
 			pendingLiveSyncPlayerIds.clear();
 			startRecordedCommentsFetchRef.current = null;
 			pendingRecordedReloadRef.current.clear();
+			pendingResumeRef.current.clear();
+			for (const manager of kakologManagersRef.current.values()) {
+				disposeKakologManager(manager);
+			}
+			kakologManagersRef.current.clear();
+			playersDataRef.current.clear();
+			panelSnapshotsRef.current.clear();
+			panelSnapshotMetaRef.current = { playerID: null, playableId: null };
+			for (const disposeCallback of disposeBridgeCallbacks) {
+				disposeCallback();
+			}
 			for (const client of clientsRef.current.values()) client.disconnect();
 			clientsRef.current.clear();
 		};

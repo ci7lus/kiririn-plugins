@@ -59,6 +59,9 @@ let settingsSignature = JSON.stringify(DEFAULT_SETTINGS);
 let settingsInitialized = false;
 let settingsInitialization: Promise<NicoJKSettings> | null = null;
 let settingsSubscriptionAttached = false;
+let settingsSubscriptionCleanup: (() => void) | null = null;
+let settingsGeneration = 0;
+let settingsSuspended = false;
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
@@ -191,27 +194,48 @@ function updateSettingsCache(value: unknown) {
 }
 
 function ensureSettingsSubscription() {
-	if (settingsSubscriptionAttached || typeof window === "undefined") {
+	if (
+		settingsSuspended ||
+		settingsSubscriptionAttached ||
+		typeof window === "undefined"
+	) {
 		return;
 	}
 
 	settingsSubscriptionAttached = true;
-	subscribeStoredJsonChanges(STORAGE_KEY, (value) => {
-		const didChange = updateSettingsCache(value);
-		if (didChange) {
-			emitSettingsUpdated();
-		}
-	});
+	const generation = settingsGeneration;
+	settingsSubscriptionCleanup = subscribeStoredJsonChanges(
+		STORAGE_KEY,
+		(value) => {
+			if (generation !== settingsGeneration) return;
+			const didChange = updateSettingsCache(value);
+			if (didChange) {
+				emitSettingsUpdated();
+			}
+		},
+	);
+}
+
+export function disposeSettingsSubscription() {
+	settingsSuspended = true;
+	settingsGeneration += 1;
+	settingsSubscriptionCleanup?.();
+	settingsSubscriptionCleanup = null;
+	settingsSubscriptionAttached = false;
+	settingsInitialization = null;
 }
 
 export function initializeSettings(): Promise<NicoJKSettings> {
+	settingsSuspended = false;
 	ensureSettingsSubscription();
 
 	if (!settingsInitialization) {
+		const generation = settingsGeneration;
 		settingsInitialization = (async () => {
 			try {
 				const { value } =
 					await readStoredJsonWithFallback<unknown>(STORAGE_KEY);
+				if (generation !== settingsGeneration) return settingsCache;
 				const didChange = updateSettingsCache(value);
 
 				if (didChange) {
@@ -232,7 +256,9 @@ export function getSettings(): NicoJKSettings {
 	ensureSettingsSubscription();
 	if (!settingsInitialized) {
 		updateSettingsCache(DEFAULT_SETTINGS);
-		void initializeSettings();
+		if (!settingsSuspended) {
+			void initializeSettings();
+		}
 	}
 	return settingsCache;
 }
