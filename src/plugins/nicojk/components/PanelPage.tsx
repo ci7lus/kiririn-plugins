@@ -198,7 +198,9 @@ export default function PanelPage({
 
 		const indexes: number[] = [];
 		for (const [index, comment] of displayComments.entries()) {
-			if (comment.content.toLocaleLowerCase().includes(normalizedSearchQuery)) {
+			if (
+				comment.content?.toLocaleLowerCase().includes(normalizedSearchQuery)
+			) {
 				indexes.push(index);
 			}
 		}
