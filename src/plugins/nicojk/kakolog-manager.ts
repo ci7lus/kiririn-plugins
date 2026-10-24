@@ -1131,7 +1131,7 @@ export class KakologManager {
 		// 過去ログ API の終端は現在時刻の分開始（秒=0）を超えないようにする。
 		const currentMinuteStart = Math.floor(Date.now() / 60_000) * 60;
 		const requestedSourceEnd = Math.floor(
-			Math.min(sourceStart + windowDuration, source.endAt),
+			Math.min(source.startAt + offset + windowDuration, source.endAt),
 		);
 		const sourceEnd = Math.min(requestedSourceEnd, currentMinuteStart);
 		const deferredUntil =
