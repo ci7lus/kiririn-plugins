@@ -73,3 +73,43 @@ test("sources without a Miyou channel expose only the NicoNico feed", () => {
 		"replay::niconico",
 	]);
 });
+
+test("session toggle removes all feeds and preserves other sessions", async () => {
+	const { toggleCommentSourceGroupVisibility } = await import(
+		"../src/plugins/nicojk/comment-source"
+	);
+	const all = getCommentSourceKeys(CONTEXT);
+	const group = ["primary::niconico", "primary::miyou"];
+	assert.deepEqual(toggleCommentSourceGroupVisibility(null, group, all), [
+		"replay::niconico",
+	]);
+	assert.deepEqual(toggleCommentSourceGroupVisibility(group, group, all), []);
+	assert.equal(
+		toggleCommentSourceGroupVisibility(["replay::niconico"], group, all),
+		null,
+	);
+});
+
+test("session toggle completes partially visible sessions without changing other feeds", async () => {
+	const { toggleCommentSourceGroupVisibility } = await import(
+		"../src/plugins/nicojk/comment-source"
+	);
+	const all = getCommentSourceKeys(CONTEXT);
+	const group = ["primary::niconico", "primary::miyou"];
+	assert.deepEqual(
+		toggleCommentSourceGroupVisibility(["primary::miyou"], group, all),
+		group,
+	);
+	assert.deepEqual(
+		toggleCommentSourceGroupVisibility([], ["replay::niconico"], all),
+		["replay::niconico"],
+	);
+	assert.equal(
+		toggleCommentSourceGroupVisibility(
+			["primary::niconico", "replay::niconico"],
+			group,
+			all,
+		),
+		null,
+	);
+});

@@ -33,6 +33,7 @@ import {
 	getCommentSourceKeyForComment,
 	getCommentSourceKeys,
 	getCommentSourceOrigin,
+	toggleCommentSourceGroupVisibility,
 } from "../comment-source";
 import type { NicoJKContext } from "../context";
 import type { InterruptedSourceInfo } from "../kakolog-manager";
@@ -1436,6 +1437,14 @@ export default function PanelPage({
 											const isSourceVisible = sourceFeedKeys.some((key) =>
 												isSourceKeyVisible(visibleSourceKeys, key),
 											);
+											const isWholeSessionVisible = sourceFeedKeys.every(
+												(key) => isSourceKeyVisible(visibleSourceKeys, key),
+											);
+											const isOnlySessionVisible =
+												visibleSourceKeys != null &&
+												visibleSourceKeys.length === sourceFeedKeys.length &&
+												isWholeSessionVisible;
+											const sessionLabel = formatSourceLabel(source);
 											const interruptedInfo = interruptedSources.find(
 												(info) => info.sourceKey === source.key,
 											);
@@ -1459,7 +1468,7 @@ export default function PanelPage({
 													<div
 														className={`min-w-0 ${isFullyUnfetched ? "opacity-50" : ""}`}
 													>
-														<div className="flex min-w-0 items-start justify-between gap-3 text-gray-300">
+														<div className="flex min-w-0 flex-wrap items-start justify-between gap-2 text-gray-300">
 															<div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
 																<span
 																	className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] leading-none ${SOURCE_KIND_BADGE_CLASSES[source.kind]}`}
@@ -1478,6 +1487,52 @@ export default function PanelPage({
 																		{sourceCounts.ngTotal}件)
 																	</span>
 																)}
+															</div>
+
+															<div className="flex shrink-0 items-center gap-1">
+																{jkContext.sources.length > 1 && (
+																	<button
+																		type="button"
+																		disabled={isOnlySessionVisible}
+																		onClick={() =>
+																			onVisibleSourceKeysChange(sourceFeedKeys)
+																		}
+																		title={
+																			isOnlySessionVisible
+																				? "このセッションのみ表示中"
+																				: "このセッションのみ表示"
+																		}
+																		aria-label={`${sessionLabel} のセッションのみ表示`}
+																		className={`flex h-6 w-6 items-center justify-center rounded border transition-colors ${isOnlySessionVisible ? "cursor-default border-blue-500/40 bg-blue-600 text-white" : "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+																	>
+																		<Filter size={13} />
+																	</button>
+																)}
+																<button
+																	type="button"
+																	onClick={() =>
+																		onVisibleSourceKeysChange(
+																			toggleCommentSourceGroupVisibility(
+																				visibleSourceKeys,
+																				sourceFeedKeys,
+																				getCommentSourceKeys(jkContext),
+																			),
+																		)
+																	}
+																	title={
+																		isWholeSessionVisible
+																			? "このセッションを表示から除外"
+																			: "このセッションを表示に追加"
+																	}
+																	aria-label={`${sessionLabel} のセッションを${isWholeSessionVisible ? "表示から除外" : "表示に追加"}`}
+																	className={`flex h-6 w-6 items-center justify-center rounded border transition-colors ${isWholeSessionVisible ? "border-blue-500/40 bg-blue-600 text-white hover:bg-blue-500" : "border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+																>
+																	{isWholeSessionVisible ? (
+																		<CircleMinus size={13} />
+																	) : (
+																		<CirclePlus size={13} />
+																	)}
+																</button>
 															</div>
 															{isInterrupted && (
 																<div className="flex shrink-0 items-center gap-2">

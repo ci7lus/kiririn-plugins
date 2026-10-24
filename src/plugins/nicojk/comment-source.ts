@@ -50,3 +50,17 @@ export function getCommentSourceKeysForSource(source: NicoJKSourceContext) {
 export function getCommentSourceKeys(jkContext: NicoJKContext | null) {
 	return jkContext?.sources.flatMap(getCommentSourceKeysForSource) || [];
 }
+
+export function toggleCommentSourceGroupVisibility(
+	visibleSourceKeys: string[] | null,
+	groupKeys: string[],
+	allSourceKeys: string[],
+): string[] | null {
+	const visible = new Set(visibleSourceKeys ?? allSourceKeys);
+	const hideGroup = groupKeys.every((key) => visible.has(key));
+	const group = new Set(groupKeys);
+	const next = allSourceKeys.filter((key) =>
+		group.has(key) ? !hideGroup : visible.has(key),
+	);
+	return next.length === allSourceKeys.length ? null : next;
+}
