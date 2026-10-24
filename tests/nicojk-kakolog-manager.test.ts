@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { KakologManager } from "../src/plugins/nicojk/kakolog-manager";
+import { clearMiyouAuth } from "../src/plugins/nicojk/miyou-comment-client";
+import { getSettings, saveSettings } from "../src/plugins/nicojk/ng-settings";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
 
 function createSource(): ResolvedCommentSource {
@@ -304,3 +305,173 @@ test("retries a chunk whose end was clipped to the current minute", async (t) =>
 	);
 	assert.equal(manager.isFullyCompleted(), true);
 });
+
+test("retries failed published prefix immediately without waiting for the next minute", async (t) => {
+	const originalNow = Date.now;
+	const originalFetch = globalThis.fetch;
+	const minuteStart = 1_700_000_040;
+	Date.now = () => (minuteStart + 30) * 1000;
+	let attempts = 0;
+	globalThis.fetch = async () => {
+		attempts += 1;
+		return attempts === 1
+			? Response.json({ error: "temporary failure" })
+			: commentResponse("再試行成功");
+	};
+	t.after(() => {
+		Date.now = originalNow;
+		globalThis.fetch = originalFetch;
+	});
+	const source = {
+		...createSource(),
+		startAt: minuteStart - 120,
+		endAt: minuteStart + 120,
+	};
+	const manager = new KakologManager();
+	manager.setSources([source]);
+	await manager.fetchWithLimit(240);
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	assert.equal(manager.isUnfetchedAt(0), true);
+	await manager.fetchWithLimit(240);
+	assert.equal(attempts, 2);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+});
+
+test("fetches only newly published suffixes and resets progress when cache is cleared", async (t) => {
+	const originalNow = Date.now;
+	const originalFetch = globalThis.fetch;
+	const minuteStart = 1_700_000_040;
+	let now = minuteStart + 30;
+	const ranges: number[][] = [];
+	Date.now = () => now * 1000;
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		ranges.push([
+			Number(url.searchParams.get("starttime")),
+			Number(url.searchParams.get("endtime")),
+		]);
+		return commentResponse("重複しないコメント");
+	};
+	t.after(() => {
+		Date.now = originalNow;
+		globalThis.fetch = originalFetch;
+	});
+	const source = {
+		...createSource(),
+		startAt: minuteStart - 120,
+		endAt: minuteStart + 120,
+	};
+	const manager = new KakologManager();
+	manager.setSources([source]);
+	await manager.fetchWithLimit(240);
+	now += 60;
+	await manager.fetchWithLimit(240);
+	now += 60;
+	const comments = await manager.fetchWithLimit(240);
+	assert.deepEqual(ranges, [
+		[minuteStart - 120, minuteStart],
+		[minuteStart, minuteStart + 60],
+		[minuteStart + 60, minuteStart + 120],
+	]);
+	assert.equal(comments.length, 1);
+	assert.equal(manager.isFullyCompleted(), true);
+	manager.clearCache();
+	await manager.fetchWithLimit(240);
+	assert.deepEqual(ranges.at(-1), [minuteStart - 120, minuteStart + 120]);
+});
+
+for (const failingBackend of ["niconico", "miyou"] satisfies Array<
+	"niconico" | "miyou"
+>) {
+	test(`retries only failed ${failingBackend} prefix while preserving the other backend progress`, async (t) => {
+		const originalFetch = globalThis.fetch;
+		const originalNow = Date.now;
+		const originalSettings = getSettings();
+		const originalWindow = Object.getOwnPropertyDescriptor(
+			globalThis,
+			"window",
+		);
+		Object.defineProperty(globalThis, "window", {
+			configurable: true,
+			value: new EventTarget(),
+		});
+		const minuteStart = 1_700_000_040;
+		let now = minuteStart + 30;
+		Date.now = () => now * 1000;
+		saveSettings({
+			...originalSettings,
+			miyouEnabled: true,
+			miyouEmail: "test@example.com",
+			miyouPassword: "test",
+		});
+		clearMiyouAuth();
+		const ranges = { niconico: [] as number[][], miyou: [] as number[][] };
+		globalThis.fetch = async (input) => {
+			const url = new URL(String(input));
+			if (url.pathname.endsWith("/auth/moritapo"))
+				return Response.json({ token: "test-token" });
+			const backend =
+				url.hostname === "jikkyo.tsukumijima.net" ? "niconico" : "miyou";
+			ranges[backend].push(
+				backend === "niconico"
+					? [
+							Number(url.searchParams.get("starttime")),
+							Number(url.searchParams.get("endtime")),
+						]
+					: [
+							Number(url.searchParams.get("start")) / 1000,
+							Number(url.searchParams.get("end")) / 1000,
+						],
+			);
+			if (backend === failingBackend && ranges[backend].length === 1) {
+				if (backend === "niconico")
+					return Response.json({ error: "temporary failure" });
+				throw new Error("temporary failure");
+			}
+			return backend === "niconico"
+				? commentResponse("ニコニコ")
+				: Response.json({ data: { comments: [] } });
+		};
+		t.after(() => {
+			globalThis.fetch = originalFetch;
+			Date.now = originalNow;
+			saveSettings(originalSettings);
+			clearMiyouAuth();
+			if (originalWindow)
+				Object.defineProperty(globalThis, "window", originalWindow);
+			else Reflect.deleteProperty(globalThis, "window");
+		});
+		const source = {
+			...createSource(),
+			startAt: minuteStart - 120,
+			endAt: minuteStart + 120,
+			miyouChannel: "livebs2",
+		};
+		const manager = new KakologManager();
+		manager.setSources([source]);
+		await manager.fetchWithLimit(240);
+		assert.equal(manager.hasPendingInitialSourceFetch(), true);
+		await manager.fetchWithLimit(240);
+		const successfulBackend =
+			failingBackend === "niconico" ? "miyou" : "niconico";
+		assert.equal(ranges[successfulBackend].length, 1);
+		assert.equal(ranges[failingBackend].length, 2);
+		assert.equal(manager.hasPendingInitialSourceFetch(), false);
+		now += 60;
+		await manager.fetchWithLimit(240);
+		assert.deepEqual(ranges.niconico.at(-1), [minuteStart, minuteStart + 60]);
+		assert.deepEqual(ranges.miyou.at(-1), [minuteStart, minuteStart + 60]);
+		await manager.refreshMiyou(240);
+		assert.deepEqual(ranges.miyou.at(-1), [
+			minuteStart - 120,
+			minuteStart + 60,
+		]);
+		now += 60;
+		await manager.fetchWithLimit(240);
+		assert.deepEqual(ranges.miyou.at(-1), [
+			minuteStart + 60,
+			minuteStart + 120,
+		]);
+		assert.equal(manager.isFullyCompleted(), true);
+	});
+}
