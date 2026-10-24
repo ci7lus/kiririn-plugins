@@ -1,6 +1,7 @@
 import type { FormattedComment } from "@xpadev-net/niconicomments";
 import { useEffect, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
+import { getPendingLiveComments } from "../comment-buffer";
 import type { NiconicoComment } from "../comment-client";
 import { isCommentNGBySettings } from "../comment-dedupe";
 import { CommentRenderer } from "../comment-renderer";
@@ -512,8 +513,9 @@ export default function OverlayPage({
 			return;
 		}
 
-		const pendingComments = comments.filter(
-			(comment) => !renderedLiveCommentIdsRef.current.has(comment.id),
+		const pendingComments = getPendingLiveComments(
+			comments,
+			renderedLiveCommentIdsRef.current,
 		);
 		if (pendingComments.length === 0) {
 			return;
