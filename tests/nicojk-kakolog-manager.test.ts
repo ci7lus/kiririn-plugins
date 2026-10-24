@@ -57,7 +57,7 @@ test("does not complete an empty source interval before timing arrives", async (
 	assert.equal(manager.isFullyCompleted(), false);
 
 	manager.setSources([source]);
-	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
 	const comments = await manager.fetchWithLimit(1800);
 	assert.equal(requestedUrls.length, 1);
 	assert.equal(
@@ -87,7 +87,7 @@ test("refetches a completed empty result when the same source interval grows", a
 
 	manager.setSources([source]);
 	assert.equal(manager.isFullyCompleted(), false);
-	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
 	const comments = await manager.fetchWithLimit(1800);
 	assert.equal(fetchCount, 2);
 	assert.equal(comments[0]?.content, "更新後のコメント");
@@ -206,9 +206,10 @@ test("retries a recording that is too recent for the kakolog API", async (t) => 
 	assert.deepEqual(await manager.fetchWithLimit(5), []);
 	assert.equal(fetchCount, 0);
 	assert.equal(manager.isFullyCompleted(), false);
-	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
 
 	now = minuteStart + 65;
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
 	const comments = await manager.fetchWithLimit(5);
 
 	assert.equal(fetchCount, 1);
@@ -216,4 +217,90 @@ test("retries a recording that is too recent for the kakolog API", async (t) => 
 	assert.equal(comments[0]?.content, "開始直後のコメント");
 	assert.equal(manager.isFullyCompleted(), true);
 	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+});
+
+test("retries a chunk whose end was clipped to the current minute", async (t) => {
+	const originalNow = Date.now;
+	const originalFetch = globalThis.fetch;
+	const minuteStart = 1_700_000_040;
+	let now = minuteStart + 45;
+	const requestedUrls: URL[] = [];
+
+	Date.now = () => now * 1000;
+	globalThis.fetch = async (input) => {
+		requestedUrls.push(new URL(String(input)));
+		const chats = [
+			{
+				chat: {
+					id: "1",
+					no: "1",
+					vpos: "0",
+					content: "確定済みのコメント",
+					date: String(minuteStart - 10),
+					date_usec: "0",
+					mail: "",
+					user_id: "user-1",
+				},
+			},
+		];
+		if (requestedUrls.length > 1) {
+			chats.push({
+				chat: {
+					id: "2",
+					no: "2",
+					vpos: "0",
+					content: "後から確定したコメント",
+					date: String(minuteStart + 20),
+					date_usec: "0",
+					mail: "",
+					user_id: "user-2",
+				},
+			});
+		}
+		return new Response(JSON.stringify({ packet: chats }), { status: 200 });
+	};
+	t.after(() => {
+		Date.now = originalNow;
+		globalThis.fetch = originalFetch;
+	});
+
+	const source: ResolvedCommentSource = {
+		key: `primary:jk1:na:${minuteStart - 20}`,
+		kind: "primary",
+		jkId: "jk1",
+		channelName: "Primary",
+		startAt: minuteStart - 20,
+		endAt: minuteStart + 40,
+		programStartAt: minuteStart - 20,
+	};
+	const manager = new KakologManager();
+	manager.setSources([source]);
+
+	const partialComments = await manager.fetchWithLimit(60);
+	assert.equal(partialComments.length, 1);
+	assert.equal(requestedUrls.length, 1);
+	assert.equal(
+		requestedUrls[0]?.searchParams.get("endtime"),
+		String(minuteStart),
+	);
+	assert.equal(manager.isFullyCompleted(), false);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+
+	await manager.fetchWithLimit(60);
+	assert.equal(requestedUrls.length, 1, "分境界までは同じ区間を再取得しない");
+
+	now = minuteStart + 65;
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	const completedComments = await manager.fetchWithLimit(60);
+
+	assert.equal(requestedUrls.length, 2);
+	assert.equal(
+		requestedUrls[1]?.searchParams.get("endtime"),
+		String(minuteStart + 40),
+	);
+	assert.deepEqual(
+		completedComments.map((comment) => comment.content),
+		["確定済みのコメント", "後から確定したコメント"],
+	);
+	assert.equal(manager.isFullyCompleted(), true);
 });
