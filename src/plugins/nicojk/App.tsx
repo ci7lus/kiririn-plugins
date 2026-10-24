@@ -196,19 +196,34 @@ function withKakologSourceStates(
 			.getChapterCorrections()
 			.map((correction) => [correction.sourceKey, correction]),
 	);
-	return {
-		...jkContext,
-		sources: jkContext.sources.map((s) => ({
+	let changed = false;
+	const sources = jkContext.sources.map((s) => {
+		const correction = corrections.get(s.key);
+		const chapterCorrection = correction
+			? {
+					offsetSeconds: correction.offsetSeconds || 0,
+					enabled: correction.enabled ?? true,
+				}
+			: undefined;
+		const interrupted = interruptedSourceKeys.has(s.key);
+		if (
+			s.interrupted !== interrupted ||
+			s.chapterCorrection?.offsetSeconds !== chapterCorrection?.offsetSeconds ||
+			s.chapterCorrection?.enabled !== chapterCorrection?.enabled
+		) {
+			changed = true;
+		}
+		return {
 			...s,
-			interrupted: interruptedSourceKeys.has(s.key),
-			chapterCorrection: corrections.has(s.key)
-				? {
-						offsetSeconds: corrections.get(s.key)?.offsetSeconds || 0,
-						enabled: corrections.get(s.key)?.enabled ?? true,
-					}
-				: undefined,
-		})),
-	};
+			interrupted,
+			chapterCorrection,
+		};
+	});
+
+	// The overlay relay sends the whole comment list whenever jkContext changes.
+	// Keep the reference stable while fetch state is unchanged so the 2-second
+	// player status poll does not repeatedly clone all recorded comments.
+	return changed ? { ...jkContext, sources } : jkContext;
 }
 
 function normalizeVisibleSourceKeys(
@@ -2029,15 +2044,23 @@ export default function App() {
 						}
 
 						if (data.jkContext && data.replaySources[0]) {
-							data.jkContext = withKakologSourceStates(
-								buildJkContext(
-									data.replaySources[0],
-									data.replaySources,
-									startAt,
-									duration,
-								),
-								mgr,
-							);
+							const hasCurrentSourceContext =
+								data.jkContext.startAt === startAt &&
+								data.jkContext.endAt === startAt + duration &&
+								data.jkContext.sources.length === data.replaySources.length &&
+								data.jkContext.sources.every(
+									(source, index) =>
+										source.key === data.replaySources[index]?.key,
+								);
+							const baseContext = hasCurrentSourceContext
+								? data.jkContext
+								: buildJkContext(
+										data.replaySources[0],
+										data.replaySources,
+										startAt,
+										duration,
+									);
+							data.jkContext = withKakologSourceStates(baseContext, mgr);
 						}
 
 						const currentPlayableId = p.id;
