@@ -19,6 +19,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerPlaybackState } from "../../../vendor/Plugin";
 import { type ChapterPoint, detectChapterPoints } from "../chapter-comments";
+import {
+	getCommentRowKey,
+	pruneCommentMeasurementCache,
+} from "../comment-buffer";
 import type { ConnectionStatus, NiconicoComment } from "../comment-client";
 import { isCommentNGBySettings } from "../comment-dedupe";
 import {
@@ -194,7 +198,9 @@ export default function PanelPage({
 
 		const indexes: number[] = [];
 		for (const [index, comment] of displayComments.entries()) {
-			if (comment.content.toLocaleLowerCase().includes(normalizedSearchQuery)) {
+			if (
+				comment.content?.toLocaleLowerCase().includes(normalizedSearchQuery)
+			) {
 				indexes.push(index);
 			}
 		}
@@ -335,11 +341,18 @@ export default function PanelPage({
 		overscan: 10,
 		getItemKey: (index) => {
 			const item = displayComments[index];
-			return item ? `${item.no}-${item.id}` : index;
+			return item ? getCommentRowKey(item) : index;
 		},
 		paddingEnd: safeAreaInsetBottom,
 		scrollPaddingEnd: safeAreaInsetBottom + 4,
 	});
+
+	useEffect(() => {
+		pruneCommentMeasurementCache(
+			rowVirtualizer.itemSizeCache,
+			hasActivePlayer ? displayComments : [],
+		);
+	}, [displayComments, hasActivePlayer, rowVirtualizer]);
 
 	const findCommentIndexByVpos = useCallback(
 		(targetVpos: number) => {

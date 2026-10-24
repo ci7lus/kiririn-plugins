@@ -239,23 +239,46 @@ test("過去ログのNG traceはコメント数が変動したときだけ出す
 	);
 });
 
-test("過去ログの不正なcontentでも重複判定が例外にならない", () => {
-	const invalidComments = [
-		comment("user-a", "placeholder", {
-			content: null as unknown as string,
-			sourceOrdinal: 0,
-		}),
-		comment("user-a", "placeholder", {
-			content: undefined as unknown as string,
-			sourceOrdinal: 0,
-		}),
-	] as NiconicoComment[];
+test("本文のないコメントは重複やNGワードの対象にならない", () => {
+	const omitted = comment("user-a", "placeholder");
+	delete omitted.content;
+	const missingComments: NiconicoComment[] = [
+		omitted,
+		comment("user-a", "placeholder", { content: undefined }),
+	];
+	assert.deepEqual(
+		markLiveDuplicateComments(missingComments).map((item) => item.isDuplicate),
+		[false, false],
+	);
+	assert.deepEqual(
+		markRecordedDuplicateComments(missingComments).map(
+			(item) => item.isDuplicate,
+		),
+		[false, false],
+	);
+	for (const item of missingComments) {
+		assert.equal(
+			isCommentNGBySettings(item, {
+				deduplicateComments: true,
+				ngIds: [],
+				ngWords: ["placeholder"],
+			}),
+			false,
+		);
+	}
+});
 
+test("過去ログの不正なruntime contentでも重複判定が例外にならない", () => {
+	const invalidComments = [
+		{ ...comment("user-a", "placeholder"), content: null },
+	];
 	assert.doesNotThrow(() => {
-		const marked = markRecordedDuplicateComments(invalidComments);
+		const marked = Reflect.apply(markRecordedDuplicateComments, undefined, [
+			invalidComments,
+		]);
 		assert.deepEqual(
-			marked.map((item) => item.isDuplicate),
-			[false, false],
+			marked.map((item: NiconicoComment) => item.isDuplicate),
+			[false],
 		);
 	});
 });

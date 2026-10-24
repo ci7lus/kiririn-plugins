@@ -110,6 +110,7 @@ export function getCommentNGReasons(
 	settings: Pick<NicoJKSettings, "deduplicateComments" | "ngIds" | "ngWords">,
 ): CommentNGReason[] {
 	const reasons: CommentNGReason[] = [];
+	const content = comment.content;
 	if (settings.deduplicateComments && comment.isDuplicate) {
 		reasons.push("duplicate");
 	}
@@ -117,8 +118,8 @@ export function getCommentNGReasons(
 		reasons.push("id");
 	}
 	if (
-		typeof comment.content === "string" &&
-		settings.ngWords.some((word) => comment.content.includes(word))
+		typeof content === "string" &&
+		settings.ngWords.some((word) => content.includes(word))
 	) {
 		reasons.push("word");
 	}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import protobuf from "@n-air-app/nicolive-comment-protobuf";
+import type { NiconicoComment } from "../src/plugins/nicojk/comment-client";
 import { LengthDelimitedReader } from "../src/plugins/nicojk/ndgr-protobuf";
 import {
 	getNdgrRetryDelayMs,
@@ -496,8 +497,8 @@ test("propagates comments across clients via BroadcastChannel", async () => {
 
 	const clientA = new NiconicoCommentClient();
 	const clientB = new NiconicoCommentClient();
-	const commentsA: { origin?: string; content: string }[] = [];
-	const commentsB: { origin?: string; content: string }[] = [];
+	const commentsA: Pick<NiconicoComment, "origin" | "content">[] = [];
+	const commentsB: Pick<NiconicoComment, "origin" | "content">[] = [];
 	clientA.onComment((comment) => commentsA.push(comment));
 	clientB.onComment((comment) => commentsB.push(comment));
 

@@ -1,3 +1,5 @@
+import type { NiconicoComment } from "./comment-client";
+
 export const CHAPTER_CANDIDATES = [
 	{ pattern: /^A$/i, label: "A" },
 	{ pattern: /^B$/i, label: "B" },
@@ -11,12 +13,10 @@ export const CHAPTER_CANDIDATES = [
 
 export type ChapterLabel = (typeof CHAPTER_CANDIDATES)[number]["label"];
 
-export type ChapterComment = {
-	id: number;
-	vpos: number;
-	content: string;
-	sourceOrdinal?: number;
-};
+export type ChapterComment = Pick<
+	NiconicoComment,
+	"id" | "vpos" | "content" | "sourceOrdinal"
+>;
 
 export type ChapterPoint = {
 	key: string;
@@ -98,6 +98,10 @@ export function detectChapterPoints(
 	const buckets = new Map<number, ChapterBucket>();
 
 	for (const comment of comments) {
+		if (typeof comment.content !== "string") {
+			continue;
+		}
+
 		if (
 			sourceOrdinal != null &&
 			Math.max(comment.sourceOrdinal || 0, 0) !== sourceOrdinal

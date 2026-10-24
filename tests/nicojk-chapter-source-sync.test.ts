@@ -111,6 +111,36 @@ test("Primary にチャプターが無ければ他ソースを補正しない", 
 	assert.equal(synchronized.comments, comments);
 });
 
+test("本文のないコメントを含んでもチャプター同期できる", () => {
+	const missingContent = comment(1, 600, "placeholder");
+	delete missingContent.content;
+	const undefinedContent = {
+		...comment(0, 300, "placeholder"),
+		content: undefined,
+	};
+	const comments = [
+		...chapter(0, 300, "OP"),
+		...chapter(0, 900, "B"),
+		...chapter(1, 480, "OP"),
+		...chapter(1, 1080, "B"),
+	];
+	const baseline = synchronizeCommentSourcesByChapters(
+		comments,
+		SOURCES,
+		SYNC_OPTIONS,
+	);
+	const synchronized = synchronizeCommentSourcesByChapters(
+		[...comments, missingContent, undefinedContent],
+		SOURCES,
+		SYNC_OPTIONS,
+	);
+	assert.deepEqual(synchronized.corrections, baseline.corrections);
+	assert.equal(
+		synchronized.comments.find((item) => item.id === missingContent.id)?.vpos,
+		missingContent.vpos - 18000,
+	);
+});
+
 test("複数チャプターの差分が一致しない場合は補正しない", () => {
 	const comments = [
 		...chapter(0, 300, "OP"),

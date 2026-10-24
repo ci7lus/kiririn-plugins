@@ -1,15 +1,20 @@
 import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import App from "./App.tsx";
 import "../../index.css";
 import { initSentry, SentryErrorBoundary } from "../../sentry.ts";
-import { initializeSettings } from "./ng-settings";
+import { disposeSettingsSubscription, initializeSettings } from "./ng-settings";
+import { startPageLifecycle } from "./page-lifecycle";
 
 initSentry();
 
+let root: Root | null = null;
+
 function renderApp() {
+	if (root) return;
 	// biome-ignore lint/style/noNonNullAssertion: vite
-	createRoot(document.getElementById("root")!).render(
+	root = createRoot(document.getElementById("root")!);
+	root.render(
 		<StrictMode>
 			<SentryErrorBoundary>
 				<App />
@@ -18,10 +23,16 @@ function renderApp() {
 	);
 }
 
-void initializeSettings()
-	.catch((error) => {
-		console.error("Failed to load NicoJK settings before render", error);
-	})
-	.finally(() => {
-		renderApp();
-	});
+function unmountApp() {
+	const currentRoot = root;
+	root = null;
+	currentRoot?.unmount();
+}
+
+startPageLifecycle(
+	window,
+	initializeSettings,
+	renderApp,
+	unmountApp,
+	disposeSettingsSubscription,
+);

@@ -11,7 +11,7 @@ export interface NiconicoComment {
 	id: number;
 	no: number;
 	vpos: number;
-	content: string;
+	content?: string;
 	date: number;
 	date_usec: number;
 	mail: string[];
