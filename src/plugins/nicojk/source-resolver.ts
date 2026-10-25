@@ -115,11 +115,13 @@ async function resolveLiveSources(
 	baseProgram: SyobocalProgram,
 	atUnixSeconds: number,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
+	signal?: AbortSignal,
 ) {
 	const candidates = await lookupProgramsByTitleAt(
 		baseProgram.tid,
 		atUnixSeconds,
 		baseProgram.count,
+		signal,
 	);
 
 	const sources = candidates
@@ -147,12 +149,14 @@ async function resolveRecordedReplaySources(
 	baseProgram: SyobocalProgram,
 	channelIndex: Map<number, NicoJKChannelDefinition>,
 	replaySessionLimit: number,
+	signal?: AbortSignal,
 ) {
 	const candidates = await lookupProgramsByTitleBetween(
 		baseProgram.tid,
 		RECORDED_REPLAY_LOOKUP_START_AT,
 		Math.floor(Date.now() / 1000),
 		baseProgram.count,
+		signal,
 	);
 	return selectRecordedReplaySources(
 		candidates,
@@ -242,6 +246,7 @@ export async function resolveCommentSources(params: {
 	const baseProgram = await lookupChannelProgramAt(
 		primaryChannel.syobocalId,
 		queryTime,
+		params.signal,
 	);
 	params.signal?.throwIfAborted();
 	if (!baseProgram) {
@@ -264,6 +269,7 @@ export async function resolveCommentSources(params: {
 				baseProgram,
 				queryTime,
 				channelIndex,
+				params.signal,
 			)
 		: [];
 	params.signal?.throwIfAborted();
@@ -275,8 +281,10 @@ export async function resolveCommentSources(params: {
 					baseProgram,
 					channelIndex,
 					replaySessionLimit,
+					params.signal,
 				);
 
+	params.signal?.throwIfAborted();
 	return {
 		primary: primaryWithProgramStart,
 		liveSources,

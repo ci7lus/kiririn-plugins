@@ -1,6 +1,6 @@
 import { hostFetchText } from "./host-fetch";
 
-const progLookupCache = new Map<string, Promise<SyobocalProgram[]>>();
+const progLookupCache = new Map<string, SyobocalProgram[]>();
 
 interface ProgLookupParams {
 	TID?: string;
@@ -95,7 +95,9 @@ function parseProgLookupResponse(xml: string): SyobocalProgram[] {
 
 async function progLookup(
 	params: ProgLookupParams,
+	signal?: AbortSignal,
 ): Promise<SyobocalProgram[]> {
+	signal?.throwIfAborted();
 	const key = JSON.stringify(params);
 	const cached = progLookupCache.get(key);
 	if (cached) {
@@ -111,15 +113,11 @@ async function progLookup(
 		url.searchParams.set(key, Array.isArray(value) ? value.join(",") : value);
 	}
 
-	const nextRequest = hostFetchText(url)
-		.then((responseText) => parseProgLookupResponse(responseText))
-		.catch((error) => {
-			progLookupCache.delete(key);
-			throw error;
-		});
-
-	progLookupCache.set(key, nextRequest);
-	return nextRequest;
+	const responseText = await hostFetchText(url, { signal });
+	signal?.throwIfAborted();
+	const programs = parseProgLookupResponse(responseText);
+	progLookupCache.set(key, programs);
+	return programs;
 }
 
 export function createSyobocalPointRange(unixSeconds: number) {
@@ -141,12 +139,16 @@ function getSubTitlesJoin(count?: number | null): ProgLookupParams["JOIN"] {
 export async function lookupChannelProgramAt(
 	chId: number,
 	atUnixSeconds: number,
+	signal?: AbortSignal,
 ): Promise<SyobocalProgram | null> {
-	const programs = await progLookup({
-		ChID: chId.toString(),
-		Range: createSyobocalPointRange(atUnixSeconds + 30),
-		JOIN: ["SubTitles"],
-	});
+	const programs = await progLookup(
+		{
+			ChID: chId.toString(),
+			Range: createSyobocalPointRange(atUnixSeconds + 30),
+			JOIN: ["SubTitles"],
+		},
+		signal,
+	);
 
 	return (
 		programs.find(
@@ -162,13 +164,17 @@ export async function lookupProgramsByTitleAt(
 	tid: number,
 	atUnixSeconds: number,
 	count?: number | null,
+	signal?: AbortSignal,
 ): Promise<SyobocalProgram[]> {
-	return progLookup({
-		TID: tid.toString(),
-		Count: count ? count.toString() : undefined,
-		Range: createSyobocalPointRange(atUnixSeconds),
-		JOIN: getSubTitlesJoin(count),
-	});
+	return progLookup(
+		{
+			TID: tid.toString(),
+			Count: count ? count.toString() : undefined,
+			Range: createSyobocalPointRange(atUnixSeconds),
+			JOIN: getSubTitlesJoin(count),
+		},
+		signal,
+	);
 }
 
 export async function lookupProgramsByTitleBetween(
@@ -176,13 +182,17 @@ export async function lookupProgramsByTitleBetween(
 	startUnixSeconds: number,
 	endUnixSeconds: number,
 	count?: number | null,
+	signal?: AbortSignal,
 ): Promise<SyobocalProgram[]> {
-	return progLookup({
-		TID: tid.toString(),
-		Count: count ? count.toString() : undefined,
-		Range: createSyobocalRange(startUnixSeconds, endUnixSeconds),
-		JOIN: getSubTitlesJoin(count),
-	});
+	return progLookup(
+		{
+			TID: tid.toString(),
+			Count: count ? count.toString() : undefined,
+			Range: createSyobocalRange(startUnixSeconds, endUnixSeconds),
+			JOIN: getSubTitlesJoin(count),
+		},
+		signal,
+	);
 }
 
 export function normalizeSyobocalText(text: string | null | undefined) {
