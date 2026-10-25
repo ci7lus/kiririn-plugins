@@ -89,7 +89,7 @@ type PlayerData = {
 	lastStartAt: number;
 };
 
-function createPlayerData(playableId: string | null): PlayerData {
+export function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
 		wasSeekable: false,
@@ -290,14 +290,24 @@ function applyPrimarySource(
 	);
 }
 
-function applyResolvedSources(
+export function applyResolvedSources(
 	data: PlayerData,
 	resolved: ResolvedCommentSources,
 	isSeekable: boolean,
 	startAt: number,
 	duration: number,
 ) {
-	data.liveSources = [resolved.primary, ...resolved.liveSources];
+	const nextLiveSources = [resolved.primary, ...resolved.liveSources];
+	if (!isSeekable) {
+		data.comments = data.comments.flatMap((comment) => {
+			const previousSource = data.liveSources[comment.sourceOrdinal || 0];
+			const nextOrdinal = nextLiveSources.findIndex(
+				(source) => source.key === previousSource?.key,
+			);
+			return nextOrdinal < 0 ? [] : [scopeLiveComment(comment, nextOrdinal)];
+		});
+	}
+	data.liveSources = nextLiveSources;
 	data.replaySources = isSeekable
 		? [resolved.primary, ...resolved.replaySources]
 		: [resolved.primary];
@@ -321,6 +331,22 @@ function resetRecordedCommentsState(data: PlayerData) {
 	data.recordedSourcesPendingFetch = false;
 	data.recordedFetchProgress = null;
 	data.interruptedSources = [];
+}
+
+export function resetCommentSourcesForSettings(
+	data: PlayerData,
+	isLive: boolean,
+) {
+	data.sourceResolutionToken += 1;
+	data.sourceResolutionKey = null;
+	data.isResolvingSources = false;
+	data.areSourcesResolved = false;
+	if (!isLive) {
+		resetRecordedCommentsState(data);
+		data.liveSources = [];
+		data.replaySources = [];
+		data.jkContext = null;
+	}
 }
 
 function getHasDisplayCandidates(
@@ -1252,17 +1278,11 @@ export default function App() {
 					syobocalEnabled: settings.syobocalEnabled,
 					replaySessionLimit: settings.replaySessionLimit,
 				};
-				for (const client of clientsRef.current.values()) client.disconnect();
-				clientsRef.current.clear();
 				for (const [playerID, data] of playersDataRef.current.entries()) {
-					data.sourceResolutionToken += 1;
-					data.sourceResolutionKey = null;
-					data.isResolvingSources = false;
-					data.areSourcesResolved = false;
-					resetRecordedCommentsState(data);
-					data.liveSources = [];
-					data.replaySources = [];
-					data.jkContext = null;
+					resetCommentSourcesForSettings(
+						data,
+						getEffectiveIsLive(bridge.getPlayable(playerID), data),
+					);
 					const manager = kakologManagersRef.current.get(playerID);
 					if (manager) disposeKakologManager(manager);
 					kakologManagersRef.current.delete(playerID);
