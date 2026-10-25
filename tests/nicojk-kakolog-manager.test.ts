@@ -475,3 +475,82 @@ for (const failingBackend of ["niconico", "miyou"] satisfies Array<
 		assert.equal(manager.isFullyCompleted(), true);
 	});
 }
+
+for (const duration of [17.6, 1877.6]) {
+	test(`completes fractional recording boundaries across ${duration > 1860 ? "multiple chunks" : "one chunk"}`, async (t) => {
+		const originalFetch = globalThis.fetch;
+		const ranges: number[][] = [];
+		globalThis.fetch = async (input) => {
+			const url = new URL(String(input));
+			ranges.push([
+				Number(url.searchParams.get("starttime")),
+				Number(url.searchParams.get("endtime")),
+			]);
+			return commentResponse("取得済みコメント");
+		};
+		t.after(() => {
+			globalThis.fetch = originalFetch;
+		});
+		const startAt = createSource().startAt + 0.6;
+		const source = { ...createSource(), startAt, endAt: startAt + duration };
+		const manager = new KakologManager();
+		manager.setSources([source]);
+		await manager.fetchWithLimit(duration);
+		const expectedRanges =
+			duration > 1860
+				? [
+						[Math.floor(startAt), Math.floor(startAt + 1860)],
+						[Math.floor(startAt + 1860), Math.floor(source.endAt)],
+					]
+				: [[Math.floor(startAt), Math.floor(source.endAt)]];
+		assert.deepEqual(
+			ranges,
+			expectedRanges,
+			"fetch through the actual requested end",
+		);
+		assert.equal(manager.isFullyCompleted(), true);
+		assert.deepEqual(manager.getInterruptedSources(), []);
+		assert.equal(manager.hasPendingInitialSourceFetch(), false);
+		await manager.fetchWithLimit(duration);
+		await manager.resumeSource(source.key, duration);
+		assert.deepEqual(
+			ranges,
+			expectedRanges,
+			"completed intervals are not requested again",
+		);
+	});
+}
+
+test("retries a failed fractional final chunk without refetching completed chunks", async (t) => {
+	const originalFetch = globalThis.fetch;
+	const ranges: number[][] = [];
+	globalThis.fetch = async (input) => {
+		const url = new URL(String(input));
+		ranges.push([
+			Number(url.searchParams.get("starttime")),
+			Number(url.searchParams.get("endtime")),
+		]);
+		return ranges.length === 2
+			? Response.json({ error: "temporary failure" })
+			: commentResponse("取得済みコメント");
+	};
+	t.after(() => {
+		globalThis.fetch = originalFetch;
+	});
+	const startAt = createSource().startAt + 0.6;
+	const duration = 1877.6;
+	const source = { ...createSource(), startAt, endAt: startAt + duration };
+	const manager = new KakologManager();
+	manager.setSources([source]);
+	await manager.fetchWithLimit(duration);
+	assert.equal(manager.isFullyCompleted(), false);
+	assert.equal(manager.getInterruptedSources()[0]?.fetchedChunkCount, 1);
+	await manager.resumeSource(source.key, duration);
+	assert.deepEqual(ranges, [
+		[Math.floor(startAt), Math.floor(startAt + 1860)],
+		[Math.floor(startAt + 1860), Math.floor(source.endAt)],
+		[Math.floor(startAt + 1860), Math.floor(source.endAt)],
+	]);
+	assert.equal(manager.isFullyCompleted(), true);
+	assert.deepEqual(manager.getInterruptedSources(), []);
+});

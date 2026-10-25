@@ -89,7 +89,7 @@ type PlayerData = {
 	lastStartAt: number;
 };
 
-function createPlayerData(playableId: string | null): PlayerData {
+export function createPlayerData(playableId: string | null): PlayerData {
 	return {
 		playableId,
 		wasSeekable: false,
@@ -290,14 +290,24 @@ function applyPrimarySource(
 	);
 }
 
-function applyResolvedSources(
+export function applyResolvedSources(
 	data: PlayerData,
 	resolved: ResolvedCommentSources,
 	isSeekable: boolean,
 	startAt: number,
 	duration: number,
 ) {
-	data.liveSources = [resolved.primary, ...resolved.liveSources];
+	const nextLiveSources = [resolved.primary, ...resolved.liveSources];
+	if (!isSeekable) {
+		data.comments = data.comments.flatMap((comment) => {
+			const previousSource = data.liveSources[comment.sourceOrdinal || 0];
+			const nextOrdinal = nextLiveSources.findIndex(
+				(source) => source.key === previousSource?.key,
+			);
+			return nextOrdinal < 0 ? [] : [scopeLiveComment(comment, nextOrdinal)];
+		});
+	}
+	data.liveSources = nextLiveSources;
 	data.replaySources = isSeekable
 		? [resolved.primary, ...resolved.replaySources]
 		: [resolved.primary];
@@ -321,6 +331,22 @@ function resetRecordedCommentsState(data: PlayerData) {
 	data.recordedSourcesPendingFetch = false;
 	data.recordedFetchProgress = null;
 	data.interruptedSources = [];
+}
+
+export function resetCommentSourcesForSettings(
+	data: PlayerData,
+	isLive: boolean,
+) {
+	data.sourceResolutionToken += 1;
+	data.sourceResolutionKey = null;
+	data.isResolvingSources = false;
+	data.areSourcesResolved = false;
+	if (!isLive) {
+		resetRecordedCommentsState(data);
+		data.liveSources = [];
+		data.replaySources = [];
+		data.jkContext = null;
+	}
 }
 
 function getHasDisplayCandidates(
@@ -482,19 +508,23 @@ function getChannelDisplayState(
 
 	if (data.isResolvingSources && !data.recordedCommentsReady) {
 		return createChannelDisplayState({
-			message: data.primaryChannel.syobocalId
-				? "しょぼかるから実況ソースを取得中"
-				: "実況ソースを取得中",
-			isLoading: Boolean(data.primaryChannel.syobocalId),
+			message:
+				data.primaryChannel.syobocalId && getSettings().syobocalEnabled
+					? "しょぼかるから実況ソースを取得中"
+					: "実況ソースを取得中",
+			isLoading: Boolean(
+				data.primaryChannel.syobocalId && getSettings().syobocalEnabled,
+			),
 			fetchedCommentCount,
 		});
 	}
 
 	if (!hasCommentSources(data) && !data.areSourcesResolved) {
 		return createChannelDisplayState({
-			message: data.primaryChannel.syobocalId
-				? "しょぼかる取得開始待ち"
-				: "実況ソース取得待ち",
+			message:
+				data.primaryChannel.syobocalId && getSettings().syobocalEnabled
+					? "しょぼかる取得開始待ち"
+					: "実況ソース取得待ち",
 			fetchedCommentCount,
 		});
 	}
@@ -806,6 +836,10 @@ export default function App() {
 	const liveCommentSourceRef = useRef<LiveCommentSource>(
 		getSettings().liveCommentSource,
 	);
+	const syobocalSettingsRef = useRef({
+		syobocalEnabled: getSettings().syobocalEnabled,
+		replaySessionLimit: getSettings().replaySessionLimit,
+	});
 	const miyouSettingsSignatureRef = useRef(
 		getMiyouSettingsSignature(getSettings()),
 	);
@@ -1229,8 +1263,33 @@ export default function App() {
 			);
 		};
 
+		let sourceResolutionController = new AbortController();
 		const handleLiveCommentSourceChange = () => {
 			const settings = getSettings();
+			const previousSyobocalSettings = syobocalSettingsRef.current;
+			if (
+				settings.syobocalEnabled !== previousSyobocalSettings.syobocalEnabled ||
+				settings.replaySessionLimit !==
+					previousSyobocalSettings.replaySessionLimit
+			) {
+				sourceResolutionController.abort();
+				sourceResolutionController = new AbortController();
+				syobocalSettingsRef.current = {
+					syobocalEnabled: settings.syobocalEnabled,
+					replaySessionLimit: settings.replaySessionLimit,
+				};
+				for (const [playerID, data] of playersDataRef.current.entries()) {
+					resetCommentSourcesForSettings(
+						data,
+						getEffectiveIsLive(bridge.getPlayable(playerID), data),
+					);
+					const manager = kakologManagersRef.current.get(playerID);
+					if (manager) disposeKakologManager(manager);
+					kakologManagersRef.current.delete(playerID);
+					if (targetPlayableRef.current?.playerID === playerID)
+						syncTargetState(playerID);
+				}
+			}
 			const nextSource = settings.liveCommentSource;
 			if (nextSource !== liveCommentSourceRef.current) {
 				liveCommentSourceRef.current = nextSource;
@@ -1968,6 +2027,9 @@ export default function App() {
 						duration,
 						isLive: effectiveIsLive,
 						queryTime,
+						syobocalEnabled: getSettings().syobocalEnabled,
+						replaySessionLimit: getSettings().replaySessionLimit,
+						signal: sourceResolutionController.signal,
 					})
 						.then((resolved) => {
 							const latest = playersDataRef.current.get(p.playerID);
@@ -2259,6 +2321,7 @@ export default function App() {
 		}, 2000);
 
 		return () => {
+			sourceResolutionController.abort();
 			console.log(`[NicoJK][#${instanceId}] App lifecycle cleanup.`);
 			window.removeEventListener("resize", handleResize);
 			window.removeEventListener(

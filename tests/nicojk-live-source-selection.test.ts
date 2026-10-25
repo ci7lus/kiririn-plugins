@@ -190,3 +190,54 @@ test("fallback primary source carries NicoNico metadata before resolution", () =
 		}),
 	);
 });
+
+test("source setting changes preserve live history until sources are resolved", async () => {
+	const {
+		createPlayerData,
+		resetCommentSourcesForSettings,
+		applyResolvedSources,
+	} = await import("../src/plugins/nicojk/App");
+	const data = createPlayerData("live");
+	const primary = source("primary");
+	const simulcast = { ...source("simulcast"), kind: "simulcast" as const };
+	applyResolvedSources(
+		data,
+		{ primary, liveSources: [simulcast], replaySources: [] },
+		false,
+		1,
+		1,
+	);
+	const comment = {
+		id: 1,
+		no: 1,
+		vpos: 100,
+		content: "collected",
+		date: 1,
+		date_usec: 0,
+		mail: [],
+		user_id: "test",
+		premium: 0,
+		anonymity: 0,
+		sourceOrdinal: 0,
+	};
+	data.comments = [comment, { ...comment, id: 2, sourceOrdinal: 1 }];
+	resetCommentSourcesForSettings(data, true);
+	assert.equal(data.comments.length, 2);
+	assert.equal(data.liveSources.length, 2);
+	assert.ok(data.jkContext);
+	assert.equal(data.areSourcesResolved, false);
+	applyResolvedSources(
+		data,
+		{ primary, liveSources: [], replaySources: [] },
+		false,
+		1,
+		1,
+	);
+	assert.equal(data.comments.length, 1);
+	assert.equal(data.comments[0]?.content, "collected");
+	assert.equal(data.comments[0]?.sourceOrdinal, 0);
+	resetCommentSourcesForSettings(data, false);
+	assert.deepEqual(data.comments, []);
+	assert.deepEqual(data.liveSources, []);
+	assert.equal(data.jkContext, null);
+});
