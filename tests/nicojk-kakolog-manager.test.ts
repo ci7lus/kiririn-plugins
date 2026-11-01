@@ -39,6 +39,43 @@ function commentResponse(content: string | null) {
 	);
 }
 
+test("automatically resumes an unfetched chunk after playback has entered it", async (t) => {
+	const originalFetch = globalThis.fetch;
+	const source = createSource();
+	source.endAt = source.startAt + 5580;
+	const requests: number[] = [];
+	let failed = false;
+	globalThis.fetch = async (input) => {
+		const start = Number(new URL(String(input)).searchParams.get("starttime"));
+		requests.push(start);
+		if (start === source.startAt + 1860 && !failed) {
+			failed = true;
+			return new Response(null, { status: 500 });
+		}
+		return commentResponse(null);
+	};
+	t.after(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	const manager = new KakologManager();
+	manager.setSources([source]);
+	await manager.fetchWithLimit(5580, { priorityTime: 3720 });
+	assert.deepEqual(requests, [
+		source.startAt + 3720,
+		source.startAt,
+		source.startAt + 1860,
+	]);
+	assert.equal(manager.shouldAutoResume(1799), false);
+	assert.equal(manager.shouldAutoResume(1800), true);
+	assert.equal(manager.shouldAutoResume(3600), true);
+	assert.equal(manager.shouldAutoResume(3720), false);
+
+	await manager.fetchMore(5580, { priorityTime: 3600 });
+	assert.equal(requests.at(-1), source.startAt + 1860);
+	assert.equal(manager.isFullyCompleted(), true);
+});
+
 test("does not complete an empty source interval before timing arrives", async (t) => {
 	const originalFetch = globalThis.fetch;
 	const requestedUrls: URL[] = [];
