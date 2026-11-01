@@ -693,6 +693,7 @@ interface OverlaySnapshot {
 type OverlayRelayMessage =
 	| { type: "requestSnapshot" }
 	| { type: "reloadRecordedComments" }
+	| { type: "resumeSource"; payload: { sourceKey: string } }
 	| { type: "setVisibleSourceKeys"; payload: { sourceKeys: string[] | null } }
 	| {
 			type: "setChapterCorrectionEnabled";
@@ -977,9 +978,10 @@ export default function App() {
 	);
 
 	const handleResumeSource = useCallback((sourceKey: string) => {
-		const playerID = targetPlayableRef.current?.playerID;
-		if (!playerID) return;
-		pendingResumeRef.current.set(playerID, sourceKey);
+		panelRelayChannelRef.current?.postMessage({
+			type: "resumeSource",
+			payload: { sourceKey },
+		} satisfies OverlayRelayMessage);
 	}, []);
 
 	const handleChapterCorrectionEnabledChange = useCallback(
@@ -1022,6 +1024,10 @@ export default function App() {
 		channel.onmessage = (event: MessageEvent<OverlayRelayMessage>) => {
 			if (event.data.type === "requestSnapshot") {
 				postSnapshot();
+				return;
+			}
+			if (event.data.type === "resumeSource") {
+				pendingResumeRef.current.set(playerID, event.data.payload.sourceKey);
 				return;
 			}
 
