@@ -95,7 +95,7 @@ test("does not complete an empty source interval before timing arrives", async (
 	assert.equal(manager.isFullyCompleted(), false);
 
 	manager.setSources([source]);
-	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
 	const comments = await manager.fetchWithLimit(1800);
 	assert.equal(requestedUrls.length, 1);
 	assert.equal(
@@ -125,7 +125,7 @@ test("refetches a completed empty result when the same source interval grows", a
 
 	manager.setSources([source]);
 	assert.equal(manager.isFullyCompleted(), false);
-	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
 	const comments = await manager.fetchWithLimit(1800);
 	assert.equal(fetchCount, 2);
 	assert.equal(comments[0]?.content, "更新後のコメント");
@@ -192,6 +192,39 @@ test("discards an in-flight result after the same source interval changes", asyn
 	assert.equal(comments[0]?.content, "正しい区間のコメント");
 	assert.deepEqual(manager.getAllComments(), comments);
 	assert.equal(manager.isFullyCompleted(), true);
+});
+
+test("keeps a new initial fetch pending when an in-flight source is replaced", async (t) => {
+	const originalFetch = globalThis.fetch;
+	let finishOldRequest: ((response: Response) => void) | undefined;
+	let fetchCount = 0;
+	globalThis.fetch = async () => {
+		fetchCount += 1;
+		if (fetchCount === 1) {
+			return new Promise<Response>((resolve) => {
+				finishOldRequest = resolve;
+			});
+		}
+		return commentResponse("新しい区間のコメント");
+	};
+	t.after(() => {
+		globalThis.fetch = originalFetch;
+	});
+
+	const source = createSource();
+	const manager = new KakologManager();
+	manager.setSources([{ ...source, endAt: source.startAt + 5 }]);
+	const oldFetch = manager.fetchWithLimit(5);
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
+	manager.setSources([source]);
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	assert.ok(finishOldRequest);
+	finishOldRequest(commentResponse("古い区間のコメント"));
+	assert.deepEqual(await oldFetch, []);
+	assert.equal(manager.hasPendingInitialSourceFetch(), true);
+	const comments = await manager.fetchWithLimit(1800);
+	assert.equal(comments[0]?.content, "新しい区間のコメント");
+	assert.equal(manager.hasPendingInitialSourceFetch(), false);
 });
 
 test("retries a recording that is too recent for the kakolog API", async (t) => {

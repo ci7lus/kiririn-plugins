@@ -241,7 +241,7 @@ export class KakologManager {
 			niconicoFetchedEnds: new Map<number, number>(),
 			miyouFetchedEnds: new Map<number, number>(),
 			deferredOffsets: new Map<number, number>(),
-			needsInitialFetch: false,
+			needsInitialFetch: true,
 			completed: false,
 			interrupted: false,
 			ignoreLimit: false,
@@ -831,6 +831,7 @@ export class KakologManager {
 		for (const state of statesToProcess) {
 			if (revision !== this.fetchRevision) break;
 			if (state.completed) continue;
+			state.needsInitialFetch = false;
 
 			const orderedOffsets = this.getOrderedOffsets(
 				state,

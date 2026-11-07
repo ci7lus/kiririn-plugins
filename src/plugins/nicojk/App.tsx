@@ -2011,6 +2011,8 @@ export default function App() {
 					!data.isResolvingSources
 				) {
 					if (effectiveIsSeekable) {
+						// 旧条件での取得も無効化し、再解決中に新しい取得を開始できるようにする。
+						kakologManagersRef.current.get(p.playerID)?.clearCache();
 						resetRecordedCommentsState(data);
 					}
 					data.isResolvingSources = true;
