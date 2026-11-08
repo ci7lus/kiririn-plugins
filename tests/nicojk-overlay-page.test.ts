@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	getLiveCommentVpos,
+	LiveCommentVposClock,
 	type NiconicoComment,
 } from "../src/plugins/nicojk/comment-client";
 import { getLiveRendererSeedComments } from "../src/plugins/nicojk/components/OverlayPage";
@@ -44,27 +44,67 @@ test("live renderer preserves a visible long comment across a rebuild", () => {
 	);
 });
 
-test("live renderer skips comments delivered long after they were posted", () => {
-	const postedAt = 1_700_000_000;
-	const receivedAt = (postedAt + 3_600) * 1_000;
-	assert.deepEqual(
+function drawableAfterDelivery(
+	clock: LiveCommentVposClock,
+	receivedAt: number,
+	postedAt: number,
+) {
+	return (
 		getLiveRendererSeedComments(
-			[comment(getLiveCommentVpos(receivedAt, postedAt, 0))],
+			[comment(clock.getVpos(receivedAt, postedAt, 0))],
 			Math.floor(receivedAt / 10),
+		).length === 1
+	);
+}
+
+const SERVER_NOW = 1_700_000_000;
+
+for (const [label, skewSeconds] of [
+	["matches the server", 0],
+	["runs an hour ahead of the server", 3_600],
+	["runs an hour behind the server", -3_600],
+] as const) {
+	test(`live renderer draws fresh comments and skips backlog when the local clock ${label}`, () => {
+		const clock = new LiveCommentVposClock();
+		const toLocalMs = (serverSeconds: number) =>
+			(serverSeconds + skewSeconds) * 1_000;
+
+		assert.equal(
+			drawableAfterDelivery(clock, toLocalMs(SERVER_NOW), SERVER_NOW),
+			true,
+			"fresh comment before sleep",
+		);
+		const wokeAt = SERVER_NOW + 7_200;
+		assert.equal(
+			drawableAfterDelivery(clock, toLocalMs(wokeAt), SERVER_NOW + 60),
+			false,
+			"comment posted during sleep",
+		);
+		assert.equal(
+			drawableAfterDelivery(clock, toLocalMs(wokeAt), wokeAt - 5),
+			true,
+			"fresh comment after waking",
+		);
+	});
+}
+
+test("live renderer draws the first comment of a session without a delay baseline", () => {
+	assert.equal(
+		drawableAfterDelivery(
+			new LiveCommentVposClock(),
+			(SERVER_NOW + 60) * 1_000,
+			SERVER_NOW,
 		),
-		[],
+		true,
 	);
 });
 
-test("live renderer draws comments delivered shortly after they were posted", () => {
-	const postedAt = 1_700_000_000;
-	const receivedAt = (postedAt + 5) * 1_000;
-	const vpos = getLiveCommentVpos(receivedAt, postedAt, 0);
-	assert.deepEqual(
-		getLiveRendererSeedComments(
-			[comment(vpos)],
-			Math.floor(receivedAt / 10),
-		).map((item) => item.vpos),
-		[vpos],
+test("live vpos falls back to receive time when the post time is missing", () => {
+	const clock = new LiveCommentVposClock();
+	const receivedAt = SERVER_NOW * 1_000;
+	assert.equal(
+		clock.getVpos(receivedAt, Number.NaN, 0),
+		Math.floor(receivedAt / 10) + 200,
 	);
+	assert.equal(drawableAfterDelivery(clock, receivedAt, SERVER_NOW), true);
 });

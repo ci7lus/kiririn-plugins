@@ -1,4 +1,4 @@
-import { getLiveCommentVpos, type NiconicoComment } from "./comment-client";
+import { LiveCommentVposClock, type NiconicoComment } from "./comment-client";
 import type {
 	ConnectionStatus,
 	LiveCommentClient,
@@ -203,6 +203,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		{ generation: number; task: Promise<void> }
 	>();
 	private seenSegmentUris = new Set<string>();
+	private vposClock = new LiveCommentVposClock();
 
 	constructor(options: NiconicoCommentClientOptions = {}) {
 		this.retryPolicy = { ...DEFAULT_NDGR_RETRY_POLICY, ...options.retry };
@@ -324,6 +325,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		}
 		while (this.isCurrent(generation) && !signal.aborted) {
 			this.seenSegmentUris.clear();
+			this.vposClock = new LiveCommentVposClock();
 			const sessionController = new AbortController();
 			const abortSession = () => sessionController.abort();
 			signal.addEventListener("abort", abortSession, { once: true });
@@ -696,7 +698,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		return {
 			id: chat.no,
 			no: chat.no,
-			vpos: getLiveCommentVpos(Date.now(), date, dateUsec),
+			vpos: this.vposClock.getVpos(Date.now(), date, dateUsec),
 			content: chat.content,
 			date,
 			date_usec: dateUsec,

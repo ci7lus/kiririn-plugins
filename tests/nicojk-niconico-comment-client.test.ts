@@ -3,7 +3,7 @@ import test from "node:test";
 
 import protobuf from "@n-air-app/nicolive-comment-protobuf";
 import {
-	getLiveCommentVpos,
+	LiveCommentVposClock,
 	type NiconicoComment,
 } from "../src/plugins/nicojk/comment-client";
 import { LengthDelimitedReader } from "../src/plugins/nicojk/ndgr-protobuf";
@@ -180,7 +180,11 @@ test("anchors live comments to receive time while preserving their timestamp", (
 	const receivedAt = 1_700_000_123_450;
 	const dateUsec = 456_000;
 	assert.equal(
-		getLiveCommentVpos(receivedAt, Math.floor(receivedAt / 1_000), dateUsec),
+		new LiveCommentVposClock().getVpos(
+			receivedAt,
+			Math.floor(receivedAt / 1_000),
+			dateUsec,
+		),
 		Math.floor(receivedAt / 10) +
 			200 +
 			Math.floor((dateUsec % 100_000) / 2_000),

@@ -23,25 +23,27 @@ export interface NiconicoComment {
 	isDuplicate?: boolean;
 }
 
-// Larger than plausible clock skew; later deliveries are backlog, e.g. after sleep.
 const LIVE_COMMENT_STALE_MS = 30_000;
 
 /**
- * Anchors live comments to receive time so local/server clock skew cannot hide
- * them, but keeps backlog at its post time so the renderer does not replay it.
+ * Anchors live comments to receive time, but keeps backlog (e.g. after sleep)
+ * in the past so the renderer does not replay it. Backlog is judged against the
+ * smallest delay seen so far because that delay includes local/server clock skew.
  */
-export function getLiveCommentVpos(
-	receivedAtMs: number,
-	date: number,
-	dateUsec: number,
-) {
-	const postedAtMs = date * 1_000 + dateUsec / 1_000;
-	const anchorMs =
-		receivedAtMs - postedAtMs > LIVE_COMMENT_STALE_MS
-			? postedAtMs
-			: receivedAtMs;
-	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
-	return Math.floor(anchorMs / 10) + 200 + jitter;
+export class LiveCommentVposClock {
+	private baselineDelayMs = Number.POSITIVE_INFINITY;
+
+	getVpos(receivedAtMs: number, date: number, dateUsec: number) {
+		const postedAtMs = date * 1_000 + dateUsec / 1_000;
+		const delayMs = receivedAtMs - postedAtMs;
+		if (delayMs < this.baselineDelayMs) this.baselineDelayMs = delayMs;
+		const anchorMs =
+			delayMs - this.baselineDelayMs > LIVE_COMMENT_STALE_MS
+				? postedAtMs + this.baselineDelayMs
+				: receivedAtMs;
+		const jitter = Math.floor((dateUsec % 100_000) / 2_000);
+		return Math.floor(anchorMs / 10) + 200 + jitter;
+	}
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;
@@ -68,6 +70,7 @@ export class CommentClient implements LiveCommentClient {
 	private keepSeatInterval: ReturnType<typeof setInterval> | null = null;
 	private status: ConnectionStatus = "disconnected";
 	private commentCounter = 0;
+	private vposClock = new LiveCommentVposClock();
 
 	public getMode(): "live" | "disconnected" {
 		return this.jkId ? "live" : "disconnected";
@@ -106,6 +109,7 @@ export class CommentClient implements LiveCommentClient {
 		this.disconnect();
 		this.jkId = jkId;
 		this.sourceKey = sourceKey;
+		this.vposClock = new LiveCommentVposClock();
 		this.updateStatus("connecting");
 
 		this.setupBC(sourceKey);
@@ -263,7 +267,11 @@ export class CommentClient implements LiveCommentClient {
 				const data = JSON.parse(event.data);
 				if (data.chat) {
 					const c = data.chat;
-					const vpos = getLiveCommentVpos(Date.now(), c.date, c.date_usec || 0);
+					const vpos = this.vposClock.getVpos(
+						Date.now(),
+						c.date,
+						c.date_usec || 0,
+					);
 
 					const comment: NiconicoComment = {
 						id: c.no || Date.now() * 1000 + (this.commentCounter++ % 1000),
