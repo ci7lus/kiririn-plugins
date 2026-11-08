@@ -23,14 +23,25 @@ export interface NiconicoComment {
 	isDuplicate?: boolean;
 }
 
-/** Anchors live comments to receive time so local/server clock skew cannot hide them. */
+// Larger than plausible clock skew; later deliveries are backlog, e.g. after sleep.
+const LIVE_COMMENT_STALE_MS = 30_000;
+
+/**
+ * Anchors live comments to receive time so local/server clock skew cannot hide
+ * them, but keeps backlog at its post time so the renderer does not replay it.
+ */
 export function getLiveCommentVpos(
 	receivedAtMs: number,
-	_date: number,
+	date: number,
 	dateUsec: number,
 ) {
+	const postedAtMs = date * 1_000 + dateUsec / 1_000;
+	const anchorMs =
+		receivedAtMs - postedAtMs > LIVE_COMMENT_STALE_MS
+			? postedAtMs
+			: receivedAtMs;
 	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
-	return Math.floor(receivedAtMs / 10) + 200 + jitter;
+	return Math.floor(anchorMs / 10) + 200 + jitter;
 }
 
 type CommentCallback = (comment: NiconicoComment) => void;
