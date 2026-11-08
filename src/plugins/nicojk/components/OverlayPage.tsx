@@ -521,8 +521,12 @@ export default function OverlayPage({
 			return;
 		}
 
+		const drawableComments = getLiveRendererSeedComments(
+			pendingComments,
+			Math.floor(Date.now() / 10),
+		);
 		if (
-			liveRendererCommentCountRef.current + pendingComments.length >
+			liveRendererCommentCountRef.current + drawableComments.length >
 			MAX_LIVE_RENDERER_COMMENTS
 		) {
 			setLiveRendererRevision((revision) => revision + 1);
@@ -530,7 +534,7 @@ export default function OverlayPage({
 		}
 
 		const currentSettings = getSettings();
-		const parsedComments = sortComments(pendingComments)
+		const parsedComments = sortComments(drawableComments)
 			.map((comment) =>
 				toFormattedComment(
 					comment,

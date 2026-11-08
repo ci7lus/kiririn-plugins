@@ -241,7 +241,7 @@ export class KakologManager {
 			niconicoFetchedEnds: new Map<number, number>(),
 			miyouFetchedEnds: new Map<number, number>(),
 			deferredOffsets: new Map<number, number>(),
-			needsInitialFetch: false,
+			needsInitialFetch: true,
 			completed: false,
 			interrupted: false,
 			ignoreLimit: false,
@@ -657,7 +657,7 @@ export class KakologManager {
 		return false;
 	}
 
-	/** シーク位置基準で「次の未取得チャンク」が1分以内に迫ったら true */
+	/** 再生位置が未取得チャンク内、またはその開始1分前に到達したら true */
 	public shouldAutoResume(playerTime: number): boolean {
 		if (this.isFetching) return false;
 		const hasInterrupted = this.sourceStates.some(
@@ -671,7 +671,7 @@ export class KakologManager {
 			for (const offset of state.applicableOffsets) {
 				if (state.fetchedOffsets.has(offset)) continue;
 				if (this.isDeferredOffsetWaiting(state, offset)) continue;
-				if (offset < playerTime) continue;
+				if (offset + KAKOLOG_CHUNK_SIZE <= playerTime) continue;
 				if (nextUnfetched == null || offset < nextUnfetched) {
 					nextUnfetched = offset;
 				}
@@ -831,6 +831,7 @@ export class KakologManager {
 		for (const state of statesToProcess) {
 			if (revision !== this.fetchRevision) break;
 			if (state.completed) continue;
+			state.needsInitialFetch = false;
 
 			const orderedOffsets = this.getOrderedOffsets(
 				state,

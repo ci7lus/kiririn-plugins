@@ -1,4 +1,4 @@
-import type { NiconicoComment } from "./comment-client";
+import { LiveCommentVposClock, type NiconicoComment } from "./comment-client";
 import type {
 	ConnectionStatus,
 	LiveCommentClient,
@@ -68,12 +68,6 @@ const OPACITY_MAIL_VALUES: Record<string, string> = {
 	Normal: "nico:opacity:1",
 	Translucent: "nico:opacity:0.5",
 };
-
-export function getNiconicoLiveVpos(receivedAtMs: number, dateUsec: number) {
-	const baseVpos = Math.floor(receivedAtMs / 10);
-	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
-	return baseVpos + 200 + jitter;
-}
 
 export function getNdgrRetryDelayMs(
 	retryNumber: number,
@@ -209,6 +203,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		{ generation: number; task: Promise<void> }
 	>();
 	private seenSegmentUris = new Set<string>();
+	private vposClock = new LiveCommentVposClock();
 
 	constructor(options: NiconicoCommentClientOptions = {}) {
 		this.retryPolicy = { ...DEFAULT_NDGR_RETRY_POLICY, ...options.retry };
@@ -330,6 +325,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		}
 		while (this.isCurrent(generation) && !signal.aborted) {
 			this.seenSegmentUris.clear();
+			this.vposClock = new LiveCommentVposClock();
 			const sessionController = new AbortController();
 			const abortSession = () => sessionController.abort();
 			signal.addEventListener("abort", abortSession, { once: true });
@@ -702,7 +698,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		return {
 			id: chat.no,
 			no: chat.no,
-			vpos: getNiconicoLiveVpos(Date.now(), dateUsec),
+			vpos: this.vposClock.getVpos(Date.now(), date, dateUsec),
 			content: chat.content,
 			date,
 			date_usec: dateUsec,
