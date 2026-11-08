@@ -23,6 +23,16 @@ export interface NiconicoComment {
 	isDuplicate?: boolean;
 }
 
+/** Anchors live comments to receive time so local/server clock skew cannot hide them. */
+export function getLiveCommentVpos(
+	receivedAtMs: number,
+	_date: number,
+	dateUsec: number,
+) {
+	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
+	return Math.floor(receivedAtMs / 10) + 200 + jitter;
+}
+
 type CommentCallback = (comment: NiconicoComment) => void;
 type StatusCallback = (status: ConnectionStatus) => void;
 
@@ -242,9 +252,7 @@ export class CommentClient implements LiveCommentClient {
 				const data = JSON.parse(event.data);
 				if (data.chat) {
 					const c = data.chat;
-					const baseVpos = Math.floor(Date.now() / 10);
-					const jitter = Math.floor((c.date_usec % 100000) / 2000);
-					const vpos = baseVpos + 200 + jitter;
+					const vpos = getLiveCommentVpos(Date.now(), c.date, c.date_usec || 0);
 
 					const comment: NiconicoComment = {
 						id: c.no || Date.now() * 1000 + (this.commentCounter++ % 1000),

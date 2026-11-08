@@ -1,4 +1,4 @@
-import type { NiconicoComment } from "./comment-client";
+import { getLiveCommentVpos, type NiconicoComment } from "./comment-client";
 import type {
 	ConnectionStatus,
 	LiveCommentClient,
@@ -68,12 +68,6 @@ const OPACITY_MAIL_VALUES: Record<string, string> = {
 	Normal: "nico:opacity:1",
 	Translucent: "nico:opacity:0.5",
 };
-
-export function getNiconicoLiveVpos(receivedAtMs: number, dateUsec: number) {
-	const baseVpos = Math.floor(receivedAtMs / 10);
-	const jitter = Math.floor((dateUsec % 100_000) / 2_000);
-	return baseVpos + 200 + jitter;
-}
 
 export function getNdgrRetryDelayMs(
 	retryNumber: number,
@@ -702,7 +696,7 @@ export class NiconicoCommentClient implements LiveCommentClient {
 		return {
 			id: chat.no,
 			no: chat.no,
-			vpos: getNiconicoLiveVpos(Date.now(), dateUsec),
+			vpos: getLiveCommentVpos(Date.now(), date, dateUsec),
 			content: chat.content,
 			date,
 			date_usec: dateUsec,

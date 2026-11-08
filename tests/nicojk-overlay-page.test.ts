@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { NiconicoComment } from "../src/plugins/nicojk/comment-client";
+import {
+	getLiveCommentVpos,
+	type NiconicoComment,
+} from "../src/plugins/nicojk/comment-client";
 import { getLiveRendererSeedComments } from "../src/plugins/nicojk/components/OverlayPage";
 
 function comment(vpos: number, mail: string[] = []): NiconicoComment {
@@ -38,5 +41,30 @@ test("live renderer preserves a visible long comment across a rebuild", () => {
 			nowVpos,
 		).map((item) => item.id),
 		[nowVpos - 1_300],
+	);
+});
+
+test("live renderer skips comments delivered long after they were posted", () => {
+	const postedAt = 1_700_000_000;
+	const receivedAt = (postedAt + 3_600) * 1_000;
+	assert.deepEqual(
+		getLiveRendererSeedComments(
+			[comment(getLiveCommentVpos(receivedAt, postedAt, 0))],
+			Math.floor(receivedAt / 10),
+		),
+		[],
+	);
+});
+
+test("live renderer draws comments delivered shortly after they were posted", () => {
+	const postedAt = 1_700_000_000;
+	const receivedAt = (postedAt + 5) * 1_000;
+	const vpos = getLiveCommentVpos(receivedAt, postedAt, 0);
+	assert.deepEqual(
+		getLiveRendererSeedComments(
+			[comment(vpos)],
+			Math.floor(receivedAt / 10),
+		).map((item) => item.vpos),
+		[vpos],
 	);
 });
