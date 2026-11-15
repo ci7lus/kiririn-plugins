@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import {
 	buildPrimarySource,
 	createLiveCommentClient,
@@ -11,6 +10,7 @@ import { CommentClient } from "../src/plugins/nicojk/comment-client";
 import type { NicoJKChannelDefinition } from "../src/plugins/nicojk/definitions";
 import { NiconicoCommentClient } from "../src/plugins/nicojk/niconico-comment-client";
 import type { ResolvedCommentSource } from "../src/plugins/nicojk/source-resolver";
+import type { Playable } from "../src/vendor/Plugin";
 
 function source(key: string): ResolvedCommentSource {
 	return {
@@ -22,6 +22,105 @@ function source(key: string): ResolvedCommentSource {
 		endAt: 2,
 	};
 }
+
+const PLAYABLE: Playable = {
+	playerID: "player-1",
+	id: "playable-1",
+	title: "Test Program",
+	subtitle: "Episode 1",
+	isSeekable: true,
+	initialNetworkTime: 1_700_000_000,
+	length: 3600,
+	service: {
+		name: "Test Channel",
+		serviceId: 101,
+		networkId: 1,
+		type: { value: 1, description: "TV" },
+	},
+	program: {
+		eventId: 1,
+		name: "Test Program",
+		description: "",
+		startAt: 1_700_000_000,
+		endAt: 1_700_001_800,
+		duration: 1800,
+		extended: [],
+		genres: [],
+	},
+};
+
+test("program metadata updates preserve sources when playback timing is unchanged", () => {
+	assert.ok(PLAYABLE.program);
+	const updates: Partial<Playable>[] = [
+		{ title: "Next Program" },
+		{ subtitle: "Episode 2" },
+		{ program: { ...PLAYABLE.program, eventId: 2 } },
+		{ program: { ...PLAYABLE.program, name: "Next Program" } },
+		{
+			program: {
+				...PLAYABLE.program,
+				startAt: 1_700_001_800,
+				endAt: 1_700_005_400,
+				duration: 3600,
+			},
+		},
+		{ program: undefined },
+	];
+	for (const isRecorded of [true, false]) {
+		const playable = { ...PLAYABLE, isSeekable: isRecorded };
+		const key = getCommentSourceResolutionKey(playable, isRecorded, "jk1");
+		for (const update of updates) {
+			assert.equal(
+				getCommentSourceResolutionKey(
+					{ ...playable, ...update },
+					isRecorded,
+					"jk1",
+				),
+				key,
+				JSON.stringify(update),
+			);
+		}
+	}
+});
+
+test("source resolution still changes for service and content changes", () => {
+	assert.ok(PLAYABLE.service);
+	const key = getCommentSourceResolutionKey(PLAYABLE, true, "jk1");
+	for (const update of [
+		{ id: "playable-2" },
+		{ initialNetworkTime: 1_700_000_900 },
+		{ length: 7200 },
+		{ service: { ...PLAYABLE.service, serviceId: 102 } },
+		{ service: { ...PLAYABLE.service, networkId: 2 } },
+	]) {
+		assert.notEqual(
+			getCommentSourceResolutionKey({ ...PLAYABLE, ...update }, true, "jk1"),
+			key,
+		);
+	}
+	assert.notEqual(getCommentSourceResolutionKey(PLAYABLE, false, "jk1"), key);
+	assert.notEqual(getCommentSourceResolutionKey(PLAYABLE, true, "jk2"), key);
+});
+
+test("program timing remains a fallback when recording timing is unavailable", () => {
+	assert.ok(PLAYABLE.program);
+	const playable = {
+		...PLAYABLE,
+		initialNetworkTime: undefined,
+		length: undefined,
+	};
+	const key = getCommentSourceResolutionKey(playable, true, "jk1");
+	for (const timing of [{ startAt: 1_700_001_800 }, { duration: 3600 }]) {
+		assert.notEqual(
+			getCommentSourceResolutionKey(
+				{ ...playable, program: { ...PLAYABLE.program, ...timing } },
+				true,
+				"jk1",
+			),
+			key,
+		);
+	}
+});
 
 test("recorded sources are resolved again when recording timing arrives", () => {
 	const playable = {

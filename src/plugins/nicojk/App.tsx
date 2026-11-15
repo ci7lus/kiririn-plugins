@@ -125,22 +125,14 @@ function getProgramStartAt(playable: Playable) {
 	return playable.program?.startAt || playable.initialNetworkTime || 0;
 }
 
-function getProgramResolutionSignature(playable: Playable) {
-	return [
-		playable.program?.eventId || "",
-		playable.program?.name || "",
-		playable.title || "",
-		playable.subtitle || "",
-	].join(":");
-}
-
 export function getCommentSourceResolutionKey(
 	playable: Playable,
 	isRecorded: boolean,
 	jkId: string,
 ) {
 	const { startAt, duration } = getBaseTiming(playable);
-	return `${playable.id}:${isRecorded ? "recorded" : "live"}:${startAt}:${duration}:${getProgramStartAt(playable)}:${jkId}:${getProgramResolutionSignature(playable)}`;
+	// 番組情報だけの更新では取得済みコメントを破棄せず、再生範囲とサービスで判定する。
+	return `${playable.id}:${isRecorded ? "recorded" : "live"}:${startAt}:${duration}:${playable.service?.serviceId || 0}:${playable.service?.networkId || 0}:${jkId}`;
 }
 
 export function buildPrimarySource(
